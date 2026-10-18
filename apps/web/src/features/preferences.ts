@@ -17,7 +17,7 @@ export interface ProviderPreference { endpoint_profile_id?: string | null; effor
  * `appearance`, `terminal_appearance`: `light` or `dark`; absent follows the
  * system and the interface (theme.ts).
  */
-export type Preferences = Record<AgentProviderKind, ProviderPreference> & { agent_tools?: boolean; resource_monitoring?: boolean; appearance?: string; terminal_appearance?: string };
+export type Preferences = Record<AgentProviderKind, ProviderPreference> & { hidden_account_quotas?: string[]; agent_tools?: boolean; resource_monitoring?: boolean; appearance?: string; terminal_appearance?: string };
 export type PreferenceProvider = AgentProviderKind;
 
 /** The one copy the page reads; loaded once and replaced on save. */

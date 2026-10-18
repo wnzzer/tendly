@@ -7,6 +7,7 @@ import { createSSRApp } from 'vue';
 import { renderToString } from 'vue/server-renderer';
 import { TAB_ICON_PALETTE } from './tab-icons.ts';
 import { iconColor, providerColor } from './icon-palette.ts';
+import { DEFAULT_CLIENT } from './clients.ts';
 
 let server, TabIcon, LayoutNode, Canvas, Icon, ProviderIcon;
 before(async () => {
@@ -83,7 +84,7 @@ test('file, preview and terminal tabs plus add menus use colored native SVG inst
   ['text', 'image', 'video', 'terminal'].forEach((type, index) => assertColor(rendered[index], type));
   const menu = html.match(/<div class="dock-menu-items"[^>]*>[\s\S]*?<\/div>/)?.[0];
   // New sessions are one row (the kind made last) with the rest in its submenu, which renders on hover.
-  assert.ok(menu);['agent', 'git', 'text', 'image'].forEach(type => assertColor(menu, type));
+  assert.ok(menu);[DEFAULT_CLIENT, 'git', 'text', 'image'].forEach(type => assertColor(menu, type));
   assert.ok(menu.includes('aria-haspopup="menu"'), 'the new-session row offers every kind beside it');
   assert.ok(!html.includes('>±</span>'));assert.ok(!html.includes('>◈</span>'));assert.ok(!html.includes('>▧</span>'));
 });

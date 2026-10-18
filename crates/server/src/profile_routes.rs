@@ -36,7 +36,13 @@ pub(super) async fn discover_models(
     State(state): State<AppState>,
     Json(input): Json<CreateProfile>,
 ) -> Result<Json<model_catalog::ModelCatalog>> {
-    let p = EndpointProfile {
+    model_catalog::discover(&state, &draft_profile(input))
+        .await
+        .map(Json)
+}
+
+fn draft_profile(input: CreateProfile) -> EndpointProfile {
+    EndpointProfile {
         id: Uuid::new_v4(),
         name: if input.name.trim().is_empty() {
             "Model discovery".into()
@@ -56,8 +62,16 @@ pub(super) async fn discover_models(
         native_config: None,
         environment: input.environment,
         created_at: chrono::Utc::now(),
-    };
-    model_catalog::discover(&state, &p).await.map(Json)
+    }
+}
+
+pub(super) async fn check_protocols(
+    State(state): State<AppState>,
+    Json(input): Json<CreateProfile>,
+) -> Result<Json<Vec<model_catalog::ProtocolCheck>>> {
+    model_catalog::check_protocols(&state, &draft_profile(input))
+        .await
+        .map(Json)
 }
 
 /// Models a stored profile can run.
@@ -248,6 +262,10 @@ pub(super) fn routes() -> Router<AppState> {
         .route(
             "/api/host/native-configurations",
             get(native_configuration_sources),
+        )
+        .route(
+            "/api/endpoint-profiles/check-protocols",
+            post(check_protocols),
         )
         .route(
             "/api/endpoint-profiles/discover-models",

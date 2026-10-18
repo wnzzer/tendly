@@ -17,6 +17,23 @@ before(async () => {
   drafts = (await server.ssrLoadModule('/src/features/chat-model.ts')).chatDrafts;
 });
 after(async () => { await server?.close(); });
+
+test('official quota badge can be hidden per account without hiding custom endpoint balances', async () => {
+  const Badge = (await server.ssrLoadModule('/src/features/BalanceBadge.vue')).default;
+  const { accountQuotas, balances } = await server.ssrLoadModule('/src/features/balance-store.ts');
+  const { preferences } = await server.ssrLoadModule('/src/features/preferences.ts');
+  accountQuotas.byProfile.quota = { id: 'account', status: 'signed_in', limits: { primary: { used_percent: 20 } } };
+  const old = preferences.value;
+  try {
+    preferences.value = { ...old, hidden_account_quotas: [] };
+    const visible = await render(Badge, { profileId: 'quota' });
+    assert.ok(visible.includes('balance-badge'));
+    preferences.value = { ...old, hidden_account_quotas: ['account'] };
+    assert.ok(!(await render(Badge, { profileId: 'quota' })).includes('balance-badge'));
+    balances.rows.push({ id: 'quota', reading: { value: '12', unit: { kind: 'money', currency: 'USD' }, checked_at: new Date().toISOString() } });
+    assert.ok((await render(Badge, { profileId: 'quota' })).includes('balance-badge'));
+  } finally { preferences.value = old; delete accountQuotas.byProfile.quota; balances.rows = balances.rows.filter(row => row.id !== 'quota'); }
+});
 const fixture = (changes = {}) => ({ id: 'render-fixture', workspace_id: 'workspace-fixture', provider: 'codex', title: 'Fixture session', status: 'stopped', created_at: '2026-09-09T00:00:00Z', updated_at: '2026-09-09T00:00:00Z', endpoint_profile_id: null, provider_session_id: null, error: null, interaction_mode: 'structured', ...changes });
 async function render(component, props = {}) { const context = {}; const html = await renderToString(createSSRApp(component, props), context); return html + (context.teleports?.body ?? ''); }
 function enable() { capabilities.setBackendCapabilities({ ok: true, api_version: 2, capabilities: ['structured_chat', 'official_accounts', 'session_configuration'] }); i18n.useI18n().setLocale('en'); }

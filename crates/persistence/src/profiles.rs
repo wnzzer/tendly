@@ -26,7 +26,45 @@ impl Store {
     pub fn create_endpoint_profile(&self, p: &EndpointProfile) -> Result<()> {
         validate_native_profile(p)?;
         let aliases = serde_json::to_string(&p.model_aliases).map_err(conversion_error)?;
-        self.connection.lock().expect("sqlite lock").execute("INSERT INTO endpoint_profiles (id,name,provider,endpoint_url,model,permission_mode,secret_ref,created_at,proxy_url,model_aliases,native_source_id,native_config_dir,native_config_env,environment,effort,models,api) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",params![p.id.to_string(),p.name,provider_name(&p.provider),p.endpoint_url,p.model,p.permission_mode,p.secret_ref,p.created_at.to_rfc3339(),p.proxy_url,aliases,p.native_config.as_ref().map(|native| &native.source_id),p.native_config.as_ref().map(|native| &native.config_dir),p.native_config.as_ref().and_then(|native| native.config_env.as_deref()),serde_json::to_string(&p.environment).map_err(conversion_error)?,p.effort,serde_json::to_string(&p.models).map_err(conversion_error)?,p.api])?;
+        let mut conn = self.connection.lock().expect("sqlite lock");
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let first_custom = p.native_config.is_none() && !tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM endpoint_profiles WHERE provider=?1 AND native_source_id IS NULL)",
+            [provider_name(&p.provider)], |row| row.get::<_, bool>(0),
+        )?;
+        tx.execute("INSERT INTO endpoint_profiles (id,name,provider,endpoint_url,model,permission_mode,secret_ref,created_at,proxy_url,model_aliases,native_source_id,native_config_dir,native_config_env,environment,effort,models,api) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",params![p.id.to_string(),p.name,provider_name(&p.provider),p.endpoint_url,p.model,p.permission_mode,p.secret_ref,p.created_at.to_rfc3339(),p.proxy_url,aliases,p.native_config.as_ref().map(|native| &native.source_id),p.native_config.as_ref().map(|native| &native.config_dir),p.native_config.as_ref().and_then(|native| native.config_env.as_deref()),serde_json::to_string(&p.environment).map_err(conversion_error)?,p.effort,serde_json::to_string(&p.models).map_err(conversion_error)?,p.api])?;
+        if first_custom {
+            let stored: Option<String> = tx
+                .query_row("SELECT value FROM preferences WHERE id=1", [], |row| {
+                    row.get(0)
+                })
+                .optional()?;
+            let mut preferences: serde_json::Value = stored
+                .as_deref()
+                .map(serde_json::from_str)
+                .transpose()
+                .map_err(conversion_error)?
+                .unwrap_or_else(|| serde_json::json!({}));
+            let provider = provider_name(&p.provider);
+            if preferences
+                .get(provider)
+                .and_then(|entry| entry.get("endpoint_profile_id"))
+                .is_none_or(serde_json::Value::is_null)
+            {
+                if preferences
+                    .get(provider)
+                    .is_none_or(serde_json::Value::is_null)
+                {
+                    preferences[provider] = serde_json::json!({});
+                }
+                preferences[provider]["endpoint_profile_id"] = serde_json::json!(p.id);
+                tx.execute(
+                    "INSERT INTO preferences(id,value,updated_at) VALUES (1,?1,?2) ON CONFLICT(id) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
+                    params![preferences.to_string(), chrono::Utc::now().to_rfc3339()],
+                )?;
+            }
+        }
+        tx.commit()?;
         Ok(())
     }
 

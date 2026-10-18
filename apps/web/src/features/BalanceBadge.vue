@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { accountQuota, accountResetDate, quotaShortTitle, quotaWindowTitle } from './account-ui';
 import { balanceIsStale, balanceLabel, balanceLevel, balanceShort, type BalanceReading } from './balance-model';
 import { accountFor, balanceFor, balances } from './balance-store';
+import { preferences } from './preferences';
 import { useI18n } from '../i18n';
 
 /**
@@ -19,7 +20,7 @@ onMounted(() => { timer = setInterval(() => { now.value = Date.now(); }, 30_000)
 onBeforeUnmount(() => clearInterval(timer));
 
 const row = computed(() => balanceFor(props.profileId));
-const quota = computed(() => { const account = row.value ? undefined : accountFor(props.profileId); return account ? accountQuota(account, now.value) : undefined; });
+const quota = computed(() => { const account = row.value ? undefined : accountFor(props.profileId); return account && !preferences.value.hidden_account_quotas?.includes(account.id) ? accountQuota(account, now.value) : undefined; });
 /** An allowance reads like a remaining-percentage balance, so both share one look and the same thresholds. */
 const reading = computed<BalanceReading | null>(() => row.value?.reading
   ?? (quota.value ? { value: String(quota.value.remaining), unit: { kind: 'percentage' }, checked_at: '' } : null));

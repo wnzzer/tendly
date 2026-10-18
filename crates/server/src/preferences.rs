@@ -34,6 +34,9 @@ pub struct Preferences {
     /// turned off: `None` is the default, not a choice to disable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_tools: Option<bool>,
+    /// Official account IDs whose endpoint quota badge the user has hidden.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hidden_account_quotas: Vec<Uuid>,
     /// Whether the host's resources are read at all (resources.rs): the
     /// recorded history, the status bar figures and the system page. On
     /// unless turned off, like the agent tools.
@@ -52,6 +55,7 @@ impl Default for Preferences {
         Preferences {
             clients: BTreeMap::new(),
             agent_tools: None,
+            hidden_account_quotas: Vec::new(),
             resource_monitoring: None,
             appearance: None,
             terminal_appearance: None,

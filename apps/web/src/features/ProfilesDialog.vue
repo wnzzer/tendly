@@ -21,6 +21,7 @@ import ProviderIcon from "./ProviderIcon.vue";
 import ModelPicker from "./ModelPicker.vue";
 import ContextMenu from "./ContextMenu.vue";
 import ProfileCopyDialog from "./ProfileCopyDialog.vue";
+import { loadPreferences, preferenceFor } from "./preferences";
 import { showToast } from "./toasts";
 import { isStored, ownStoredSecret, referencedSecret, secretNameFor, secretStatus, type SecretName } from "./secret-names";
 import { profilePayload, profileSummary as describeProfile } from "./profile-form";
@@ -105,6 +106,25 @@ async function releaseSecret(reference: string | null | undefined, remaining: Ar
 }
 const deletingProfile = computed(() => props.profiles.find(p => p.id === deleteId.value) ?? (editingRecord.value?.id === deleteId.value ? editingRecord.value : undefined));
 const aliases = computed(() => { try { return { value: parseModelAliases(aliasesText.value), error: "" }; } catch (cause) { return { value: {} as Record<string,string>, error: errorMessage(cause) }; } });
+type ProtocolCheck = { protocol: string; status: 'supported' | 'unsupported' | 'unknown'; http_status: number | null };
+const protocolChecks = ref<ProtocolCheck[]>([]), checkingProtocols = ref(false), protocolError = ref("");
+let protocolRevision = 0;
+watch(() => [form.provider, form.endpoint_url, form.proxy_url, form.secret_ref, form.api, form.model, apiKey.value, aliasesText.value], () => {
+  protocolRevision++; protocolChecks.value = []; protocolError.value = "";
+});
+async function checkProtocols() {
+  if (checkingProtocols.value || !form.model.trim() || !secretValid.value || aliases.value.error) return;
+  checkingProtocols.value = true; protocolError.value = ""; protocolChecks.value = [];
+  try {
+    await storePastedKey(); await nextTick();
+    const revision = protocolRevision;
+    try {
+      const result = await request<ProtocolCheck[]>("/endpoint-profiles/check-protocols", json("POST", payload(false)));
+      if (revision === protocolRevision) protocolChecks.value = result;
+    } catch (cause) { if (revision === protocolRevision) protocolError.value = errorMessage(cause); }
+  } catch (cause) { protocolError.value = errorMessage(cause); }
+  finally { checkingProtocols.value = false; }
+}
 const resolved = computed(() => aliases.value.value[form.model] ?? form.model);
 const offered = computed(() => offeredModels(models.value?.models ?? [], chosenModels.value));
 const choices = computed(() => [...Object.entries(aliases.value.value).map(([id, actual]) => ({id,name:id + " → " + actual})), ...offered.value]);
@@ -112,7 +132,7 @@ const effortOptions = computed(() => modelEfforts(form.provider, resolved.value 
 const canSave = computed(() => !!form.name.trim() && !environmentError.value && contextValid.value && (!!editingNative.value || (secretValid.value && !aliases.value.error)));
 let discoveryRevision = 0;
 function resetDiscovery() { discoveryRevision++; models.value = undefined; modelError.value = ""; discovering.value = false; }
-watch(() => [form.provider, form.endpoint_url, form.proxy_url, form.secret_ref], resetDiscovery);
+watch(() => [form.provider, form.endpoint_url, form.proxy_url, form.secret_ref, form.api, apiKey.value], resetDiscovery);
 
 /**
  * Context windows, kept per model (server model_limits.rs) so every session
@@ -199,7 +219,7 @@ function edit(p?: EndpointProfile) {
   // A new profile starts on the default client, whose slots follow its main model.
   environmentDraft.value = p ? environmentRows(p.environment) : clientInfo(DEFAULT_CLIENT).modelSlots ? followingRows() : [];
   initialEnvironment.value = environmentDraft.value.map(row => ({ ...row }));
-  resetDiscovery();editingRecord.value=p;
+  resetDiscovery(); protocolRevision++; protocolChecks.value = []; protocolError.value = ""; editingRecord.value=p;
   editing.value=p?.id; formVisible.value=true; error.value=""; deleteId.value=undefined;
   Object.assign(form,{name:p?.name??"",provider:p?.provider??DEFAULT_CLIENT,endpoint_url:p?.endpoint_url??"",api:p?.api??"",model:p?.model??"",effort:p?.effort??"",permission_mode:p?.permission_mode??"native",secret_ref:p?.secret_ref??"",proxy_url:p?.proxy_url??""});
   apiKey.value = ""; chooseSecretMode(p?.secret_ref);
@@ -228,8 +248,9 @@ async function save() {
     await storePastedKey();
     await saveContextWindows();
     const saved=await request<EndpointProfile>("/endpoint-profiles"+(editing.value?"/"+encodeURIComponent(editing.value):""),json(editing.value?"PATCH":"POST",payload()));
+    await loadPreferences(true);
     if(previous!==saved.secret_ref)await releaseSecret(previous,[saved.secret_ref,...otherReferences.value]);
-    const message=editingNative.value?(backendCapabilities.environment?"Profile updated. Process environment overrides were saved without changing the native configuration.":"Profile name updated. The native configuration was not changed."):editing.value?"Profile updated. Existing session snapshots are unchanged.":"Profile created. Select it when creating a session.";
+    const message=editingNative.value?(backendCapabilities.environment?"Profile updated. Process environment overrides were saved without changing the native configuration.":"Profile name updated. The native configuration was not changed."):editing.value?"Profile updated. Existing session snapshots are unchanged.":preferenceFor(saved.provider)?.endpoint_profile_id === saved.id ? "Profile created and set as the default endpoint in Preferences." : "Profile created. Select it when creating a session.";
     // Stay on what was just saved; the toast says it took, wherever the form is scrolled.
     pendingNavigation.value=undefined;edit(saved);showToast(t(message));emit("changed",saved);
   }catch(cause){error.value=errorMessage(cause);}finally{busy.value=false;}
@@ -303,7 +324,7 @@ watch(() => [error.value, deleteId.value], ([message, id]) => { if (message || i
 // Open on something to read rather than on a blank page that asks for a click.
 if (props.profiles.length) edit(props.profiles[0]);
 void loadSecrets().then(() => chooseSecretMode(form.secret_ref));
-onBeforeUnmount(()=>{discoveryRevision++;});
+onBeforeUnmount(()=>{discoveryRevision++;protocolRevision++;});
 </script>
 
 <template>
@@ -361,6 +382,14 @@ onBeforeUnmount(()=>{discoveryRevision++;});
           <p v-if="models" class="form-help">{{ t('{count} models returned', {count:models.models.length}) }} · <span>{{ models.source_url }}</span><br v-if="models.has_more" /><span v-if="models.has_more">{{ t('The endpoint has more models; this is the first page.') }}</span></p>
           <ModelSelection v-if="!editingNative && (models?.models.length || chosenModels.length)" v-model:selected="chosenModels" :catalog="models?.models ?? []" :window-text="windowText" :placeholder="windowPlaceholder" @window="setWindow" @look="lookPublished" />
           <label>{{ t('Default model') }}<ModelPicker v-model="form.model" :models="choices" :placeholder="t('Choose a model or enter an ID')" /></label>
+          <div class="protocol-check">
+            <button type="button" class="small-button" :disabled="checkingProtocols || busy || !form.model.trim() || !secretValid || !!aliases.error" @click="checkProtocols">{{ t(checkingProtocols ? 'Checking protocols…' : 'Check model and protocol support') }}</button>
+            <p class="form-help">{{ t('Sends a tiny request for this model to each of Messages, Responses and Chat Completions. May use a small amount of credit.') }}</p>
+            <p class="form-help">{{ t('Claude Code requires Messages; Codex requires Responses; Pi uses the selected endpoint API.') }}</p>
+            <ul v-if="protocolChecks.length" aria-live="polite"><li v-for="check in protocolChecks" :key="check.protocol">{{ check.protocol }} · {{ t(check.status === 'supported' ? 'Supported' : check.status === 'unsupported' ? 'Unsupported' : 'Unable to confirm') }}<span v-if="check.http_status"> (HTTP {{ check.http_status }})</span></li></ul>
+            <p v-if="protocolChecks.some(check => check.status === 'unknown')" class="form-help">{{ t('Authentication, model access, missing routes, request parameters or rate limits can prevent verification. An unverified protocol is not necessarily unsupported.') }}</p>
+            <p v-if="protocolError" class="inline-error" role="alert">{{ protocolError }}</p>
+          </div>
           <label v-if="form.model.trim() && savedLimits">{{ t('Context window') }} <small>{{ t('tokens, for this model in every profile') }}</small><input :value="windowText(form.model)" class="field-mono" inputmode="numeric" autocomplete="off" spellcheck="false" :placeholder="windowPlaceholder(form.model)" @input="setWindow(form.model, ($event.target as HTMLInputElement).value)" /></label>
           <p v-if="form.model.trim() && savedLimits" :class="validWindow(windowText(form.model)) ? 'form-help' : 'inline-error'">{{ !validWindow(windowText(form.model)) ? t('A context window is between 1,000 and 100,000,000 tokens.') : t(client.contextWindow.help) }}</p>
           <div v-if="client.modelSlots" class="model-slots">
@@ -407,6 +436,8 @@ onBeforeUnmount(()=>{discoveryRevision++;});
   </ModalDialog>
 </template>
 <style scoped>
+.protocol-check{padding:12px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--sunken)}
+.protocol-check ul{margin:8px 0;padding-left:20px;font-size:var(--text-sm);line-height:1.8;color:var(--ink-soft)}
 .secret-switch{align-self:flex-start;margin-top:-6px}
 .secret-adopt{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
 .model-slots{display:flex;flex-direction:column;gap:6px;margin-top:-4px}

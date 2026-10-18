@@ -7,6 +7,117 @@ use tendly_domain::EndpointProfile;
 use url::Url;
 const MAX_BYTES: usize = 2 * 1024 * 1024;
 
+#[derive(Debug, Serialize)]
+pub struct ProtocolCheck {
+    protocol: &'static str,
+    status: &'static str,
+    http_status: Option<u16>,
+}
+
+/// Explicitly requested tiny inference calls. A model list alone cannot prove
+/// that an endpoint implements a client's inference protocol.
+pub async fn check_protocols(
+    state: &crate::AppState,
+    profile: &EndpointProfile,
+) -> Result<Vec<ProtocolCheck>, ApiError> {
+    providers::validate_profile(profile)?;
+    let model = profile
+        .model
+        .as_deref()
+        .filter(|id| !id.trim().is_empty())
+        .ok_or_else(|| ApiError::bad("Choose a model before checking protocols"))?;
+    let model = profile
+        .model_aliases
+        .get(model)
+        .map(String::as_str)
+        .unwrap_or(model);
+    let mut base = list_url(profile)?;
+    let path = base.path().trim_end_matches("/models").to_owned();
+    base.set_query(None);
+    base.set_fragment(None);
+    let secret = profile
+        .secret_ref
+        .as_deref()
+        .map(|reference| crate::secrets::resolve_reference(&state.state_dir, reference))
+        .transpose()?;
+    let mut builder = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .connect_timeout(Duration::from_secs(5))
+        .redirect(reqwest::redirect::Policy::none());
+    if let Some(proxy) = profile.proxy_url.as_deref() {
+        builder = builder
+            .no_proxy()
+            .proxy(reqwest::Proxy::all(proxy).map_err(|_| ApiError::bad("Invalid HTTP(S) proxy"))?);
+    }
+    let client = builder
+        .build()
+        .map_err(|_| ApiError::bad("Cannot configure protocol check"))?;
+    let mut results = Vec::new();
+    for (protocol, suffix, body, field) in [
+        (
+            "Anthropic Messages",
+            "/messages",
+            serde_json::json!({"model":model,"max_tokens":1,"messages":[{"role":"user","content":"Hi"}]}),
+            "content",
+        ),
+        (
+            "OpenAI Responses",
+            "/responses",
+            serde_json::json!({"model":model,"max_output_tokens":16,"input":"Hi"}),
+            "output",
+        ),
+        (
+            "OpenAI Chat Completions",
+            "/chat/completions",
+            serde_json::json!({"model":model,"max_tokens":1,"messages":[{"role":"user","content":"Hi"}]}),
+            "choices",
+        ),
+    ] {
+        let mut url = base.clone();
+        url.set_path(&format!("{path}{suffix}"));
+        let mut request = client.post(url).json(&body);
+        if protocol == "Anthropic Messages" {
+            request = request.header("anthropic-version", "2023-06-01");
+            if let Some(key) = &secret {
+                request = request.header("x-api-key", key);
+            }
+        } else if let Some(key) = &secret {
+            request = request.bearer_auth(key);
+        }
+        let mut result = ProtocolCheck {
+            protocol,
+            status: "unknown",
+            http_status: None,
+        };
+        if let Ok(mut response) = request.send().await {
+            let status = response.status();
+            result.http_status = Some(status.as_u16());
+            // Authentication failures, limits and missing models do not prove
+            // lack of protocol support. Never expose upstream error bodies.
+            if status.as_u16() == 405 || status.as_u16() == 501 {
+                result.status = "unsupported";
+            } else if status.is_success() {
+                let mut bytes = Vec::new();
+                while let Ok(Some(chunk)) = response.chunk().await {
+                    if bytes.len() + chunk.len() > MAX_BYTES {
+                        break;
+                    }
+                    bytes.extend_from_slice(&chunk);
+                }
+                if serde_json::from_slice::<Value>(&bytes)
+                    .ok()
+                    .and_then(|value| value.get(field).and_then(Value::as_array).map(|_| ()))
+                    .is_some()
+                {
+                    result.status = "supported";
+                }
+            }
+        }
+        results.push(result);
+    }
+    Ok(results)
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ModelEntry {
     pub id: String,

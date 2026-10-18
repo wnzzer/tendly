@@ -3,6 +3,107 @@
 use super::*;
 
 #[tokio::test]
+async fn first_custom_endpoint_sets_only_its_clients_unset_default() {
+    let f = Fixture::new("127.0.0.1:8787".parse().unwrap(), None);
+    let hidden = Uuid::new_v4();
+    call(
+        f.app(),
+        "PUT",
+        "/api/preferences",
+        json!({"codex":{"effort":"high"},"hidden_account_quotas":[hidden]}),
+    )
+    .await;
+    let (status, first) = call(
+        f.app(),
+        "POST",
+        "/api/endpoint-profiles",
+        json!({"name":"first","provider":"codex"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (_, prefs) = call(f.app(), "GET", "/api/preferences", Value::Null).await;
+    assert_eq!(prefs["codex"]["endpoint_profile_id"], first["id"]);
+    assert_eq!(prefs["codex"]["effort"], "high");
+    assert_eq!(prefs["hidden_account_quotas"], json!([hidden]));
+    assert_eq!(prefs["claude_code"], json!({}));
+    call(
+        f.app(),
+        "POST",
+        "/api/endpoint-profiles",
+        json!({"name":"second","provider":"codex"}),
+    )
+    .await;
+    assert_eq!(
+        call(f.app(), "GET", "/api/preferences", Value::Null)
+            .await
+            .1["codex"]["endpoint_profile_id"],
+        first["id"]
+    );
+    // Clearing the default is a user choice; creating another endpoint preserves it.
+    call(f.app(), "PUT", "/api/preferences", json!({"codex":{}})).await;
+    call(
+        f.app(),
+        "POST",
+        "/api/endpoint-profiles",
+        json!({"name":"third","provider":"codex"}),
+    )
+    .await;
+    assert!(
+        call(f.app(), "GET", "/api/preferences", Value::Null)
+            .await
+            .1["codex"]
+            .get("endpoint_profile_id")
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn draft_protocol_check_uses_real_requests_without_creating_a_profile() {
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
+    let f = Fixture::new("127.0.0.1:8787".parse().unwrap(), None);
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        for (path, code, body) in [
+            (
+                "/v1/messages",
+                "200 OK",
+                r#"{"content":[{"type":"text","text":"Hi"}]}"#,
+            ),
+            ("/v1/responses", "405 Method Not Allowed", "{}"),
+            (
+                "/v1/chat/completions",
+                "401 Unauthorized",
+                r#"{"error":"private upstream error"}"#,
+            ),
+        ] {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = vec![0; 8192];
+            let n = socket.read(&mut request).await.unwrap();
+            let request = String::from_utf8_lossy(&request[..n]);
+            assert!(request.starts_with(&format!("POST {path} ")));
+            socket.write_all(format!("HTTP/1.1 {code}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        }
+    });
+    let (status, result) = call(f.app(), "POST", "/api/endpoint-profiles/check-protocols", json!({"name":"draft","provider":"codex","endpoint_url":format!("http://{address}/v1"),"model":"fixture"})).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(result[0]["status"], "supported");
+    assert_eq!(result[1]["status"], "unsupported");
+    assert_eq!(result[2]["status"], "unknown");
+    assert!(!result.to_string().contains("private upstream error"));
+    assert_eq!(
+        call(f.app(), "GET", "/api/endpoint-profiles", Value::Null)
+            .await
+            .1,
+        json!([])
+    );
+    server.await.unwrap();
+}
+
+#[tokio::test]
 async fn a_key_saved_in_tendly_reaches_the_client_and_never_comes_back() {
     let f = Fixture::new("127.0.0.1:8787".parse().unwrap(), None);
     let id = register(&f).await;

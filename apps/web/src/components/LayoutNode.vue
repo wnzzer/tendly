@@ -291,8 +291,8 @@ onBeforeUnmount(() => { cleanupResize?.(); window.removeEventListener('resize', 
           <summary class="dock-action" :title="t('New session here')" :aria-label="t('New session here')"><Icon name="plus" :size="15" /></summary>
           <div class="dock-menu-items">
             <MenuFlyout :label="t(lastKind.title, lastKind.values)" @activate="createSession(lastKind.provider)">
-              <template #icon><TabIcon :kind="lastKind.provider === 'terminal' ? 'terminal' : 'agent_chat'" :provider="lastKind.provider === 'terminal' ? undefined : lastKind.provider" :size="14" /></template>
-              <button v-for="entry in newSessionKinds" :key="entry.provider" type="button" role="menuitem" @click="createSession(entry.provider)"><TabIcon :kind="entry.provider === 'terminal' ? 'terminal' : 'agent_chat'" :provider="entry.provider === 'terminal' ? undefined : entry.provider" :size="14" />{{ t(entry.title, entry.values) }}</button>
+              <template #icon><TabIcon :kind="lastKind.provider === 'terminal' ? 'terminal' : 'agent_chat'" :metadata="{ provider: lastKind.provider }" :size="14" /></template>
+              <button v-for="entry in newSessionKinds" :key="entry.provider" type="button" role="menuitem" @click="createSession(entry.provider)"><TabIcon :kind="entry.provider === 'terminal' ? 'terminal' : 'agent_chat'" :metadata="{ provider: entry.provider }" :size="14" />{{ t(entry.title, entry.values) }}</button>
               <template v-if="ephemeralSupported"><hr /><button type="button" role="menuitem" @click="createSession(DEFAULT_CLIENT, true)"><Icon name="clock" :size="14" />{{ t('New temporary window') }}</button></template>
             </MenuFlyout>
             <hr />
@@ -313,8 +313,8 @@ onBeforeUnmount(() => { cleanupResize?.(); window.removeEventListener('resize', 
     <ContextMenu v-if="paneMenu" :x="paneMenu.x" :y="paneMenu.y" :label="t('Pane actions')" @close="paneMenu = null">
       <div class="context-menu-label">{{ t('New session here') }}</div>
       <MenuFlyout :label="t(lastKind.title, lastKind.values)" @activate="paneAction(() => createSession(lastKind.provider))">
-        <template #icon><TabIcon :kind="lastKind.provider === 'terminal' ? 'terminal' : 'agent_chat'" :provider="lastKind.provider === 'terminal' ? undefined : lastKind.provider" :size="14" /></template>
-        <button v-for="entry in newSessionKinds" :key="entry.provider" role="menuitem" @click="paneAction(() => createSession(entry.provider))"><TabIcon :kind="entry.provider === 'terminal' ? 'terminal' : 'agent_chat'" :provider="entry.provider === 'terminal' ? undefined : entry.provider" :size="14" />{{ t(entry.title, entry.values) }}</button>
+        <template #icon><TabIcon :kind="lastKind.provider === 'terminal' ? 'terminal' : 'agent_chat'" :metadata="{ provider: lastKind.provider }" :size="14" /></template>
+        <button v-for="entry in newSessionKinds" :key="entry.provider" role="menuitem" @click="paneAction(() => createSession(entry.provider))"><TabIcon :kind="entry.provider === 'terminal' ? 'terminal' : 'agent_chat'" :metadata="{ provider: entry.provider }" :size="14" />{{ t(entry.title, entry.values) }}</button>
         <template v-if="ephemeralSupported"><hr /><button role="menuitem" @click="paneAction(() => createSession(DEFAULT_CLIENT, true))"><Icon name="clock" :size="14" />{{ t('New temporary window') }}</button></template>
       </MenuFlyout>
       <hr />
