@@ -1532,8 +1532,19 @@ function keydown(event: KeyboardEvent) {
 .chat-approval-record>small{margin-left:auto;flex:none;font-size:var(--text-xs)}
 .chat-approval-record.pending{background:var(--warn-soft);color:var(--warn-ink)}
 .chat-approval-record.pending>svg{color:var(--warn)}
-.chat-approval-dock{flex-shrink:0;display:flex;flex-direction:column;gap:6px;max-height:min(58vh,560px);overflow:auto;padding:4px 6px 8px;margin:0 max(10px,calc((100% - 872px) / 2)) 2px;animation:dock-in var(--duration-normal) var(--ease-out)}
-.chat-approval-dock .chat-approval{flex-shrink:0;margin:0;max-width:none;box-shadow:var(--shadow-md),var(--shadow-card)}
+/* min-height:0 + a non-zero shrink let the dock give up height in a short
+   pane (the canvas tile is often shorter than 58vh); it then scrolls its own
+   overflow instead of pushing the composer and the Submit footer off the
+   clipped tile. The timeline (flex:1, basis 0) yields its height first. */
+.chat-approval-dock{flex:0 1 auto;min-height:0;display:flex;flex-direction:column;gap:6px;max-height:min(58vh,560px);overflow:auto;padding:4px 6px 8px;margin:0 max(10px,calc((100% - 872px) / 2)) 2px;animation:dock-in var(--duration-normal) var(--ease-out)}
+/* The card must not clip here: overflow!=visible would make the card its own
+   scroll container and the sticky footer below would stick to the card (which
+   never scrolls) instead of the dock. Re-round the accent bar it used to clip. */
+.chat-approval-dock .chat-approval{flex-shrink:0;margin:0;max-width:none;overflow:visible;box-shadow:var(--shadow-md),var(--shadow-card)}
+.chat-approval-dock .chat-approval::before{border-top-left-radius:var(--radius-lg);border-bottom-left-radius:var(--radius-lg)}
+/* Pin the actions to the bottom of the scrolling dock so Submit stays in view
+   however short the pane is. Opaque background hides content scrolling under it. */
+.chat-approval-dock .chat-approval-actions{position:sticky;bottom:0;background:var(--surface);padding-bottom:var(--space-2)}
 .chat-approval-pager{display:flex;align-items:center;gap:4px;padding:0 4px;font-size:var(--text-xs);color:var(--warn-ink)}
 .chat-approval-pager>span{flex:1}
 .chat-approval-pager .pager-back{transform:rotate(180deg)}
