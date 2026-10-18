@@ -2,7 +2,12 @@
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
 import type { GitBranches, GitOutcome, GitRef } from '@tendly/protocol';
 import { ApiError, errorMessage, json, request, workspacePath } from './api';
+import { claimPrune } from './branch-prune';
 import { useI18n } from '../i18n';
+
+/** When each workspace was last pruned, shared across every menu instance so
+ * the status bar, sidebar and Git pane throttle against one clock. */
+const prunedAt = new Map<string, number>();
 
 /**
  * The workspace directory's branch, and managing the repository's branches
@@ -47,10 +52,18 @@ async function load() {
   try { repo.value = await request<Repo>(`${workspacePath(props.workspaceId)}/git/branches`); await nextTick(); position(); }
   catch (cause) { error.value = errorMessage(cause); }
 }
+/** A background `fetch --prune` on open so branches deleted on the remote stop
+ * lingering, then a reload to show it -- throttled per workspace, and silent:
+ * offline, no remote or a declined credential just leaves the cached list. */
+async function prune() {
+  if (!claimPrune(prunedAt, props.workspaceId, Date.now())) return;
+  try { await request(`${workspacePath(props.workspaceId)}/git/fetch`, json('POST', {})); if (open.value) await load(); }
+  catch { /* keep the list we have */ }
+}
 async function toggle() {
   if (open.value) { close(); return; }
   open.value = true; error.value = ''; resetRow();
-  await nextTick(); position(); void load();
+  await nextTick(); position(); void load(); void prune();
   document.addEventListener('pointerdown', outside, true);
 }
 function close() { open.value = false; resetRow(); document.removeEventListener('pointerdown', outside, true); }
