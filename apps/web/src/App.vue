@@ -49,6 +49,7 @@ import { paneDisplayTitle, paneString, paneWorkspace, paneSession, filePane, cha
 import { isEphemeralSession } from "./features/session-list";
 import { lastQuickProvider, planQuickSession, rememberQuickProvider } from "./features/quick-session";
 import { backendCapabilities, setBackendCapabilities, type BackendHealth } from "./features/backend-capabilities";
+import { formatLatency } from "./features/host-latency";
 import { loadAccountQuotas, loadBalances } from "./features/balance-store";
 import { browserStorage, canvasStorageKey } from "./features/canvas-cache";
 import { readPanelVisibility, sidebarIsRail, useSidebarWidth, writePanelVisibility } from "./features/panel-state";
@@ -87,6 +88,11 @@ const sidebarOpen = ref(false), loading = ref(true), apiOnline = ref(false), err
 const connectionError = ref(""), refreshingResources = ref(false);
 const visibleError = computed(() => error.value || connectionError.value);
 const platform = ref<string>(), instanceLabel = ref<string>(), serverVersion = ref<string>();
+const latencyMs = ref<number>();
+const hostStatus = computed(() => formatLatency(latencyMs.value, apiOnline.value));
+// The host's OS, cased the way each platform writes its own name.
+const PLATFORM_LABELS: Record<string, string> = { windows: "Windows", macos: "macOS", darwin: "macOS", linux: "Linux" };
+const platformLabel = computed(() => (platform.value ? PLATFORM_LABELS[platform.value] ?? platform.value : "Local"));
 const showWorkspace = ref(false), showAuth = ref(false), workspaceInitialPath = ref<string>();
 /** A file an agent named outside every workspace, shown read-only. */
 const hostPreview = ref<{ path: string; line?: number }>();
@@ -557,9 +563,18 @@ watch([sidebarExpanded, explorerOpen], ([sidebar, explorer]) => writePanelVisibi
 function beforeUnload(event: BeforeUnloadEvent) {
   if (hasUnsavedWork({ fileDrafts: hasDirtyDrafts(), gitDrafts: hasGitDrafts(), layoutPending: hasPendingLayout(), layoutStatus: layoutStatus.value })) { event.preventDefault(); event.returnValue = ""; }
 }
+/** Time a /health round-trip so the host card can show how responsive the
+ * backend is. Silent on failure: the connection error is already reported by
+ * the session poll; here we only drop the reading and mark the host offline. */
+async function pingHost() {
+  const started = performance.now();
+  try { const health = await request<BackendHealth>("/health"); latencyMs.value = Math.round(performance.now() - started); apiOnline.value = health.ok; }
+  catch { latencyMs.value = undefined; apiOnline.value = false; }
+}
 onMounted(() => {
   void bootstrap();
-  pollTimer = setInterval(() => { if (!document.hidden && !showAuth.value) { void refreshSessions(); for (const id of trackedWorkspaces()) void refreshGit(id); } }, 5000);
+  void pingHost();
+  pollTimer = setInterval(() => { if (!document.hidden && !showAuth.value) { void refreshSessions(); void pingHost(); for (const id of trackedWorkspaces()) void refreshGit(id); } }, 5000);
   window.addEventListener("beforeunload", beforeUnload); window.addEventListener("resize", adaptDrawers);
   stopPageReturn = onPageReturn(stale => fileWatch.wake(stale));
 });
@@ -600,7 +615,7 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
       <aside :class="['sidebar',{'drawer-open':sidebarOpen}]">
         <div v-if="sidebarRail&&!sidebarCollapsed" class="sidebar-resizer" role="separator" aria-orientation="vertical" :aria-label="t('Resize workspace panel')" :title="t('Drag to resize · double-click to reset')" @pointerdown.prevent="resizeSidebar" @dblclick="resetSidebarWidth"/>
         <WorkspaceSidebar ref="workspaceSidebar" @reveal-session="revealSession" :workspace-branches="workspaceBranches" @branch-switched="branchSwitched" :workspaces="workspaces" :sessions="sessions" :selected-workspace-id="selectedWorkspaceId" :selected-session-id="selectedSessionId" :history-supported="backendCapabilities.nativeHistory" :storage-key="storageKey" :archive-supported="backendCapabilities.sessionArchive" :ephemeral-supported="backendCapabilities.ephemeralSessions" :archive-busy-ids="archiveBusyIds" :keep-busy-ids="keepBusyIds" :delete-busy-ids="deleteBusyIds" :sessions-loading="sessionsLoading" @select-workspace="selectWorkspace" @open-session="openSession" @rename-session="renameSession" @archive-session="archiveSession" @archive-sessions="archiveSessions" @delete-sessions="deleteSessions" @keep-session="keepSession" @refresh-sessions="refreshSessions" @session-environment="environmentSessionId=$event;sidebarOpen=false" @open-files="openFiles" @open-changes="openChanges" @new-session="newSession" @quick-session="quickSession" @load-history="loadHistory" @add-workspace="showWorkspace=true" @canvas="sidebarOpen=false;router.push({ name: 'canvas' })" @all-sessions="openPage('sessions')" @system="openPage('system')" @usage="openPage('usage')" @show-in-sessions="(id, archived) => openPage('sessions', { highlight: id, archive: archived ? 'archived' : 'current' })" :current-page="page ?? 'canvas'"/>
-        <div v-if="!mobile" class="host-card"><span class="host-symbol"><Icon name="terminal"/></span><div><strong>{{ t('Host native') }}</strong><small>{{ platform || 'macOS / Linux' }} · {{ t('no containers') }}</small></div><span :class="['state-dot',apiOnline?'running':'stopped']"/></div>
+        <div v-if="!mobile" class="host-card"><span class="host-symbol"><Icon name="monitor" :size="17"/></span><div class="host-card-text"><strong>{{ t('Runs on this machine') }}</strong><small>{{ platformLabel }}</small></div><span class="host-latency" :class="hostStatus.level" :title="apiOnline ? t('Round-trip to host: {ms}', { ms: hostStatus.text }) : t('Offline')" :aria-label="apiOnline ? t('Round-trip to host: {ms}', { ms: hostStatus.text }) : t('Offline')"><i class="host-dot"/><span>{{ hostStatus.text }}</span></span></div>
       
         <div v-else class="drawer-footer">
           <div v-if="contextWorkspace" class="drawer-git"><span :title="contextWorkspace.root_path"><Icon name="git" :size="15"/><WorkspaceBranchMenu v-if="currentGitAvailable" :workspace-id="contextWorkspace.id" :branch="currentGit.branch" @switched="branchSwitched(contextWorkspace.id)" @changed="branchSwitched(contextWorkspace.id)" /><template v-else>{{ t('Git unavailable') }}</template></span><button v-if="currentGitAvailable" type="button" @click="openChanges(contextWorkspace.id)">{{ t(currentGit.files.length===1?'{count} change':'{count} changes',{count:currentGit.files.length}) }}</button></div>

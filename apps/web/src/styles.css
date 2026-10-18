@@ -570,10 +570,17 @@ svg { flex-shrink: 0; vertical-align: middle; }
 .new-session-button:hover { background: var(--fill); color: var(--ink); border-color: var(--line-strong); }
 .sidebar-bottom>.text-button { color: var(--faint); font-size: var(--text-xs); }
 .host-card { display: flex; align-items: center; gap: 9px; border-top: 1px solid var(--glass-edge); margin: 0 -12px; padding: 12px 17px; background: transparent; }
-.host-symbol { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--muted); background: var(--elevated); box-shadow: var(--shadow-sm), inset 0 1px 0 var(--card-highlight); }
-.host-card>div { flex: 1; }
+.host-symbol { width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--radius-md); color: var(--accent); background: var(--accent-soft); }
+.host-card>.host-card-text { flex: 1; min-width: 0; }
 .host-card strong { font-size: var(--text-sm); color: var(--ink); font-weight: 500; }
-.host-card small { display: block; margin-top: 2px; font-size: var(--text-xs); color: var(--faint); }
+.host-card small { display: block; margin-top: 2px; font-size: var(--text-xs); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.host-latency { flex: none; display: flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.host-dot { flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.host-latency.online .host-dot { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent); }
+.host-latency.slow { color: var(--warn-ink); }
+.host-latency.slow .host-dot { background: var(--warn); }
+.host-latency.offline { color: var(--faint); }
+.host-latency.offline .host-dot { background: var(--muted); }
 .main-workspace { position: relative; padding: 20px 21px 0; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .workspace-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; gap: 10px; flex-shrink: 0; min-width: 0; }
 .workspace-heading>div:first-child { min-width: 0; }

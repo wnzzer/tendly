@@ -10,6 +10,7 @@ const paths: Record<string, string> = {
   git: "M6 3v12a5 5 0 0 0 10 0V8 M3 6a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M13 5a3 3 0 1 0 6 0a3 3 0 1 0-6 0",
   spark: "m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z",
   terminal: "m5 7 5 5-5 5 M13 17h6",
+  monitor: "M4 5h16v10H4z M9 19h6 M12 15v4",
   settings: "M4 7h16 M4 17h16 M8 4v6 M16 14v6",
   account: "M8 7a4 4 0 1 0 8 0a4 4 0 1 0-8 0 M4 21v-2a8 8 0 0 1 16 0v2",
   refresh: "M20 7v5h-5 M20 12a8 8 0 1 0-2 5 M20 7l-2-2",
