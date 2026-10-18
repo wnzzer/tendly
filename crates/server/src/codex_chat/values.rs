@@ -2,6 +2,26 @@
 //! an item's status and a request's key.
 
 use super::*;
+use std::time::Duration;
+
+/// A command's output is streamed in many small deltas, and each used to go
+/// out as the whole block so far at `status:"running"`. For a chatty command
+/// -- a progress bar, a build log -- that is hundreds of ever-growing events,
+/// every one also written to history: a single `winget install` once wrote
+/// 500+ events and megabytes, enough to trip the conversation's 4 MB
+/// backpressure and cut the turn short so it never finished. A running update
+/// is worth forwarding only once the output has grown by [`OUTPUT_EMIT_BYTES`],
+/// or [`OUTPUT_EMIT_INTERVAL`] has passed so a slow trickle still shows. The
+/// closing `item/completed` carries the full text either way, so skipping the
+/// ones between loses nothing.
+pub(super) const OUTPUT_EMIT_BYTES: usize = 2048;
+pub(super) const OUTPUT_EMIT_INTERVAL: Duration = Duration::from_millis(200);
+
+/// Whether a command's streamed output, having `grew` bytes since the last
+/// update `elapsed` ago, is worth forwarding now rather than waiting.
+pub(super) fn should_emit_output(grew: usize, elapsed: Duration) -> bool {
+    grew >= OUTPUT_EMIT_BYTES || elapsed >= OUTPUT_EMIT_INTERVAL
+}
 
 /// `pathsIn`: absolute paths anywhere in a permission request.
 pub(super) fn paths_in(value: &Value, found: &mut Vec<Value>, depth: usize) {

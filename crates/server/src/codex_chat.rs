@@ -21,7 +21,11 @@ use crate::native_chat::{
 };
 use indexmap::IndexMap;
 use serde_json::{Map, Value, json};
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::Path,
+    time::Instant,
+};
 
 mod approvals;
 mod events;
@@ -88,6 +92,10 @@ struct Codex {
     launch: Option<Launch>,
     deferred: Vec<Written>,
     tools: IndexMap<String, (String, String)>,
+    /// Per streaming command, when its output was last forwarded and how long
+    /// it was then, so a flood of small deltas is throttled (see
+    /// [`should_emit_output`]).
+    output_emits: HashMap<String, (Instant, usize)>,
     models: Option<Vec<Value>>,
     default_model: Option<String>,
     effort: Option<String>,
@@ -530,6 +538,7 @@ pub fn adapter(env: &BTreeMap<String, String>, env_remove: &[String]) -> NativeA
             launch: None,
             deferred: Vec::new(),
             tools: IndexMap::new(),
+            output_emits: HashMap::new(),
             models: None,
             default_model: None,
             effort: None,

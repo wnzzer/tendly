@@ -103,9 +103,25 @@ impl Codex {
                 let delta = p.get("delta").and_then(Value::as_str).unwrap_or("");
                 let text = clip(&format!("{text}{delta}"), MAX_TEXT);
                 self.tools.insert(id.clone(), (name.clone(), text.clone()));
-                self.core.emit(
-                    json!({"type":"tool","id":id,"name":name,"status":"running","text":text}),
-                );
+                // A chatty command streams its output in hundreds of deltas;
+                // forwarding the whole block on each floods the stream and the
+                // stored history, so throttle it. item/completed below still
+                // carries the complete text. See `should_emit_output`.
+                let now = Instant::now();
+                let last = self.output_emits.get(&id).copied();
+                let grew = text.len().saturating_sub(last.map_or(0, |(_, len)| len));
+                let elapsed = last.map_or(OUTPUT_EMIT_INTERVAL, |(at, _)| {
+                    now.saturating_duration_since(at)
+                });
+                if last.is_none() || should_emit_output(grew, elapsed) {
+                    if self.output_emits.len() > 1024 {
+                        self.output_emits.clear();
+                    }
+                    self.output_emits.insert(id.clone(), (now, text.len()));
+                    self.core.emit(
+                        json!({"type":"tool","id":id,"name":name,"status":"running","text":text}),
+                    );
+                }
             }
             "item/started" | "item/completed" => self.item(method, &p),
             _ => {}
@@ -205,6 +221,8 @@ impl Codex {
         let status = if method == "item/started" {
             "running"
         } else {
+            // The command is done streaming: forget its output throttle.
+            self.output_emits.remove(&id);
             item_status(item)
         };
         self.core

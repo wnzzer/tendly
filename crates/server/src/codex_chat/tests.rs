@@ -161,6 +161,29 @@ fn an_item_is_failed_running_or_completed() {
 }
 
 #[test]
+fn streamed_command_output_is_forwarded_on_growth_or_a_pause_not_every_delta() {
+    use std::time::Duration;
+    // Enough new output since the last update, however recent: send it.
+    assert!(should_emit_output(OUTPUT_EMIT_BYTES, Duration::ZERO));
+    assert!(should_emit_output(
+        OUTPUT_EMIT_BYTES + 1,
+        Duration::from_millis(1)
+    ));
+    // A small trickle that just went out waits rather than flooding.
+    assert!(!should_emit_output(
+        OUTPUT_EMIT_BYTES - 1,
+        Duration::from_millis(1)
+    ));
+    assert!(!should_emit_output(0, Duration::ZERO));
+    // But a slow trickle still shows once the interval has passed.
+    assert!(should_emit_output(1, OUTPUT_EMIT_INTERVAL));
+    assert!(should_emit_output(
+        0,
+        OUTPUT_EMIT_INTERVAL + Duration::from_millis(1)
+    ));
+}
+
+#[test]
 fn request_keys_keep_one_and_quoted_one_apart() {
     assert_eq!(request_key(&json!(1)), "number:1");
     assert_eq!(request_key(&json!("1")), "string:1");
