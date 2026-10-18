@@ -295,6 +295,27 @@ pub async fn install(install: &NpmInstall, version: &str) -> std::result::Result
     }
 }
 
+/// The prefix in the ordinary form npm needs, not the extended-length one.
+///
+/// `current_exe().canonicalize()` returns a Windows verbatim path (`\\?\C:\…`),
+/// and the prefix is derived from it. npm's own path resolver (arborist's
+/// `realpathCached`) recurses without a base case on a `\\?\` root and dies with
+/// "Maximum call stack size exceeded", failing every update the same way. Giving
+/// npm the plain `C:\…` form is what it can resolve. A no-op off Windows and on
+/// a path that is already ordinary.
+fn npm_prefix(prefix: &Path) -> PathBuf {
+    #[cfg(windows)]
+    if let Some(text) = prefix.to_str() {
+        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = text.strip_prefix(r"\\?\") {
+            return PathBuf::from(rest);
+        }
+    }
+    prefix.to_path_buf()
+}
+
 /// One `npm install` of `version`, confirmed by asking the binary it left.
 async fn npm_install_version(
     install: &NpmInstall,
@@ -307,7 +328,7 @@ async fn npm_install_version(
             .arg("install")
             .arg("--global")
             .arg("--prefix")
-            .arg(&install.prefix)
+            .arg(npm_prefix(&install.prefix))
             .args(["--no-fund", "--no-audit"])
             .arg(format!("{PACKAGE}@{version}"))
             .output(),
@@ -632,6 +653,30 @@ mod tests {
             assert_eq!(found.prefix, root);
         }
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_prefix_given_to_npm_is_never_a_windows_verbatim_path() {
+        // The extended-length form canonicalize() returns on Windows is what
+        // crashes npm's path resolver; npm must get the ordinary one.
+        if cfg!(windows) {
+            assert_eq!(
+                npm_prefix(Path::new(r"\\?\C:\Users\x\AppData\Roaming\npm")),
+                PathBuf::from(r"C:\Users\x\AppData\Roaming\npm")
+            );
+            assert_eq!(
+                npm_prefix(Path::new(r"\\?\UNC\server\share\npm")),
+                PathBuf::from(r"\\server\share\npm")
+            );
+            // An already-ordinary path is handed through unchanged.
+            assert_eq!(
+                npm_prefix(Path::new(r"C:\Users\x\npm")),
+                PathBuf::from(r"C:\Users\x\npm")
+            );
+        } else {
+            let plain = Path::new("/usr/local");
+            assert_eq!(npm_prefix(plain), plain.to_path_buf());
+        }
     }
 
     #[test]
