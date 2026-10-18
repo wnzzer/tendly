@@ -367,7 +367,7 @@ pub(super) async fn git_index_op(
     } else {
         vec![operation.to_owned(), "--".into()]
     };
-    if paths.len() > 1000 {
+    if paths.len() > MAX_PATHS {
         return Err(IoError::new(413, "Too many paths"));
     }
     for path in paths {
@@ -379,14 +379,46 @@ pub(super) async fn git_index_op(
             return Err(IoError::new(403, "protected path"));
         }
         let _ = safe_path(&root, path)?;
-        args.push(path.clone());
     }
-    let (_stdout, stderr, success) = run_git(&root, args, GIT_TIMEOUT).await?;
-    if success {
-        Ok(())
-    } else {
-        Err(IoError::new(400, git_error(&stderr)))
+    let base = args.len();
+    for run in path_runs(paths) {
+        args.truncate(base);
+        args.extend_from_slice(run);
+        let (_stdout, stderr, success) = run_git(&root, args.clone(), GIT_TIMEOUT).await?;
+        if !success {
+            return Err(IoError::new(400, git_error(&stderr)));
+        }
     }
+    Ok(())
+}
+
+/// The most paths one stage, unstage or discard names: "Stage all" over an
+/// unignored build directory sends every file in it.
+const MAX_PATHS: usize = 50_000;
+
+/// Paths go to Git in runs that fit one command line. Windows allows 32,767
+/// UTF-16 units for the whole of it; counting bytes stays under that, and the
+/// rest of the budget is left for Git's own arguments.
+fn path_runs(paths: &[String]) -> impl Iterator<Item = &[String]> {
+    const BUDGET: usize = 24 * 1024;
+    let mut rest = paths;
+    std::iter::from_fn(move || {
+        if rest.is_empty() {
+            return None;
+        }
+        let mut used = 0;
+        let end = rest
+            .iter()
+            .position(|path| {
+                used += path.len() + 3;
+                used > BUDGET
+            })
+            .unwrap_or(rest.len())
+            .max(1);
+        let (run, tail) = rest.split_at(end);
+        rest = tail;
+        Some(run)
+    })
 }
 
 /// Throw away working-tree changes to the named files.
@@ -401,11 +433,9 @@ pub async fn git_discard(root: &Path, paths: &[String]) -> Result<(), IoError> {
     if paths.is_empty() {
         return Ok(());
     }
-    if paths.len() > 1000 {
+    if paths.len() > MAX_PATHS {
         return Err(IoError::new(413, "Too many paths"));
     }
-    let mut tracked = Vec::new();
-    let mut untracked = Vec::new();
     for path in paths {
         if path.is_empty() || path == "." {
             return Err(IoError::new(400, "Explicit file paths required"));
@@ -414,27 +444,29 @@ pub async fn git_discard(root: &Path, paths: &[String]) -> Result<(), IoError> {
         if is_protected_path(&rel) {
             return Err(IoError::new(403, "protected path"));
         }
-        let known = run_git(
-            &root,
-            vec![
-                "ls-files".into(),
-                "--error-unmatch".into(),
-                "--".into(),
-                path.clone(),
-            ],
-            GIT_TIMEOUT,
-        )
-        .await?
-        .2;
-        if known {
-            tracked.push(path.clone());
-        } else {
-            untracked.push(path.clone());
-        }
     }
-    if !tracked.is_empty() {
-        let mut args = vec!["checkout".into(), "--".into()];
-        args.extend(tracked);
+    // Which of them the index knows, asked once per run of paths rather than
+    // once per path: a process each is minutes on Windows for a build folder.
+    let mut known = std::collections::HashSet::new();
+    for run in path_runs(paths) {
+        let mut args: Vec<String> = vec!["ls-files".into(), "-z".into(), "--".into()];
+        args.extend_from_slice(run);
+        let (stdout, stderr, success) = run_git(&root, args, GIT_TIMEOUT).await?;
+        if !success {
+            return Err(IoError::new(400, git_error(&stderr)));
+        }
+        known.extend(
+            stdout
+                .split(|byte| *byte == 0)
+                .filter(|name| !name.is_empty())
+                .map(|name| String::from_utf8_lossy(name).into_owned()),
+        );
+    }
+    let (tracked, untracked): (Vec<String>, Vec<String>) =
+        paths.iter().cloned().partition(|path| known.contains(path));
+    for run in path_runs(&tracked) {
+        let mut args: Vec<String> = vec!["checkout".into(), "--".into()];
+        args.extend_from_slice(run);
         let (_stdout, stderr, success) = run_git(&root, args, GIT_TIMEOUT).await?;
         if !success {
             return Err(IoError::new(400, git_error(&stderr)));

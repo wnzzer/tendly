@@ -492,6 +492,35 @@ async fn discarding_restores_what_is_staged_and_removes_what_git_never_knew() {
     );
 }
 
+#[tokio::test]
+async fn staging_and_discarding_take_more_paths_than_one_command_line_holds() {
+    // An unignored build directory: thousands of untracked files whose names
+    // together run far past the 32,767 characters of a Windows command line.
+    let repo = TempRepo::new();
+    fs::write(repo.path.join("kept.txt"), "one\n").unwrap();
+    git_stage(&repo.path, &["kept.txt".into()]).await.unwrap();
+    git_commit(&repo.path, "first", false).await.unwrap();
+    let dir = repo.path.join("target").join("debug").join("deps");
+    fs::create_dir_all(&dir).unwrap();
+    let mut paths: Vec<String> = (0..1500)
+        .map(|n| {
+            let name = format!("artifact-with-a-fairly-long-name-{n:04}.rmeta");
+            fs::write(dir.join(&name), "x").unwrap();
+            format!("target/debug/deps/{name}")
+        })
+        .collect();
+    git_stage(&repo.path, &paths).await.unwrap();
+    git_unstage(&repo.path, &paths).await.unwrap();
+    fs::write(repo.path.join("kept.txt"), "two\n").unwrap();
+    paths.push("kept.txt".into());
+    git_discard(&repo.path, &paths).await.unwrap();
+    assert_eq!(
+        fs::read_to_string(repo.path.join("kept.txt")).unwrap(),
+        "one\n"
+    );
+    assert_eq!(fs::read_dir(&dir).unwrap().count(), 0);
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn symlink_escape_is_rejected() {
