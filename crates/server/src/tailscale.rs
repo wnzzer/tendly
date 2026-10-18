@@ -143,7 +143,7 @@ fn not_installed(program: &str) -> Problem {
             .link("https://tailscale.com/download/mac")
     } else if cfg!(windows) {
         problem
-            .command("winget install --id tailscale.tailscale -e")
+            .command("winget install --id Tailscale.Tailscale -e --source winget")
             .link("https://tailscale.com/download/windows")
     } else {
         problem

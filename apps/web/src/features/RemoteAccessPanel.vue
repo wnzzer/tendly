@@ -151,6 +151,14 @@ const checkedAt = computed(() => status.value?.checked_at ? new Date(status.valu
           <strong>{{ t(explained.title) }}</strong>
           <p>{{ t(explained.body) }}</p>
           <div v-if="problem.command" class="update-command"><code>{{ problem.command }}</code><CopyButton :text="problem.command" :label="t('Copy command')"/></div>
+          <template v-if="problem.code === 'not_installed' && problem.link?.endsWith('/windows')">
+            <p>{{ t('On Windows, run the install command above in PowerShell and approve the installer when prompted.') }}</p>
+            <p>{{ t('If no matching package is found, update the WinGet sources, then retry the install command:') }}</p>
+            <div class="update-command"><code>winget source update</code><CopyButton text="winget source update" :label="t('Copy command')"/></div>
+            <p>{{ t('If WinGet is unavailable or installation still fails, use Download Tailscale below to get the official Windows installer.') }}</p>
+            <p>{{ t('After installing, reopen PowerShell. If Tendly still cannot find Tailscale, restart Tendly, then check again.') }}</p>
+          </template>
+          <p v-if="problem.code === 'not_running'">{{ t('Run the command on this computer, then open the sign-in link it prints and authorize this device in your browser. You can also open the Tailscale app and sign in. Tendly checks again automatically after you connect.') }}</p>
           <p v-if="problem.code === 'port_taken' || problem.code === 'failed' || problem.code === 'not_installed'" class="remote-detail">{{ problem.detail }}</p>
           <div class="remote-actions">
             <a v-if="problem.link" class="primary-button" :href="problem.link" target="_blank" rel="noopener"><Icon name="arrow" :size="14"/>{{ t(linkLabel) }}</a>
