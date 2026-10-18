@@ -50,7 +50,7 @@ import type { SearchHit } from './file-search';
 import { useI18n } from '../i18n';
 import { isMac } from './shortcuts';
 import { suggestionKey } from './chat-keyboard';
-import { pendingMessage, settleAccepted, settleFailed } from './message-delivery';
+import { deliveryUncertain, pendingMessage, settleAccepted, settleFailed } from './message-delivery';
 import { useSessionMenuPosition } from './session-menu-position';
 import { canReopenInTerminal, terminalReopen } from './terminal-reopen';
 import { randomId } from './random-id';
@@ -798,7 +798,7 @@ watch(() => [canSendIgnoringText.value, queued.value.length] as const, ([ready, 
   const next = messageQueue.shift(props.session.id); if (!next) return;
   const id = props.session.id, target = draft.value, messageId = randomId();
   target.pending = pendingMessage(messageId, queuedContent(next), target.text, props.session); target.notice = undefined; error.value = '';
-  void deliver(id, target);
+  void deliver(id, target, () => messageQueue.get(id).unshift(next));
 });
 async function send(queue = false) {
   if (canQueue.value) { if (queue) queueDraft(); else await steerDraft(); return; }
@@ -872,7 +872,10 @@ async function retryDelivery() {
   try { pendingMessageRetry(target, props.session); target.pending!.state = 'sending'; target.notice = undefined; await deliver(props.session.id, target); }
   catch (cause) { error.value = t(errorMessage(cause)); }
 }
-async function deliver(id: string, target: ChatDraft) {
+/** `requeue` is given for a message released from the queue: refused outright,
+ * it goes back where the user put it rather than into the composer (which it
+ * was never in), the way the Steer actions restore theirs. */
+async function deliver(id: string, target: ChatDraft, requeue?: () => void) {
   const pending = target.pending; if (!pending || isPreview.value) return;
   const { id: messageId, content } = pending;
   error.value = '';
@@ -881,7 +884,11 @@ async function deliver(id: string, target: ChatDraft) {
     settleAccepted(target, messageId, content, receipt);
     if (props.session.id === id && mounted.value) { emit('changed'); void load(); }
   } catch (cause) {
-    settleFailed(target, messageId, content, cause);
+    // A refusal is final (the turn was still running, say); an uncertain
+    // delivery may have landed, so that one stays pending to be resolved by
+    // hand, never re-queued, lest it send twice.
+    if (requeue && !deliveryUncertain(cause)) { if (target.pending?.id === messageId) { target.pending = undefined; target.notice = undefined; } requeue(); }
+    else settleFailed(target, messageId, content, cause);
     if (props.session.id === id && mounted.value) error.value = errorMessage(cause);
   }
 }
