@@ -7,6 +7,24 @@ fn content_hash(content: &str) -> String {
     format!("{:x}", Sha256::digest(content.as_bytes()))
 }
 
+/// The lines of a message after the list of attached files the composer
+/// writes above it, if there is one.
+fn without_attachment_header(text: &str) -> impl Iterator<Item = &str> {
+    let mut lines = text.lines().peekable();
+    if lines.peek().is_some_and(|line| {
+        line.starts_with("Attached file") && line.ends_with("in this workspace:")
+    }) {
+        lines.next();
+        while lines
+            .peek()
+            .is_some_and(|line| line.starts_with("- ") || line.trim().is_empty())
+        {
+            lines.next();
+        }
+    }
+    lines
+}
+
 /// A session name taken from the message that opened it.
 ///
 /// Both clients used to leave a summary in their transcripts and no longer do —
@@ -19,8 +37,7 @@ fn content_hash(content: &str) -> String {
 /// `/model` describes every session. Returns `None` when nothing legible is
 /// left, which keeps the created-at name rather than inventing one.
 fn derived_title(text: &str) -> Option<String> {
-    let body = text
-        .lines()
+    let body = without_attachment_header(text)
         .map(str::trim)
         .find(|line| !line.is_empty() && !line.starts_with("@") && !line.starts_with('/'))?;
     // Count characters, not bytes: the limit is about how wide the sidebar row
@@ -36,19 +53,7 @@ fn derived_title(text: &str) -> Option<String> {
 /// Tendly writes above a message is dropped, whitespace is folded, and the
 /// line is cut by characters so CJK keeps its share of the width.
 pub fn preview_line(text: &str) -> Option<String> {
-    let mut lines = text.lines().peekable();
-    if lines.peek().is_some_and(|line| {
-        line.starts_with("Attached file") && line.ends_with("in this workspace:")
-    }) {
-        lines.next();
-        while lines
-            .peek()
-            .is_some_and(|line| line.starts_with("- ") || line.trim().is_empty())
-        {
-            lines.next();
-        }
-    }
-    let body = lines
+    let body = without_attachment_header(text)
         .collect::<Vec<_>>()
         .join(" ")
         .split_whitespace()
@@ -849,6 +854,21 @@ mod tests {
             None
         );
         assert_eq!(preview_line(&"字".repeat(90)).unwrap().chars().count(), 81);
+    }
+
+    #[test]
+    fn a_title_is_what_was_said_without_the_attachment_header() {
+        assert_eq!(
+            derived_title(
+                "Attached file in this workspace:\n- .tendly-files/shot.png\n\n这里ui也有问题"
+            )
+            .as_deref(),
+            Some("这里ui也有问题")
+        );
+        assert_eq!(
+            derived_title("Attached files in this workspace:\n- a.png\n- b.png"),
+            None
+        );
     }
 
     #[test]
