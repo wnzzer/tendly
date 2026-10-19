@@ -200,6 +200,22 @@ impl ClientAdapter for ClaudeCode {
             None => request,
         }
     }
+    // One message, one token, discarded: what a model check asks
+    // (model_probe.rs). Claude Code itself is never started for it.
+    fn probe_call(&self, _profile: &EndpointProfile, model: &str) -> Option<(String, Value)> {
+        Some((
+            "/v1/messages".into(),
+            serde_json::json!({
+                "model": model,
+                "max_tokens": 1,
+                "messages": [{ "role": "user", "content": "ping" }],
+            }),
+        ))
+    }
+    // Claude Code has one wire protocol, whatever the endpoint.
+    fn probe_api(&self, _profile: &EndpointProfile) -> &'static str {
+        "anthropic-messages"
+    }
     // The same read-only handshake a chat session performs.
     fn catalog_args(&self) -> &'static [&'static str] {
         &[

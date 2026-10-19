@@ -38,6 +38,7 @@ mod mcp;
 mod media;
 mod model_catalog;
 mod model_limits;
+mod model_probe;
 mod native_chat;
 mod native_config;
 mod native_history;
@@ -459,7 +460,8 @@ fn compressible(
 
 async fn health() -> Json<Value> {
     Json(
-        json!({"ok":true,"service":"tendly-server","platform":env::consts::OS,"mode":"trusted-single-user","api_version":2,"capabilities":["shared_canvas","native_configurations","native_history","host_directories","endpoint_models","session_environment","structured_chat","official_accounts","session_configuration","session_archive","account_import_native","agent_clients","ephemeral_sessions","session_model","workspace_file_search","session_terminal_escape","stored_secrets","custom_balances","agent_tools","self_update","resource_monitoring","tailnet"],"instance_label":env::var("TENDLY_INSTANCE_LABEL").ok(),"version":env!("CARGO_PKG_VERSION")}),
+        json!({"ok":true,"service":"tendly-server","platform":env::consts::OS,"mode":"trusted-single-user","api_version":2,"capabilities":["shared_canvas","native_configurations","native_history","host_directories","endpoint_models","model_probe",
+            "model_probe_plan","session_environment","structured_chat","official_accounts","session_configuration","session_archive","account_import_native","agent_clients","ephemeral_sessions","session_model","workspace_file_search","session_terminal_escape","stored_secrets","custom_balances","agent_tools","self_update","resource_monitoring","tailnet"],"instance_label":env::var("TENDLY_INSTANCE_LABEL").ok(),"version":env!("CARGO_PKG_VERSION")}),
     )
 }
 

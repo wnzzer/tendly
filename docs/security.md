@@ -46,6 +46,6 @@ Anyone who can reach the API has the authority of the user running the server. T
 - No custom Agent reasoning loop, token-exchange server, provider reverse proxy, Keychain editor, automatic account import, strong cross-process credential isolation, hunk staging, Git network/PR workflow, LSP or computer-desktop control in this MVP.
 - Media playback depends on browser codecs. Text editing limit: 2 MiB. Large Git output is rejected; no silent truncation.
 - Common proxy support is HTTP/HTTPS without inline passwords. Claude Code does not support SOCKS. Empty proxy follows host settings; explicit profiles override inherited proxy variables for that process only.
-- Model listing never performs inference. HTTP requests have time/body limits and do not follow redirects with credentials; non-compatible endpoints keep manual model entry as fallback.
+- Model listing never performs inference. HTTP requests have time/body limits and do not follow redirects with credentials; non-compatible endpoints keep manual model entry as fallback. A separate, explicitly pressed model check (`probe-models`) does send one minimal request per model, at the endpoint's expense; it is capped, it is never scheduled, and it never runs from discovery or from opening a profile.
 - Resource guardrails bound layout depth/nodes, event windows and runtime replay. Managed process groups receive bounded cleanup; deliberately detached daemons remain outside that group boundary.
 - macOS has been run locally. Linux has a CI target, not a claim of a completed deployment here.

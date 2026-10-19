@@ -180,6 +180,27 @@ impl ClientAdapter for Codex {
     fn lists_models_unconfigured(&self) -> bool {
         true
     }
+    /// One Responses call, one token, `store: false` so a check leaves nothing
+    /// behind on the account (model_probe.rs). Codex itself is not started.
+    fn probe_call(
+        &self,
+        _profile: &tendly_domain::EndpointProfile,
+        model: &str,
+    ) -> Option<(String, Value)> {
+        Some((
+            "/v1/responses".into(),
+            serde_json::json!({
+                "model": model,
+                "input": "ping",
+                "max_output_tokens": 1,
+                "store": false,
+            }),
+        ))
+    }
+    // Codex speaks the Responses API, whatever the endpoint.
+    fn probe_api(&self, _profile: &tendly_domain::EndpointProfile) -> &'static str {
+        "openai-responses"
+    }
     fn catalog_args(&self) -> &'static [&'static str] {
         &["app-server"]
     }

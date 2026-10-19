@@ -92,5 +92,30 @@ export interface TextFile { path: string; content: string; version: string; }
 export interface NativeHistorySource { id:string; provider:AgentProviderKind; label:string; path:string; available:boolean; config_env?:string|null; }
 export interface NativeHistoryItem { id:string; provider:AgentProviderKind; title:string; cwd:string; updated_at:string; imported_session_id:string|null; }
 export interface ModelCatalog { models: Array<{id:string;name:string;efforts?:string[]}>; source_url: string; has_more: boolean; }
+/** One model's answer from an explicit check: it ran, or why it did not. */
+export type ModelProbeStatus = "ok" | "unauthorized" | "not_found" | "rate_limited" | "timeout" | "failed";
+/**
+ * The wire protocols a check can speak. A client with a choice (Pi) names one
+ * per profile; the others have exactly one.
+ */
+export type ModelProbeApi = "anthropic-messages" | "openai-responses" | "openai-completions" | "google-generative-ai";
+export interface ModelProbeResult {
+  model: string;
+  status: ModelProbeStatus;
+  /** The protocol the check used: the same model can answer on one and fail on another. */
+  api: ModelProbeApi;
+  latency_ms?: number;
+  detail?: string;
+}
+/** What a check would send, without sending it. */
+export interface ModelProbePlan {
+  /** The client that would send it. */
+  client: string;
+  api: ModelProbeApi;
+  /** The path under the endpoint, e.g. `/v1/messages`. */
+  path: string;
+  /** Whether the profile named no API and this one was guessed from the URL. */
+  guessed: boolean;
+}
 export type WorkspaceLayout = Record<string, unknown>;
 export * from "./layout";

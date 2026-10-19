@@ -8,6 +8,7 @@ import { environmentRows, newEnvironmentRow, type EnvironmentRow } from "./envir
 import { limitKey, nextLimits, validWindow, windowValue, type Limits } from "./model-limits";
 import ModelSelection from "./ModelSelection.vue";
 import { offeredModels } from "./model-choices";
+import { FIXED_APIS, PROBE_APIS, type ModelProbePlan, type ModelProbeResult } from "./model-probe";
 import EndpointBalanceEditor from "./EndpointBalanceEditor.vue";
 import EnvironmentEditor from "./EnvironmentEditor.vue";
 import { AGENT_CLIENTS, DEFAULT_CLIENT, clientInfo, clientLabel } from "./clients";
@@ -178,6 +179,8 @@ async function saveContextWindows() {
 const chosenModels = ref<string[]>([]);
 /** What the form offers and explains for the chosen client (clients.ts). */
 const client = computed(() => clientInfo(form.provider));
+/** A client with one wire protocol names it; the ones with a choice say nothing here. */
+const fixedApi = computed(() => client.value.apis?.length ? "" : PROBE_APIS[FIXED_APIS[form.provider]]?.label ?? "");
 
 /**
  * Claude Code's model slots, edited here and kept as the environment
@@ -240,6 +243,42 @@ async function discover() {
   catch(cause){if(revision===discoveryRevision)modelError.value=errorMessage(cause);}
   finally {if(revision===discoveryRevision)discovering.value=false;}
 }
+/**
+ * Which of the listed models the endpoint actually runs. The form asks one
+ * batch at a time (ModelSelection.vue) so answers appear as they arrive and
+ * a stop takes effect at once; the server sends one minimal request per model.
+ * The draft profile is what is checked, not the saved one, and a key pasted
+ * but not yet saved is stored first so the endpoint sees the same credential
+ * discovery did.
+ */
+async function probeModels(batch: string[]): Promise<ModelProbeResult[]> {
+  if (!backendCapabilities.modelProbe || editingNative.value || !secretValid.value || aliases.value.error) throw new Error(t("This profile cannot be checked as it stands; fix the fields above first."));
+  if (secretMode.value === "stored" && apiKey.value.trim()) {
+    // Stored first: the server resolves the reference, so the check must see
+    // the same key discovery did. A failure here is the run's failure.
+    await storePastedKey();
+    await nextTick();
+  }
+  return request<ModelProbeResult[]>("/endpoint-profiles/probe-models", json("POST", { profile: payload(false), models: batch }));
+}
+/**
+ * Which protocol a check would speak. Asked as the form changes and sent
+ * nowhere near the endpoint, so it is safe on every keystroke; the answer is
+ * what the run would actually send, which is not something the form can work
+ * out on its own (the server owns the per-client rules).
+ */
+const probePlan = ref<ModelProbePlan | undefined>(undefined);
+let planRevision = 0;
+async function askPlan() {
+  const revision = ++planRevision;
+  probePlan.value = undefined;
+  if (!backendCapabilities.modelProbePlan || editingNative.value || !form.endpoint_url.trim()) return;
+  try {
+    const answer = await request<ModelProbePlan>("/endpoint-profiles/probe-plan", json("POST", payload(false)));
+    if (revision === planRevision) probePlan.value = answer;
+  } catch { /* A plan is a hint: a form that cannot be checked shows none. */ }
+}
+watch(() => [form.provider, form.endpoint_url, form.api, editingNative.value], askPlan);
 async function save() {
   if(busy.value||!canSave.value)return;
   busy.value=true;error.value="";
@@ -363,6 +402,7 @@ onBeforeUnmount(()=>{discoveryRevision++;protocolRevision++;});
           <template v-else>
           <label>{{ t('Endpoint URL') }}<input v-model="form.endpoint_url" type="url" :placeholder="t('Official endpoint when empty')" autocomplete="off" /></label>
           <label v-if="client.apis?.length">{{ t('Endpoint API') }}<select v-model="form.api"><option value="">{{ t('Guess from the URL') }}</option><option v-for="api in client.apis" :key="api.value" :value="api.value">{{ api.label }}</option></select></label>
+          <p v-else class="form-help">{{ t('{client} speaks {api} to every endpoint; there is no protocol to choose.', { client: client.label, api: fixedApi }) }}</p>
           <label>{{ t('Proxy URL') }}<input v-model="form.proxy_url" type="url" placeholder="http://127.0.0.1:7890" autocomplete="off" /></label>
           <p class="form-help">{{ t('Applied on the server. Empty uses the host network.') }}<template v-if="client.proxyNote"> {{ t(client.proxyNote) }}</template></p>
           <template v-if="secretMode==='stored'">
@@ -380,7 +420,7 @@ onBeforeUnmount(()=>{discoveryRevision++;protocolRevision++;});
           <div class="model-fetch"><strong>{{ t('Model selection') }}</strong><button type="button" class="small-button" :disabled="discovering||!backendCapabilities.models||!secretValid||!!aliases.error" :title="!backendCapabilities.models?t('Backend upgrade required'):t('Reads the endpoint\'s model list. No model is run.')" @click="discover"><Icon name="refresh" :size="14" />{{ discovering?t('Loading models…'):t('Load models from endpoint') }}</button></div>
           <div v-if="modelError" class="inline-error" role="alert">{{ modelError }}<p>{{ t('You can still enter a model ID or alias manually.') }}</p></div>
           <p v-if="models" class="form-help">{{ t('{count} models returned', {count:models.models.length}) }} · <span>{{ models.source_url }}</span><br v-if="models.has_more" /><span v-if="models.has_more">{{ t('The endpoint has more models; this is the first page.') }}</span></p>
-          <ModelSelection v-if="!editingNative && (models?.models.length || chosenModels.length)" v-model:selected="chosenModels" :catalog="models?.models ?? []" :window-text="windowText" :placeholder="windowPlaceholder" @window="setWindow" @look="lookPublished" />
+          <ModelSelection v-if="!editingNative && (models?.models.length || chosenModels.length)" v-model:selected="chosenModels" :catalog="models?.models ?? []" :window-text="windowText" :placeholder="windowPlaceholder" :probe="backendCapabilities.modelProbe ? probeModels : undefined" :plan="probePlan" @window="setWindow" @look="lookPublished" />
           <label>{{ t('Default model') }}<ModelPicker v-model="form.model" :models="choices" :placeholder="t('Choose a model or enter an ID')" /></label>
           <div class="protocol-check">
             <button type="button" class="small-button" :disabled="checkingProtocols || busy || !form.model.trim() || !secretValid || !!aliases.error" @click="checkProtocols">{{ t(checkingProtocols ? 'Checking protocols…' : 'Check model and protocol support') }}</button>
@@ -449,8 +489,7 @@ onBeforeUnmount(()=>{discoveryRevision++;protocolRevision++;});
 .secret-mode{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:var(--text-xs);color:var(--ink-soft)}
 .secret-mode>label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
 .secret-clear{margin-left:8px;font-size:inherit}
-.model-fetch {display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--fill-hover);padding-top:12px;}
-.model-fetch strong {font-size:var(--text-sm);}.model-effective {margin:0;color:var(--accent-ink);font-size:var(--text-sm);}.form-help {overflow-wrap:anywhere;}
+.model-fetch {display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--fill-hover);padding-top:12px;}.model-fetch strong {font-size:var(--text-sm);}.model-effective {margin:0;color:var(--accent-ink);font-size:var(--text-sm);}.form-help {overflow-wrap:anywhere;}
 .shared-config-panel{border:1px solid var(--accent-line);border-radius:var(--radius-md);background:var(--sunken);padding:12px}.shared-config-panel>strong{display:flex;align-items:center;gap:7px;font-size:var(--text-xs);font-weight:550;color:var(--accent-ink)}.shared-config-panel>code{display:block;margin-top:8px;font-size:var(--text-xs);overflow-wrap:anywhere;color:var(--ink-soft)}.shared-config-panel p{font-size:var(--text-xs);line-height:18px;color:var(--ink-soft);margin-top:8px}.shared-config-consent{padding:12px;border:1px solid var(--warn-line);border-radius:var(--radius-md);background:var(--warn-soft)}.shared-config-consent p{font-size:var(--text-xs);line-height:18px;color:#837e66;margin:0 0 8px}.shared-config-consent>label{flex-direction:row;align-items:flex-start;gap:8px;line-height:17px;color:var(--ink-soft)}.shared-config-consent input{width:14px;height:14px;margin-top:2px;flex-shrink:0;accent-color:var(--accent)}.profile-card .shared-profile-label{color:var(--accent-ink)}.profile-card .profile-path{max-width:143px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--faint)}
 
 /* Settings-page type scale: the shared form styles run from 8px to 11px in a

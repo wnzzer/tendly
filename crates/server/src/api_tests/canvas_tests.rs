@@ -390,6 +390,8 @@ async fn shared_canvas_uses_existing_authentication_and_health_capabilities() {
             "native_history",
             "host_directories",
             "endpoint_models",
+            "model_probe",
+            "model_probe_plan",
             "session_environment",
             "structured_chat",
             "official_accounts",

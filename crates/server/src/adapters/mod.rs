@@ -128,6 +128,28 @@ pub trait ClientAdapter: Sync {
     fn lists_models_unconfigured(&self) -> bool {
         false
     }
+    /// The one request that would tell whether this model runs: the path under
+    /// the endpoint and the JSON body, or `None` for a client that can only
+    /// answer by being started. It asks for a single token and is sent only
+    /// from an explicit model check (model_probe.rs), never from discovery.
+    ///
+    /// The wire protocol comes with it: a client with a choice of API (Pi)
+    /// speaks whichever the profile names, and the interface says which one a
+    /// check used, because the same model can answer on one and fail on
+    /// another.
+    fn probe_call(
+        &self,
+        _profile: &EndpointProfile,
+        _model: &str,
+    ) -> Option<(String, serde_json::Value)> {
+        None
+    }
+    /// The wire protocol this client speaks to a profile's endpoint, as a
+    /// value the interface knows (`anthropic-messages`, `openai-responses`,
+    /// `openai-completions`, `google-generative-ai`).
+    fn probe_api(&self, _profile: &EndpointProfile) -> &'static str {
+        ""
+    }
     /// The arguments that start its read-only model-list handshake, the extra
     /// ones for an unconfigured ask, the line that opens it, and how each
     /// reply moves it on (`stage` starts at zero and is the adapter's own).

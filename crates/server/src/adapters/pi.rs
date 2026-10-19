@@ -36,11 +36,17 @@ const APIS: [&str; 4] = [
 /// Which API a profile's endpoint speaks: the one it names, else a guess from
 /// its URL -- an Anthropic host speaks Anthropic Messages, and anything else
 /// is taken as OpenAI Chat Completions, which nearly every gateway serves.
-fn api_of(profile: &EndpointProfile) -> &str {
-    profile
-        .api
-        .as_deref()
-        .unwrap_or_else(|| guess_api(profile.endpoint_url.as_deref().unwrap_or_default()))
+fn api_of(profile: &EndpointProfile) -> &'static str {
+    // A named API is one of APIS, whose entries are static, so the borrow is
+    // narrowed to the client's own vocabulary rather than the profile's string.
+    match profile.api.as_deref() {
+        Some(named) => APIS
+            .iter()
+            .find(|api| **api == named)
+            .copied()
+            .unwrap_or("openai-completions"),
+        None => guess_api(profile.endpoint_url.as_deref().unwrap_or_default()),
+    }
 }
 
 fn guess_api(url: &str) -> &'static str {
@@ -223,8 +229,52 @@ impl ClientAdapter for Pi {
             (_, Some(key)) => request.bearer_auth(key),
         }
     }
+    /// Whichever API the profile names, or the one its URL suggests.
+    fn probe_api(&self, profile: &EndpointProfile) -> &'static str {
+        api_of(profile)
+    }
     fn catalog_args(&self) -> &'static [&'static str] {
         &["--mode", "rpc", "--no-session"]
+    }
+    /// A check speaks whichever API the profile names, with the same path
+    /// Pi itself would call (model_probe.rs). One token, nothing stored.
+    fn probe_call(&self, profile: &EndpointProfile, model: &str) -> Option<(String, Value)> {
+        let (suffix, body) = match api_of(profile) {
+            "anthropic-messages" => (
+                "/v1/messages".to_owned(),
+                json!({
+                    "model": model,
+                    "max_tokens": 1,
+                    "messages": [{ "role": "user", "content": "ping" }],
+                }),
+            ),
+            "google-generative-ai" => (
+                format!("/v1beta/models/{model}:generateContent"),
+                json!({
+                    "contents": [{ "role": "user", "parts": [{ "text": "ping" }] }],
+                    "generationConfig": { "maxOutputTokens": 1 },
+                }),
+            ),
+            "openai-responses" => (
+                "/v1/responses".to_owned(),
+                json!({
+                    "model": model,
+                    "input": "ping",
+                    "max_output_tokens": 1,
+                    "store": false,
+                }),
+            ),
+            _ => (
+                "/v1/chat/completions".to_owned(),
+                json!({
+                    "model": model,
+                    "messages": [{ "role": "user", "content": "ping" }],
+                    "max_tokens": 1,
+                    "stream": false,
+                }),
+            ),
+        };
+        Some((suffix, body))
     }
     fn catalog_opening(&self) -> &'static str {
         "{\"id\":\"tendly-models\",\"type\":\"get_available_models\"}\n"

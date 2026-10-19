@@ -873,3 +873,157 @@ fn native_config_preserves_explicit_directory_spelling_and_rejects_symlink_retar
         StatusCode::CONFLICT
     );
 }
+
+/// A model check is a POST the endpoint accepts or refuses per model; the
+/// interface then prunes to what worked. The route sees the form's draft
+/// profile, so a key pasted but not yet saved still checks the endpoint.
+#[tokio::test]
+async fn a_model_check_asks_the_endpoint_once_per_model_and_reports_what_runs() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let f = Fixture::new("127.0.0.1:8787".parse().unwrap(), None);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let endpoint = tokio::spawn(async move {
+        let mut paths = Vec::new();
+        for body in [
+            r#"{"id":"resp_1"}"#,
+            r#"{"error":{"message":"no such model"}}"#,
+        ] {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0; 16 * 1024];
+            let n = socket.read(&mut buf).await.unwrap();
+            let request = String::from_utf8_lossy(&buf[..n]).into_owned();
+            paths.push(request.lines().next().unwrap_or_default().to_owned());
+            let reply = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            socket.write_all(reply.as_bytes()).await.unwrap();
+        }
+        paths
+    });
+    let (status, results) = call(
+        f.app(),
+        "POST",
+        "/api/endpoint-profiles/probe-models",
+        json!({
+            "profile": {"name":"draft","provider":"codex","endpoint_url":format!("http://{address}/v1")},
+            "models": ["good-model", "bad-model"],
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{results}");
+    let rows: Vec<(&str, &str)> = results
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            (
+                row["model"].as_str().unwrap(),
+                row["status"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(rows, [("good-model", "ok"), ("bad-model", "failed")]);
+    // The protocol travels with each answer: a model can work on one API and
+    // fail on another, so a row without it would be ambiguous.
+    assert!(
+        results
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["api"] == "openai-responses"),
+        "Codex speaks the Responses API: {results}"
+    );
+    let paths = endpoint.await.unwrap();
+    assert_eq!(paths.len(), 2);
+    assert!(
+        paths
+            .iter()
+            .all(|path| path == "POST /v1/responses HTTP/1.1")
+    );
+}
+
+/// The form shows which protocol a check would speak before anything is
+/// billed, so the plan names the API and the path without sending a request.
+#[tokio::test]
+async fn a_probe_plan_names_the_protocol_and_path_without_asking_the_endpoint() {
+    let f = Fixture::new("127.0.0.1:8787".parse().unwrap(), None);
+    // Nothing listens here: a plan that made a request would fail or hang.
+    for (provider, api, path, guessed) in [
+        ("claude_code", "anthropic-messages", "/v1/messages", false),
+        ("codex", "openai-responses", "/v1/responses", false),
+        // Pi speaks whichever API the profile names, or guesses from the URL.
+        ("pi", "anthropic-messages", "/v1/messages", true),
+        ("pi", "openai-responses", "/v1/responses", false),
+        ("pi", "openai-completions", "/v1/chat/completions", false),
+        (
+            "pi",
+            "google-generative-ai",
+            "/v1beta/models/model:generateContent",
+            false,
+        ),
+    ] {
+        let mut body = json!({
+            "name": "draft",
+            "provider": provider,
+            "endpoint_url": "https://gateway.test",
+        });
+        if provider == "pi" && !guessed {
+            body["api"] = json!(api);
+        }
+        if provider == "pi" && guessed {
+            body["endpoint_url"] = json!("https://api.anthropic.com");
+        }
+        let (status, plan) = call(f.app(), "POST", "/api/endpoint-profiles/probe-plan", body).await;
+        assert_eq!(status, StatusCode::OK, "{plan}");
+        assert_eq!(plan["api"], api, "{provider} {plan}");
+        assert_eq!(plan["path"], path, "{provider} {plan}");
+        assert_eq!(plan["guessed"], guessed, "{provider} {plan}");
+    }
+    // A client that cannot be checked without starting it says so, rather
+    // than naming a protocol it would not speak.
+    let (status, body) = call(
+        f.app(),
+        "POST",
+        "/api/endpoint-profiles/probe-plan",
+        json!({"name":"terminal","provider":"terminal"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+}
+
+#[tokio::test]
+async fn a_model_check_refuses_a_batch_it_cannot_finish_and_names_the_reason() {
+    let f = Fixture::new("127.0.0.1:8787".parse().unwrap(), None);
+    let (status, body) = call(
+        f.app(),
+        "POST",
+        "/api/endpoint-profiles/probe-models",
+        json!({
+            "profile": {"name":"draft","provider":"codex","endpoint_url":"https://example.test/v1"},
+            "models": [],
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("at least one model")
+    );
+    let many: Vec<String> = (0..25).map(|i| format!("m{i}")).collect();
+    let (status, body) = call(
+        f.app(),
+        "POST",
+        "/api/endpoint-profiles/probe-models",
+        json!({
+            "profile": {"name":"draft","provider":"codex","endpoint_url":"https://example.test/v1"},
+            "models": many,
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body["error"].as_str().unwrap().contains("at most 24"));
+}

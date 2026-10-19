@@ -32,20 +32,42 @@ pub(super) struct ImportNativeProfile {
     confirmed_shared_config: bool,
 }
 
-pub(super) async fn discover_models(
+/// A draft profile plus the models to check against it. The profile is not
+/// saved: a check is a question about the form's current settings, so it must
+/// see exactly what the form shows rather than what was last stored.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ProbeModels {
+    profile: CreateProfile,
+    models: Vec<String>,
+}
+
+pub(super) async fn probe_models(
     State(state): State<AppState>,
-    Json(input): Json<CreateProfile>,
-) -> Result<Json<model_catalog::ModelCatalog>> {
-    model_catalog::discover(&state, &draft_profile(input))
+    Json(input): Json<ProbeModels>,
+) -> Result<Json<Vec<model_probe::ProbeResult>>> {
+    let p = draft_profile(input.profile, "Model check");
+    model_probe::probe(&state.state_dir, &p, &input.models)
         .await
         .map(Json)
 }
 
-fn draft_profile(input: CreateProfile) -> EndpointProfile {
+/// Which protocol a check would speak, without sending one. The form asks this
+/// as its fields change, so the API and path are on screen before anything is
+/// billed.
+pub(super) async fn probe_plan(
+    Json(input): Json<CreateProfile>,
+) -> Result<Json<model_probe::ProbePlan>> {
+    model_probe::plan(&draft_profile(input, "Model check")).map(Json)
+}
+
+/// The profile a form's current settings describe, before it is saved. The
+/// name only fills a blank one; a draft is never stored under it.
+fn draft_profile(input: CreateProfile, fallback_name: &str) -> EndpointProfile {
     EndpointProfile {
         id: Uuid::new_v4(),
         name: if input.name.trim().is_empty() {
-            "Model discovery".into()
+            fallback_name.into()
         } else {
             input.name
         },
@@ -65,11 +87,23 @@ fn draft_profile(input: CreateProfile) -> EndpointProfile {
     }
 }
 
+pub(super) async fn discover_models(
+    State(state): State<AppState>,
+    Json(input): Json<CreateProfile>,
+) -> Result<Json<model_catalog::ModelCatalog>> {
+    let p = draft_profile(input, "Model discovery");
+    model_catalog::discover(&state, &p).await.map(Json)
+}
+
+/// Which protocols the endpoint supports for one model: a single tiny call per
+/// protocol. Narrower than `probe_models` on purpose — it answers "does this
+/// endpoint speak Responses at all", which a batch of model checks cannot,
+/// because a whole batch failing looks the same for every wrong reason.
 pub(super) async fn check_protocols(
     State(state): State<AppState>,
     Json(input): Json<CreateProfile>,
 ) -> Result<Json<Vec<model_catalog::ProtocolCheck>>> {
-    model_catalog::check_protocols(&state, &draft_profile(input))
+    model_catalog::check_protocols(&state, &draft_profile(input, "Protocol check"))
         .await
         .map(Json)
 }
@@ -271,6 +305,8 @@ pub(super) fn routes() -> Router<AppState> {
             "/api/endpoint-profiles/discover-models",
             post(discover_models),
         )
+        .route("/api/endpoint-profiles/probe-models", post(probe_models))
+        .route("/api/endpoint-profiles/probe-plan", post(probe_plan))
         .route(
             "/api/endpoint-profiles/{id}/models",
             get(discover_profile_models),
