@@ -49,4 +49,10 @@ See [API contract](api.md) and [acceptance record](mvp-status.md). Earlier desig
 
 With the development frontend running, `http://127.0.0.1:5173/ui-preview.html` renders the actual UI components against clearly labeled local snapshots. It does not call the user's Agent backend. Its 390px container previews narrow-screen layout; it is **not** a real-phone or touch-device acceptance test.
 
+### Screenshots of one component
+
+`http://127.0.0.1:5173/ui-shot.html` renders the model-check panel alone, against a fixture catalogue and a local stand-in for the check, so no request leaves the page. `?mode=done|chosen` picks how much of the panel is filled in, `?api=…` picks the protocol it claims to have used, `?guessed=1` marks that protocol as inferred, and `?all404=1` makes every model fail the way a wrong protocol does. Harness layout lives in the page's own `<style>`, because `apps/web/src/features/design-tokens.test.mjs` walks every file under `src/` and counts literal font sizes.
+
+Neither harness page is reachable from the built app: Vite only builds `index.html`, so `dist/` carries no copy of them. Verify layout claims by measuring the DOM (`getBoundingClientRect`, `scrollWidth > clientWidth`, a bounding-box check for escapes) rather than by describing a PNG.
+
 The existing 5173/8787 development installation has four user-owned active sessions; do not restart its backend or end those sessions merely to expose new capabilities. Use an explicitly separate state/database/port for feature previews (8788 is the designated preview port), and record what was actually verified there. Do not infer live OAuth success, a paid model turn, Linux deployment or mobile-device acceptance from compiled code, fixtures or the read-only preview.
