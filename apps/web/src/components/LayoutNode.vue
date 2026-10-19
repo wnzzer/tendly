@@ -7,6 +7,7 @@ import { dockPosition, keyedRatio, keyedTab, splitGrid, tabsAround } from "../fe
 import { paneDisplayTitle } from "../features/pane-context";
 import { useI18n } from "../i18n";
 import TabIcon from "../features/TabIcon.vue";
+import { shortcutHint } from "../features/palette-items";
 import Icon from "../features/Icon.vue";
 import ContextMenu from "../features/ContextMenu.vue";
 import MenuFlyout from "../features/MenuFlyout.vue";
@@ -252,7 +253,7 @@ onBeforeUnmount(() => { cleanupResize?.(); window.removeEventListener('resize', 
       </LayoutNode>
     </div>
   </div>
-  <section v-else ref="paneElement" class="dock-pane" :class="{ 'is-selected': activePane?.id === selected, 'is-collapsed': node.type === 'stack' && node.collapsedFrom, 'is-located': !!locatedPaneId && activePane?.id === locatedPaneId }" :data-pane-id="activePane?.id" :data-node-id="targetId" @pointerdown="activePane && select(activePane)" @dragover="dragOver" @dragleave="dragLeave" @drop="drop">
+  <section v-else ref="paneElement" class="dock-pane" :class="{ 'is-selected': activePane?.id === selected, 'is-collapsed': node.type === 'stack' && node.collapsedFrom, 'is-located': !!locatedPaneId && activePane?.id === locatedPaneId }" :data-pane-id="activePane?.id" :data-node-id="targetId" @pointerdown="activePane && select(activePane)" @focusin="activePane && activePane.id !== selected && select(activePane)" @dragover="dragOver" @dragleave="dragLeave" @drop="drop">
     <header class="dock-header" @contextmenu="openPaneMenu">
       <div class="dock-tabs" role="tablist" :aria-label="t('Pane tabs')">
         <div v-for="pane in tabs" :key="pane.id" :id="`dock-tab-${pane.id}`" :data-pane-tab-id="pane.id" role="tab" class="dock-tab" :class="{ 'is-active': pane.id === activePane?.id, 'is-ephemeral': isEphemeral(pane) }" :aria-selected="pane.id === activePane?.id" :aria-controls="`dock-panel-${pane.id}`" :aria-label="tabLabel(pane)" :tabindex="pane.id === activePane?.id ? 0 : -1" :title="t(isEphemeral(pane) ? '{title} · temporary window · discarded when closed' : '{title} · drag to arrange', { title: qualifiedTitle(pane) })" draggable="true" @contextmenu="openTabMenu($event, pane)" @dragstart="dragStart($event, pane)" @click.stop="select(pane)" @keydown="tabKey($event, pane)" @keydown.enter.prevent="select(pane)" @keydown.space.prevent="select(pane)">
@@ -278,10 +279,10 @@ onBeforeUnmount(() => { cleanupResize?.(); window.removeEventListener('resize', 
           </template>
           <button v-else-if="tabMenu.pane.metadata?.session_id" role="menuitem" @click="openSessionActions(tabMenu.pane)"><Icon name="more" :size="14" />{{ t('Session actions') }}</button>
           <MenuFlyout :label="t('Close tab')" icon="close" :width="180" @activate="closePanes([tabMenu!.pane])">
-            <button role="menuitem" :disabled="!menuOthers.length" @click="closePanes(menuOthers)">{{ t('Close other tabs') }}</button>
-            <button role="menuitem" :disabled="!menuLeft.length" @click="closePanes(menuLeft)">{{ t('Close tabs to the left') }}</button>
-            <button role="menuitem" :disabled="!menuRight.length" @click="closePanes(menuRight)">{{ t('Close tabs to the right') }}</button>
-            <button role="menuitem" @click="closePanes(tabs)">{{ t('Close all tabs') }}</button>
+            <button role="menuitem" :disabled="!menuOthers.length" @click="closePanes(menuOthers)"><Icon name="closeOthers" :size="14" />{{ t('Close other tabs') }}</button>
+            <button role="menuitem" :disabled="!menuLeft.length" @click="closePanes(menuLeft)"><Icon name="closeLeft" :size="14" />{{ t('Close tabs to the left') }}</button>
+            <button role="menuitem" :disabled="!menuRight.length" @click="closePanes(menuRight)"><Icon name="closeRight" :size="14" />{{ t('Close tabs to the right') }}</button>
+            <button role="menuitem" @click="closePanes(tabs)"><Icon name="closeAll" :size="14" />{{ t('Close all tabs') }}</button>
           </MenuFlyout>
         </ContextMenu>
       </div>
@@ -299,9 +300,9 @@ onBeforeUnmount(() => { cleanupResize?.(); window.removeEventListener('resize', 
             <button v-for="type in paneTypes" :key="type.kind" type="button" @click="add(type.kind)"><TabIcon :kind="type.kind" :size="14" />{{ t(type.title) }}</button>
           </div>
         </details>
-        <button class="dock-action" type="button" :aria-label="t('Split side by side')" :title="t('Split side by side')" @click="emit('split', targetId, 'horizontal')"><Icon name="splitHorizontal" :size="15" /></button>
-        <button class="dock-action" type="button" :aria-label="t('Split top and bottom')" :title="t('Split top and bottom')" @click="emit('split', targetId, 'vertical')"><Icon name="splitVertical" :size="15" /></button>
-        <button v-if="activePane" class="dock-action" type="button" :aria-label="t(maximized === activePane.id ? 'Restore pane' : 'Maximize pane')" :title="t(maximized === activePane.id ? 'Restore layout' : 'Maximize pane')" @click="emit('maximize', activePane.id)"><Icon :name="maximized === activePane.id ? 'minimize' : 'maximize'" :size="14" /></button>
+        <button class="dock-action" type="button" :aria-label="t('Split side by side')" :title="t('Split side by side') + ' · ' + shortcutHint('split-horizontal')" @click="emit('split', targetId, 'horizontal')"><Icon name="splitHorizontal" :size="15" /></button>
+        <button class="dock-action" type="button" :aria-label="t('Split top and bottom')" :title="t('Split top and bottom') + ' · ' + shortcutHint('split-vertical')" @click="emit('split', targetId, 'vertical')"><Icon name="splitVertical" :size="15" /></button>
+        <button v-if="activePane" class="dock-action" type="button" :aria-label="t(maximized === activePane.id ? 'Restore pane' : 'Maximize pane')" :title="t(maximized === activePane.id ? 'Restore layout' : 'Maximize pane') + ' · ' + shortcutHint('maximize-pane')" @click="emit('maximize', activePane.id)"><Icon :name="maximized === activePane.id ? 'minimize' : 'maximize'" :size="14" /></button>
         <button v-else class="dock-action" type="button" :aria-label="t('Close empty pane')" :title="t('Close empty pane')" @click="emit('close', targetId)"><Icon name="close" :size="14" /></button>
       </div>
     </header>
@@ -320,10 +321,10 @@ onBeforeUnmount(() => { cleanupResize?.(); window.removeEventListener('resize', 
       <hr />
       <button v-for="type in paneTypes" :key="type.kind" role="menuitem" @click="paneAction(() => add(type.kind))"><TabIcon :kind="type.kind" :size="14" />{{ t(type.title) }}</button>
       <hr />
-      <button role="menuitem" @click="paneAction(() => emit('split', targetId, 'horizontal'))"><Icon name="splitHorizontal" :size="14" />{{ t('Split side by side') }}</button>
-      <button role="menuitem" @click="paneAction(() => emit('split', targetId, 'vertical'))"><Icon name="splitVertical" :size="14" />{{ t('Split top and bottom') }}</button>
-      <button v-if="activePane" role="menuitem" @click="paneAction(() => emit('maximize', activePane!.id))"><Icon :name="maximized === activePane.id ? 'minimize' : 'maximize'" :size="14" />{{ t(maximized === activePane.id ? 'Restore layout' : 'Maximize pane') }}</button>
-      <button v-if="tabs.length" role="menuitem" @click="paneAction(() => closePanes(tabs))">{{ t('Close all tabs') }}</button>
+      <button role="menuitem" @click="paneAction(() => emit('split', targetId, 'horizontal'))"><Icon name="splitHorizontal" :size="14" />{{ t('Split side by side') }} <kbd>{{ shortcutHint('split-horizontal') }}</kbd></button>
+      <button role="menuitem" @click="paneAction(() => emit('split', targetId, 'vertical'))"><Icon name="splitVertical" :size="14" />{{ t('Split top and bottom') }} <kbd>{{ shortcutHint('split-vertical') }}</kbd></button>
+      <button v-if="activePane" role="menuitem" @click="paneAction(() => emit('maximize', activePane!.id))"><Icon :name="maximized === activePane.id ? 'minimize' : 'maximize'" :size="14" />{{ t(maximized === activePane.id ? 'Restore layout' : 'Maximize pane') }} <kbd>{{ shortcutHint('maximize-pane') }}</kbd></button>
+      <button v-if="tabs.length" role="menuitem" @click="paneAction(() => closePanes(tabs))"><Icon name="closeAll" :size="14" />{{ t('Close all tabs') }}</button>
       <button v-else role="menuitem" @click="paneAction(() => emit('close', targetId))"><Icon name="close" :size="14" />{{ t('Close empty pane') }}</button>
     </ContextMenu>
     <div v-if="dropPosition" class="dock-drop-overlay" :class="'drop-' + dropPosition"><span>{{ t(dropPosition === 'center' ? 'Add as tab' : 'Split ' + dropPosition) }}</span></div>

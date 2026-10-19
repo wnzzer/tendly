@@ -8,6 +8,14 @@ export const DEFAULT_LOCALE: Locale = "zh-CN";
 /** Only application-owned copy is translated. File names, session titles,
  * commands, provider messages, model IDs and API diagnostics remain untouched. */
 export const zhCN: Readonly<Record<string, string>> = {
+  "Focus pane left": "聚焦左侧窗格",
+  "Focus pane right": "聚焦右侧窗格",
+  "Focus pane up": "聚焦上方窗格",
+  "Focus pane down": "聚焦下方窗格",
+  "Esc to cancel · Ctrl+B again to pass through": "Esc 取消 · 再按 Ctrl+B 透传给当前输入区域",
+  "Press Ctrl+B, release it, then press a pane key. Esc cancels; Ctrl+B twice passes through to the focused terminal or editor.": "先按 Ctrl+B，松开后再按窗格操作键。Esc 取消；连按两次 Ctrl+B 可透传给当前终端或编辑器。",
+  "Next pane": "下一个窗格",
+  "Maximize or restore pane": "最大化或恢复窗格",
   "Enter to send · Shift+Enter for a new line · Esc to dismiss or cancel": "Enter 发送 · Shift+Enter 换行 · Esc 关闭或取消",
   "Enter steers · ⌥/Alt+Enter after this turn · Shift+Enter for a new line": "Enter 引导 · ⌥/Alt+Enter 等这轮结束 · Shift+Enter 换行",
   "Ctrl / ⌘ Enter also sends. Esc closes menus first; in the message box it cancels the active reply, not the session.": "Ctrl / ⌘ Enter 也可发送。Esc 优先关闭菜单；在输入框中会取消当前回复，不会结束会话。",

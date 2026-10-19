@@ -170,6 +170,7 @@ const viewEvents: TerminalViewEvents = {
   scrolled: updateScrolledBack,
   ready() {
     searchable.value = !!view?.search;
+    if (document.activeElement === host.value) view?.focus();
     resize();
   },
   failed() {
@@ -431,7 +432,7 @@ onUnmounted(() => {
     <div v-if="dragging" class="terminal-drop" aria-hidden="true"><span>{{ t('Drop to add the files and type their paths') }}</span></div>
     <TerminalUploads v-if="uploads.length" :uploads="uploads" @retry="files.retry" @dismiss="files.dismiss" />
     <div v-if="notice" :class="state === 'error' ? 'inline-error' : 'inline-notice'" :role="state === 'error' ? 'alert' : 'status'">{{ nativeNotice ? notice : t(notice) }}</div>
-    <div ref="host" class="terminal-host" :aria-label="t('Native session {id}', { id: sessionId })" @pointerdown="gestureStart" @pointerup="gestureEnd" @pointercancel="gesture = undefined" />
+    <div ref="host" class="terminal-host" tabindex="-1" @focus.self="focusView" :aria-label="t('Native session {id}', { id: sessionId })" @pointerdown="gestureStart" @pointerup="gestureEnd" @pointercancel="gesture = undefined" />
     <TerminalSearchBar v-if="searchOpen" ref="searchBar" v-model:query="searchQuery" :count="searchCount" :can-step="!!searchProgress?.count" @step="stepSearch" @close="closeSearch" />
     <button v-if="scrolledBack" type="button" :class="['terminal-latest', { 'above-keys': touchDevice, 'above-more': touchDevice && moreKeys }]" :aria-label="t('Jump to latest output')" :title="t('Jump to latest output')" @pointerdown="keepFocus" @click="scrollToLatest"><Icon name="chevron" :size="14" /><span>{{ t('Latest') }}</span></button>
     <TerminalKeyBar

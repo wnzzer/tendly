@@ -7,7 +7,7 @@ import { useI18n } from '../i18n';
 /** Every shortcut, from the same table the keys are handled with. */
 const emit = defineEmits<{ close: [] }>();
 const { t } = useI18n();
-const groups = computed(() => (['General', 'Navigation', 'Sessions'] as const).map(group => ({ group, items: SHORTCUTS.filter(item => item.group === group) })));
+const groups = computed(() => (['General', 'Navigation', 'Sessions', 'Pane actions'] as const).map(group => ({ group, items: SHORTCUTS.filter(item => item.group === group) })));
 const chat = [
   { keys: 'Enter', label: 'Send, or steer the running turn' },
   { keys: 'Alt+Enter', label: 'Queue after this turn' },
@@ -21,7 +21,7 @@ const chat = [
     <div class="shortcut-groups">
       <section v-for="entry in groups" :key="entry.group"><h3>{{ t(entry.group) }}</h3><dl><template v-for="item in entry.items" :key="item.id"><dt>{{ t(item.label) }}</dt><dd><kbd>{{ formatChord(item.chord) }}</kbd></dd></template></dl></section>
       <section><h3>{{ t('Conversation') }}</h3><dl><template v-for="item in chat" :key="item.keys"><dt>{{ t(item.label) }}</dt><dd><kbd>{{ item.keys }}</kbd></dd></template></dl></section>
-      <p class="shortcut-note">{{ t('A focused terminal keeps every key for the program running in it.') }}</p>
+      <p class="shortcut-note">{{ t('Press Ctrl+B, release it, then press a pane key. Esc cancels; Ctrl+B twice passes through to the focused terminal or editor.') }}</p>
     </div>
   </ModalDialog>
 </template>

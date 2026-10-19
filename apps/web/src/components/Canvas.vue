@@ -134,7 +134,11 @@ async function close(id: string) {
     if (next) selectPane(next);
   }
 }
-function maximize(id: string) { maximized.value = maximized.value === id ? null : id; }
+async function maximize(id: string) {
+  maximized.value = maximized.value === id ? null : id;
+  await nextTick();
+  focusContent(id);
+}
 function preset(value: LayoutPreset) {
   closeLayoutMenu();
   maximized.value = null;
@@ -151,10 +155,14 @@ function layoutEscape(event: KeyboardEvent) {
   closeLayoutMenu();
   layoutMenu.value.querySelector<HTMLElement>("summary")?.focus();
 }
-function splitSelected(direction: SplitDirection) {
+async function splitSelected(direction: SplitDirection) {
   closeLayoutMenu();
   const target = selected.value ?? panes.value[0]?.id ?? working.value.root.id;
+  const previous = new Set(findNodes(working.value.root, node => node.type === "stack" && node.panes.length === 0).map(node => node.id));
   split(containerId(working.value.root, target), direction);
+  const empty = findNodes(working.value.root, node => node.type === "stack" && node.panes.length === 0 && !previous.has(node.id))[0];
+  await nextTick();
+  if (empty) Array.from(stage.value?.querySelectorAll<HTMLElement>(".dock-pane[data-node-id]") ?? []).find(element => element.dataset.nodeId === empty.id)?.querySelector<HTMLElement>(".dock-empty button")?.focus();
 }
 function restoreView() { closeLayoutMenu(); maximized.value = null; }
 
@@ -233,7 +241,39 @@ async function focusPane(id: string): Promise<boolean> {
   locateTimer = setTimeout(() => { locatedPaneId.value = null; }, 1400);
   return true;
 }
-defineExpose({ openPane, openPaneAt, replaceWith, focusPane, closePane: close, maximizePane: maximize });
+async function cyclePane(step: number) {
+  const index = panes.value.findIndex(pane => pane.id === selected.value);
+  if (!panes.value.length) return;
+  const pane = panes.value[index < 0 ? 0 : (index + step + panes.value.length) % panes.value.length];
+  if (!pane || !await focusPane(pane.id)) return;
+  focusContent(pane.id);
+}
+function focusContent(id: string) {
+  const panel = document.getElementById(`dock-panel-${id}`);
+  const terminal = panel?.querySelector<HTMLElement>('.terminal-host');
+  if (terminal) { terminal.focus({ preventScroll: true }); return; }
+  panel?.querySelector<HTMLElement>('textarea:not([disabled]), .cm-content, [contenteditable="true"], input:not([disabled])')?.focus({ preventScroll: true });
+}
+
+async function focusDirection(direction: "left" | "right" | "up" | "down") {
+  const elements = Array.from(stage.value?.querySelectorAll<HTMLElement>(".dock-pane[data-node-id]") ?? []);
+  const current = elements.find(element => element.contains(document.activeElement)) ?? elements.find(element => element.dataset.paneId === selected.value);
+  if (!current) return;
+  const origin = current.getBoundingClientRect();
+  const horizontal = direction === "left" || direction === "right";
+  const sign = direction === "left" || direction === "up" ? -1 : 1;
+  const cx = origin.x + origin.width / 2, cy = origin.y + origin.height / 2;
+  const target = elements.filter(element => element !== current).map(element => {
+    const rect = element.getBoundingClientRect();
+    const dx = rect.x + rect.width / 2 - cx, dy = rect.y + rect.height / 2 - cy;
+    return { element, along: (horizontal ? dx : dy) * sign, across: Math.abs(horizontal ? dy : dx), visible: rect.width > 0 && rect.height > 0 };
+  }).filter(item => item.visible && item.along > 1).sort((a, b) => (a.along + a.across * 2) - (b.along + b.across * 2))[0];
+  const id = target?.element.dataset.paneId;
+  if (id && await focusPane(id)) focusContent(id);
+  else target?.element.querySelector<HTMLElement>(".dock-empty button")?.focus();
+}
+
+defineExpose({ focusDirection, splitSelected, cyclePane, openPane, openPaneAt, replaceWith, focusPane, closePane: close, maximizePane: maximize });
 
 /**
  * Sideways swipe between open views on a phone, in the order the view

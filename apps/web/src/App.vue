@@ -36,7 +36,7 @@ import AgentActivity, { type ShowTarget } from "./features/AgentActivity.vue";
 import ToastHost from "./features/ToastHost.vue";
 import CommandPalette from "./features/CommandPalette.vue";
 import ShortcutsDialog from "./features/ShortcutsDialog.vue";
-import { shortcutFor } from "./features/shortcuts";
+import { PANE_SHORTCUTS, prefixKey, shortcutFor } from "./features/shortcuts";
 import { setThemePreference } from "./features/theme";
 import { isSessionArchived } from "./features/session-list";
 import { attentionTitle, trackSessions, waitingIds } from "./features/attention";
@@ -484,6 +484,17 @@ function closeNewSessionMenu(event: Event) { (event.currentTarget as HTMLElement
 /** The command palette and the shortcut sheet, and the keys that open everything else. */
 const paletteOpen = ref(false), shortcutsOpen = ref(false);
 const hint = shortcutHint;
+function runPaneCommand(id: string) {
+  if (id === "pane-palette") { paletteOpen.value = true; return; }
+  if (id === "pane-help") { shortcutsOpen.value = true; return; }
+  if (page.value || !canvas.value) return;
+  if (id.startsWith("focus-")) { void canvas.value.focusDirection(id.slice(6) as "left" | "right" | "up" | "down"); return; }
+  if (id === "split-horizontal") canvas.value.splitSelected("horizontal");
+  else if (id === "split-vertical") canvas.value.splitSelected("vertical");
+  else if (id === "next-pane") void canvas.value.cyclePane(1);
+  else if (id === "previous-pane") void canvas.value.cyclePane(-1);
+  else if (id === "maximize-pane" && selectedPaneId.value) canvas.value.maximizePane(selectedPaneId.value);
+}
 const paletteItems = computed(() => buildPaletteItems({ sessions: sessions.value, workspaces: workspaces.value, here: contextWorkspace.value, t }, {
   openSession, quickSession: (id, provider) => void quickSession(id, provider), newSession: id => newSession(id), openPage, openSettings, toggleSidebar, setTheme: setThemePreference,
   openCanvas: () => void router.push({ name: "canvas" }),
@@ -491,9 +502,9 @@ const paletteItems = computed(() => buildPaletteItems({ sessions: sessions.value
   addWorkspace: () => { showWorkspace.value = true; },
   toggleFiles: () => { explorerOpen.value = !explorerOpen.value; },
   showShortcuts: () => { shortcutsOpen.value = true; },
-}));
+}).concat(page.value ? [] : PANE_SHORTCUTS.map(item => ({ id: item.id, title: t(item.label), group: t("Pane actions"), icon: "layout", hint: hint(item.id), run: () => runPaneCommand(item.id) }))));
 function onGlobalKey(event: KeyboardEvent) {
-  if (showAuth.value || event.defaultPrevented) return;
+  if (showAuth.value || event.defaultPrevented || prefixPassthrough.has(event)) return;
   const shortcut = shortcutFor(event);
   if (!shortcut) return;
   event.preventDefault();
@@ -510,6 +521,34 @@ function onGlobalKey(event: KeyboardEvent) {
   };
   run[shortcut.id]?.();
 }
+const prefixActive = ref(false);
+const prefixPassthrough = new WeakSet<KeyboardEvent>();
+function cancelPrefix() { prefixActive.value = false; }
+function onPrefixKey(event: KeyboardEvent) {
+  if (showAuth.value || page.value || document.querySelector('[aria-modal="true"]')) { cancelPrefix(); return; }
+  const action = prefixKey(event, prefixActive.value);
+  if (!action) return;
+  if (action === "pass" || action === "cancel-pass") {
+    cancelPrefix();
+    prefixPassthrough.add(event);
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  if (action === "ignore") return;
+  prefixActive.value = action === "prefix";
+  if (!["prefix", "cancel"].includes(action)) runPaneCommand(action);
+}
+onMounted(() => {
+  window.addEventListener("keydown", onPrefixKey, true);
+  window.addEventListener("blur", cancelPrefix);
+  window.addEventListener("pointerdown", cancelPrefix, true);
+});
+onUnmounted(() => {
+  window.removeEventListener("keydown", onPrefixKey, true);
+  window.removeEventListener("blur", cancelPrefix);
+  window.removeEventListener("pointerdown", cancelPrefix, true);
+});
 onMounted(() => window.addEventListener("keydown", onGlobalKey));
 onUnmounted(() => window.removeEventListener("keydown", onGlobalKey));
 
@@ -662,6 +701,10 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
   <HostFilePreview v-if="hostPreview" :key="hostPreview.path" :path="hostPreview.path" :line="hostPreview.line" @close="hostPreview=undefined" @add-workspace="folder=>{hostPreview=undefined;workspaceInitialPath=folder;showWorkspace=true}"/>
   <ImageLightbox />
   <ToastHost />
+  <div v-if="prefixActive" class="prefix-hint" role="status">
+    <strong>Ctrl+B</strong><span v-for="item in PANE_SHORTCUTS" :key="item.id"><kbd>{{ item.chord.key.replace('Arrow', '') }}</kbd> {{ t(item.label) }}</span>
+    <small>{{ t('Esc to cancel · Ctrl+B again to pass through') }}</small>
+  </div>
   <CommandPalette v-if="paletteOpen" :items="paletteItems" @close="paletteOpen=false" />
   <ShortcutsDialog v-if="shortcutsOpen" @close="shortcutsOpen=false" />
   <AgentActivity :enabled="!showAuth && apiOnline" @changed="agentChanged" @show="agentShow" @canvas="agentCanvas" />
@@ -694,6 +737,7 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
 </template>
 
 <style scoped>
+.prefix-hint{position:fixed;bottom:40px;left:50%;transform:translateX(-50%);z-index:160;display:flex;flex-wrap:wrap;gap:12px;padding:16px;max-width:720px;width:calc(100% - 40px);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);pointer-events:none}.prefix-hint small{width:100%;color:var(--muted)}.prefix-hint kbd{font-weight:600;color:var(--accent)}
 .new-session-split{position:relative;display:inline-flex}.new-session-split>.new-session-top{border-top-right-radius:0;border-bottom-right-radius:0}
 .new-session-more>summary{list-style:none;min-height:30px;padding:0 7px;border-top-left-radius:0;border-bottom-left-radius:0;border-left:1px solid color-mix(in srgb, var(--on-accent) 25%, transparent);cursor:pointer}.new-session-more>summary::-webkit-details-marker{display:none}.new-session-caret{transform:rotate(90deg)}
 .new-session-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:60;min-width:240px;padding:5px;border-radius:var(--radius-lg);background:var(--surface);box-shadow:var(--shadow-lg),0 0 0 1px var(--border),inset 0 1px 0 var(--card-highlight)}

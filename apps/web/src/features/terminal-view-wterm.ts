@@ -55,7 +55,16 @@ export function createWtermView(host: HTMLElement, theme: TerminalTheme, events:
         onResize: (cols, rows) => events.resized({ cols, rows }),
         onSearchChange: state => events.searched?.(state),
       });
-      await view.init();
+      // wterm focuses its input during init. A background pane must not steal
+      // the user's focus or emit a pane-selection event while mounting.
+      const previousFocus = document.activeElement;
+      const quietFocus = (event: FocusEvent) => event.stopPropagation();
+      host.addEventListener("focusin", quietFocus);
+      try { await view.init(); }
+      finally {
+        host.removeEventListener("focusin", quietFocus);
+        if (host.contains(document.activeElement) && previousFocus instanceof HTMLElement && previousFocus.isConnected && !host.contains(previousFocus)) previousFocus.focus({ preventScroll: true });
+      }
       if (disposed) {
         view.destroy();
         loaded.dispose();
