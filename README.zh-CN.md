@@ -20,6 +20,7 @@
   <a href="https://www.npmjs.com/package/@wnzzer/tendly"><img src="https://img.shields.io/npm/v/%40wnzzer%2Ftendly?style=flat-square&label=npm&color=0f7f70" alt="npm 版本"></a>
   <a href="https://www.npmjs.com/package/@wnzzer/tendly"><img src="https://img.shields.io/npm/dm/%40wnzzer%2Ftendly?style=flat-square&color=success" alt="npm 下载量"></a>
   <a href="https://github.com/wnzzer/tendly/stargazers"><img src="https://img.shields.io/github/stars/wnzzer/tendly?style=flat-square&color=orange" alt="GitHub Star"></a>
+  <a href="https://gitcode.com/wnzzer/tendly"><img src="https://gitcode.com/wnzzer/tendly/star/badge.svg" alt="AtomGit Star"></a>
 </p>
 
 <p align="center">
