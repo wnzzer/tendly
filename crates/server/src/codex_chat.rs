@@ -16,8 +16,8 @@
 use crate::chat_adapter::{Answers, ChatInit, Decision};
 use crate::native_chat::{
     Core, LaunchArgs, MAX_TEXT, NativeAdapter, NativeClient, Protocol, approval_scope, clip,
-    clip_value, js_string, json_rpc_frame, native_id, resolve, stringify, take_resume, truthy,
-    valid_init,
+    clip_value, count, js_string, json_rpc_frame, native_id, resolve, stringify, take_resume,
+    truthy, valid_init,
 };
 use indexmap::IndexMap;
 use serde_json::{Map, Value, json};
@@ -47,12 +47,14 @@ struct Written {
 }
 
 /// What Codex keeps per turn (`Turn` in chat-common.mjs): steering written
-/// before the turn had an id, that id, and whether an interrupt went out.
+/// before the turn had an id, that id, whether an interrupt went out, and what
+/// the turn last reported it spent.
 #[derive(Default)]
 struct TurnExtra {
     early: Vec<Written>,
     native_turn: Option<Value>,
     interrupt_sent: bool,
+    turn_usage: Option<Value>,
 }
 
 /// What follows a request's answer: the code after an `await` in the bridge.

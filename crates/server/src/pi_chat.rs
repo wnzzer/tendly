@@ -8,7 +8,7 @@
 //! what it does ask comes from extensions, as `extension_ui_request` dialogs.
 use crate::chat_adapter::{Answers, ChatInit, Decision};
 use crate::native_chat::{
-    Core, LaunchArgs, MAX_TEXT, NativeAdapter, NativeClient, Protocol, clip, js_string,
+    Core, LaunchArgs, MAX_TEXT, NativeAdapter, NativeClient, Protocol, clip, count, js_string,
     safe_integer, stringify, take_resume, valid_init,
 };
 use serde_json::{Map, Value, json};
@@ -520,7 +520,7 @@ impl Pi {
                     let text = clip(&text, MAX_TEXT);
                     self.core.emit(json!({"type":"message","id":id,"role":"assistant","text":text,"delta":false}));
                 }
-                self.assistant_id = None;
+                let assistant_id = self.assistant_id.take();
                 if let Some(usage) = body.get("usage").filter(|u| u.is_object() || u.is_array()) {
                     let context: i64 = ["input", "cacheRead", "cacheWrite"]
                         .iter()
@@ -531,6 +531,15 @@ impl Pi {
                     let window = self.window.map(|w| json!(w));
                     self.core
                         .usage(Some(&tokens), context.as_ref(), window.as_ref());
+                    // What this reply cost, read and written, under the reply.
+                    let cached = count(usage.get("cacheRead"));
+                    let input = count(usage.get("input")) + cached + count(usage.get("cacheWrite"));
+                    let output = count(usage.get("output"));
+                    if let Some(id) = assistant_id
+                        && (input != 0 || output != 0)
+                    {
+                        self.core.emit(json!({"type":"usage","message_id":id,"turn":{"input":input,"output":output,"cached":cached}}));
+                    }
                 }
                 if body.get("stopReason").and_then(Value::as_str) == Some("error") {
                     self.failed = true;

@@ -39,6 +39,12 @@ fn nested_cards_and_task_counts_survive_normalisation() {
     .expect("a turn's cost is a usage event");
     assert_eq!(spent["turn"]["cached"], 81000);
     assert!(normalize_event(json!({"type":"usage","turn":{"cost":1}})).is_none());
+    let reply = normalize_event(json!({
+        "type": "usage", "message_id": "pi-assistant-1", "turn": {"input": 42, "output": 4, "cached": 30}
+    }))
+    .expect("a reply's cost names its reply");
+    assert_eq!(reply["message_id"], "pi-assistant-1");
+    assert!(normalize_event(json!({"type":"usage","message_id":"","turn":{"input":1}})).is_none());
     for bad in [
         json!({"type":"tool","id":"t","name":"R","status":"running","parent":""}),
         json!({"type":"tool","id":"t","name":"R","status":"running","stats":{"cost":1}}),

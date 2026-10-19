@@ -47,6 +47,7 @@ pub(crate) fn normalize_event(mut value: Value) -> Option<Value> {
             "context_tokens",
             "context_window",
             "turn",
+            "message_id",
         ],
         "error" => &["type", "message"],
         "exit" => &["type"],
@@ -226,6 +227,10 @@ pub(crate) fn normalize_event(mut value: Value) -> Option<Value> {
                 && object
                     .get("context_window")
                     .is_none_or(|v| v.as_u64().is_some_and(|n| n > 0))
+                // The reply a cost belongs to, when the client names one.
+                && object.get("message_id").is_none_or(|v| {
+                    v.as_str().is_some_and(|s| !s.is_empty() && s.len() <= 256)
+                })
                 // What a turn cost, read and written, as the client summed it.
                 && object.get("turn").is_none_or(|value| {
                     value.as_object().is_some_and(|turn| {

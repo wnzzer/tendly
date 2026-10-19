@@ -106,6 +106,11 @@ pub fn safe_integer(value: Option<&Value>) -> Option<i64> {
     (number.fract() == 0.0 && number.abs() <= 9_007_199_254_740_991.0).then_some(number as i64)
 }
 
+/// A token count as the bridge reads one: a safe, non-negative integer, else 0.
+pub fn count(value: Option<&Value>) -> i64 {
+    safe_integer(value).filter(|n| *n >= 0).unwrap_or(0)
+}
+
 /// `redactEvents`: every secret-looking variable's value in the client's
 /// environment, longest first, becomes `[redacted]` wherever it appears.
 pub fn secrets_of(environment: impl Iterator<Item = (String, String)>) -> Vec<String> {

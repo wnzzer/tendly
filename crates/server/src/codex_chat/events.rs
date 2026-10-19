@@ -40,6 +40,18 @@ impl Codex {
                 let window = usage.and_then(|u| u.get("modelContextWindow")).cloned();
                 self.core
                     .usage(chosen.cloned().as_ref(), context.as_ref(), window.as_ref());
+                if let (Some(turn), Some(last)) = (self.core.active, last) {
+                    let native = self.core.turns[turn].extra.native_turn.as_ref();
+                    if !truthy(p.get("turnId")) || !truthy(native) || p.get("turnId") == native {
+                        let input = count(last.get("inputTokens"));
+                        let output = count(last.get("outputTokens"));
+                        let cached = count(last.get("cachedInputTokens"));
+                        if input != 0 || output != 0 {
+                            self.core.turns[turn].extra.turn_usage =
+                                Some(json!({"input":input,"output":output,"cached":cached}));
+                        }
+                    }
+                }
                 return;
             }
             "error" => {
@@ -75,6 +87,9 @@ impl Codex {
                     Some("failed") => "failed",
                     _ => "completed",
                 };
+                if let Some(spent) = self.core.turns[turn].extra.turn_usage.clone() {
+                    self.core.emit(json!({"type":"usage","turn":spent}));
+                }
                 self.core.finish(status);
                 if status == "interrupted" {
                     self.deferred.clear();

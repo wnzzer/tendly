@@ -604,7 +604,11 @@ mod tests {
         p.endpoint_url = None;
         p.native_config = Some(tendly_domain::NativeConfigReference {
             source_id: "claude-default".into(),
-            config_dir: "/fixture/claude".into(),
+            // Absolute on every platform; "/fixture" has no drive on Windows.
+            config_dir: std::env::temp_dir()
+                .join("claude")
+                .to_string_lossy()
+                .into_owned(),
             config_env: None,
         });
         let error = probe(std::env::temp_dir().as_path(), &p, &["a".to_owned()])
