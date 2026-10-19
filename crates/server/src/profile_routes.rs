@@ -22,6 +22,8 @@ pub(super) struct CreateProfile {
     models: Vec<String>,
     #[serde(default)]
     api: Option<String>,
+    #[serde(default)]
+    key_header: Option<tendly_domain::KeyHeader>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -81,6 +83,7 @@ fn draft_profile(input: CreateProfile, fallback_name: &str) -> EndpointProfile {
         model_aliases: input.model_aliases,
         models: input.models,
         api: input.api,
+        key_header: input.key_header,
         native_config: None,
         environment: input.environment,
         created_at: chrono::Utc::now(),
@@ -179,6 +182,7 @@ pub(super) async fn create_profile(
         model_aliases: input.model_aliases,
         models: input.models,
         api: input.api,
+        key_header: input.key_header,
         native_config: None,
         environment: input.environment,
         created_at: chrono::Utc::now(),
@@ -213,6 +217,11 @@ pub(super) async fn update_profile(
         if key == "models" {
             p.models = serde_json::from_value(value.clone())
                 .map_err(|_| ApiError::bad("Models must be a list of model IDs"))?;
+            continue;
+        }
+        if key == "key_header" {
+            p.key_header = serde_json::from_value(value.clone())
+                .map_err(|_| ApiError::bad("A key header is a name and a value"))?;
             continue;
         }
         if key == "model_aliases" {

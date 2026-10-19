@@ -5,6 +5,7 @@
 //! so it offers no permission modes, and Tendly's own tools do not reach
 //! it. Its chat runs over `pi --mode rpc` (chat-pi.mjs).
 use super::{AccountOperations, CatalogStep, ClientAdapter, EndpointLaunch};
+use crate::providers::KEY_STAND_IN;
 use crate::usage::{
     Call, FileState, Outcome, Source, Tokens, empty, number, timestamp, timestamp_ms,
 };
@@ -25,6 +26,21 @@ const KEY_VARIABLE: &str = "TENDLY_PI_API_KEY";
 /// generated provider, rather than through Pi's own configuration.
 fn configures_endpoint(profile: &EndpointProfile) -> bool {
     profile.endpoint_url.is_some() || profile.secret_ref.is_some()
+}
+
+/// The profile's key header, unless it is the one the API sends anyway:
+/// `x-api-key` for Anthropic Messages, `x-goog-api-key` for Google, Bearer
+/// for the OpenAI APIs.
+fn other_header(profile: &EndpointProfile) -> Option<&tendly_domain::KeyHeader> {
+    let (name, value) = match api_of(profile) {
+        "anthropic-messages" => ("x-api-key", "{key}"),
+        "google-generative-ai" => ("x-goog-api-key", "{key}"),
+        _ => ("authorization", "Bearer {key}"),
+    };
+    profile
+        .key_header
+        .as_ref()
+        .filter(|h| !(h.name.eq_ignore_ascii_case(name) && h.value == value))
 }
 
 /// The APIs Pi speaks to a custom provider (its docs, models.md).
@@ -192,22 +208,39 @@ impl ClientAdapter for Pi {
             .collect();
         // Pi lists a provider's models only once it has some key, so an
         // endpoint without one gets a placeholder, as its docs advise for
-        // keyless local servers.
+        // keyless local servers. A key bound for another header than the
+        // API's own goes there, read from the same variable, and the API's
+        // own header gets the placeholder.
+        let header = secret.as_ref().and(other_header(profile));
         let key = match secret {
-            Some(secret) => {
+            Some(secret) if header.is_none() => {
                 environment.insert(KEY_VARIABLE.into(), secret);
                 format!("${KEY_VARIABLE}")
             }
-            None => "tendly".into(),
+            Some(secret) => {
+                environment.insert(KEY_VARIABLE.into(), secret);
+                KEY_STAND_IN.into()
+            }
+            None => KEY_STAND_IN.into(),
         };
-        let config = json!({ "providers": { PROVIDER: {
+        let mut provider = json!({
             "baseUrl": url, "api": api_of(profile), "apiKey": key, "models": entries,
-        } } });
+        });
+        if let Some(header) = header {
+            let value = header
+                .value
+                .replacen("{key}", &format!("${{{KEY_VARIABLE}}}"), 1);
+            provider["headers"] = json!({ header.name.clone(): value });
+        }
+        let config = json!({ "providers": { PROVIDER: provider } });
         crate::providers::write_private(&home.join("models.json"), &config.to_string())
     }
 
     fn apis(&self) -> &'static [&'static str] {
         &APIS
+    }
+    fn key_stand_in(&self, profile: &EndpointProfile) -> bool {
+        other_header(profile).is_some()
     }
     fn default_endpoint(&self) -> &'static str {
         "https://api.openai.com/v1"

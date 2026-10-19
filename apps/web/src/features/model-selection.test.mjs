@@ -43,10 +43,9 @@ test('a server without the check keeps the list and offers no button', async () 
   assert.ok(!html.includes('检测当前列表'), 'no check on an older backend');
 });
 
-test('the panel offers one check action and says what it costs', async () => {
+test('the panel has no check of its own: the form starts it, with its cost', async () => {
   const html = await render({ selected: [], probe: async () => [] });
-  assert.ok(html.includes('检测当前列表'), 'the batch action');
-  assert.ok(html.includes('按调用计费'), 'the cost, before anyone presses it');
+  assert.ok(!html.includes('检测当前列表') && !html.includes('检测已选模型'), 'one check, the form\'s (EndpointCheck.vue)');
   assert.ok(!html.includes('>停止<'), 'nothing to stop until it runs');
   // Nothing is checked yet, so no per-model answer is invented.
   assert.ok(!html.includes('可用') || html.includes('未检测'));

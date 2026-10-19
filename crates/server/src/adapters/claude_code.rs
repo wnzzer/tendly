@@ -1,6 +1,7 @@
 //! Claude Code: `claude`, configured through `CLAUDE_CONFIG_DIR`, flags and
 //! `ANTHROPIC_*` variables.
 use super::{AccountOperations, CatalogStep, ClientAdapter, EndpointLaunch};
+use crate::providers::{KEY_STAND_IN, KEY_VARIABLE, KeyPlacement, key_placement, key_value};
 use crate::usage::{
     Call, FileState, Outcome, Source, Tokens, empty, number, timestamp, timestamp_ms,
 };
@@ -53,7 +54,12 @@ impl ClientAdapter for ClaudeCode {
             "ANTHROPIC_DEFAULT_SONNET_MODEL",
             "ANTHROPIC_DEFAULT_HAIKU_MODEL",
             "ANTHROPIC_SMALL_FAST_MODEL",
+            // Headers, keys among them, belong to the profile.
+            "ANTHROPIC_CUSTOM_HEADERS",
         ]
+    }
+    fn key_stand_in(&self, profile: &EndpointProfile) -> bool {
+        matches!(key_placement(profile), KeyPlacement::Custom(_))
     }
     fn account_prefixes(&self) -> &'static [&'static str] {
         &["ANTHROPIC_", "CLAUDE_"]
@@ -97,7 +103,25 @@ impl ClientAdapter for ClaudeCode {
             environment.insert("ANTHROPIC_BASE_URL".into(), messages_base(url));
         }
         if let Some(secret) = secret {
-            environment.insert("ANTHROPIC_API_KEY".into(), secret);
+            match profile.map_or(KeyPlacement::Protocol, key_placement) {
+                KeyPlacement::Protocol | KeyPlacement::XApiKey => {
+                    environment.insert("ANTHROPIC_API_KEY".into(), secret);
+                }
+                KeyPlacement::Bearer => {
+                    environment.insert("ANTHROPIC_AUTH_TOKEN".into(), secret);
+                }
+                // Claude Code sends no request without a key of its own: it
+                // gets a stand-in, and the real one rides in the endpoint's
+                // header.
+                KeyPlacement::Custom(header) => {
+                    environment.insert("ANTHROPIC_API_KEY".into(), KEY_STAND_IN.into());
+                    environment.insert(
+                        "ANTHROPIC_CUSTOM_HEADERS".into(),
+                        format!("{}: {}", header.name, key_value(header, &secret)),
+                    );
+                    environment.insert(KEY_VARIABLE.into(), secret);
+                }
+            }
         }
         if mode == "trusted" {
             args.extend(["--permission-mode".into(), "acceptEdits".into()]);

@@ -89,6 +89,18 @@ Codex 建议每个 session 使用独立的 `CODEX_HOME`；Claude Code 也使用 
 
 剔除后保存即生效：`models` 变成一份显式清单，会话的模型菜单只提供这些。不选任何模型仍然表示「提供全部」，所以剔除必须落成显式列表。官方账号（`native_config`）的模型由客户端自己验证，此接口会直接拒绝，提示改用会话验证。
 
+### 密钥请求头（key header）
+
+大多数端点从协议自带的请求头读密钥：Anthropic Messages 用 `x-api-key`，OpenAI 系用 `Authorization: Bearer`。不少网关只认其中一种，所以 profile 可以设置 `key_header`，其值为一个请求头名加一个值模板，模板中恰好出现一次 `{key}`，例如 `Authorization: Bearer {key}`、`X-Token: Token {key}`。不设置时按协议默认处理。profile 里只保存模板，`{key}` 在服务端启动客户端时才替换成密钥，密钥不经过浏览器。
+
+各客户端的落地方式如下，检测请求发出的请求头与启动时完全一致：
+
+- **Claude Code**：`x-api-key` 用 `ANTHROPIC_API_KEY`，Bearer 用 `ANTHROPIC_AUTH_TOKEN`。其他请求头写进 `ANTHROPIC_CUSTOM_HEADERS`，同时设置占位的 `ANTHROPIC_API_KEY=tendly`，因为没有自己的密钥时，Claude Code 根本不会发出请求。
+- **Codex**：Bearer 用 `env_key`，其他请求头用 `env_http_headers`，此时不发 `Authorization`。
+- **Pi**：与协议自带请求头相同时不做额外处理；否则写进 `models.json` 的 `headers`，用 `${TENDLY_PI_API_KEY}` 引用密钥，`apiKey` 设为占位值。值里不允许出现 `$` 或以 `!` 开头，因为 Pi 会把它们当作变量或要执行的命令。
+
+自定义请求头模式下，密钥还会另存一份到 `TENDLY_ENDPOINT_API_KEY`，使会话输出里出现的密钥同样被脱敏。检测时，如果默认模型在所有协议上都返回 401/403，会换另一种常见请求头（`x-api-key` 与 Bearer 互换）再试一次；试通则自动写回表单。自定义请求头不会被自动替换。
+
 ## 兼容性分级
 
 - L1：官方 CLI + 官方 endpoint，完整支持。

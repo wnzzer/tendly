@@ -64,10 +64,15 @@ export interface EndpointProfile {
   models?: string[];
   /** Which API the endpoint speaks, for a client that speaks several; absent leaves it to the client. */
   api?: string | null;
+  /** The header the endpoint reads its key from, `{key}` in the value; absent keeps the protocol's own. */
+  key_header?: KeyHeader | null;
   /** A live reference to native client configuration, not copied configuration contents. */
   native_config?: { source_id: string; config_dir: string; config_env?: string | null } | null;
   created_at: string;
 }
+
+/** One request header carrying an endpoint's key: `x-api-key: {key}`, `Authorization: Bearer {key}`, `X-Token: {key}`. */
+export interface KeyHeader { name: string; value: string }
 
 export interface FileEntry { name: string; path: string; kind: "file" | "directory" | "symlink" | "other"; size: number; }
 export interface GitFile { index: string; worktree: string; path: string; original_path?: string; }

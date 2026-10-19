@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { profilePayload, profileSummary } from './profile-form.ts';
+import { keyHeader, keyHeaderProblem, keyMode, profilePayload, profileSummary } from './profile-form.ts';
 import { secretStatus } from './secret-names.ts';
 
 const form = (overrides = {}) => ({ name: ' Work ', provider: 'codex', endpoint_url: ' ', api: '', model: ' gpt-5 ', effort: '', permission_mode: 'native', secret_ref: '', proxy_url: '', ...overrides });
@@ -49,4 +49,22 @@ test('a key is stored, adoptable from the server, or shadowed by it', () => {
   assert.deepEqual(secretStatus('env:TENDLY_SECRET_OPENAI', [{ ...server, stored: true }]), { stored: 'TENDLY_SECRET_OPENAI', shadowed: true });
   assert.deepEqual(secretStatus('env:TENDLY_SECRET_OPENAI', []), { shadowed: false });
   assert.deepEqual(secretStatus('', [tendly]), { shadowed: false });
+});
+
+test('a key header is a preset or a header of the endpoint\'s, and goes back to the form as one', () => {
+  assert.deepEqual(keyHeader({ key_mode: 'bearer' }), { name: 'Authorization', value: 'Bearer {key}' });
+  assert.deepEqual(keyHeader({ key_mode: 'custom', key_name: ' X-Token ', key_value: ' Token {key} ' }), { name: 'X-Token', value: 'Token {key}' });
+  assert.equal(keyHeader({ key_mode: '' }), null);
+  assert.deepEqual(keyMode({ name: 'authorization', value: 'Bearer {key}' }), { key_mode: 'bearer', key_name: '', key_value: '' });
+  assert.deepEqual(keyMode({ name: 'X-API-Key', value: '{key}' }).key_mode, 'x-api-key');
+  assert.deepEqual(keyMode({ name: 'Authorization', value: 'Token {key}' }), { key_mode: 'custom', key_name: 'Authorization', key_value: 'Token {key}' });
+  assert.deepEqual(keyMode(null).key_mode, '');
+  assert.equal(keyHeaderProblem({ key_mode: 'custom', key_name: 'X-Token', key_value: '{key}' }), '');
+  for (const [name, value] of [['X Token', '{key}'], ['X-Token', 'no key'], ['X-Token', '{key}{key}'], ['X-Token', '${key}'], ['X-Token', '!{key}']]) assert.notEqual(keyHeaderProblem({ key_mode: 'custom', key_name: name, key_value: value }), '', `${name}: ${value}`);
+});
+
+test('a key header is sent when set, and cleared as null where the profile had one', () => {
+  assert.deepEqual(profilePayload(form({ key_mode: 'x-api-key' }), undefined, {}, [], false).key_header, { name: 'x-api-key', value: '{key}' });
+  assert.equal(profilePayload(form(), { key_header: { name: 'x-api-key', value: '{key}' } }, {}, [], false).key_header, null);
+  assert.equal('key_header' in profilePayload(form(), {}, {}, [], false), false);
 });

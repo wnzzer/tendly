@@ -1,9 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  PROBE_APIS, PROBE_BATCH, apisUsed, checkTally, chooseApi, probeAnswer, routeSuspicion, dropBroken, formatLatency, isBroken, isInconclusive,
-  keepWorking, matchesCheckFilter, mergeChecks, needsCheck, probeBatches, probeRun,
-} from './model-probe.ts';
+import { PROBE_APIS, PROBE_BATCH, apisUsed, checkTally, chooseApi, dropBroken, formatLatency, isBroken, isInconclusive, keepWorking, matchesCheckFilter, mergeChecks, needsCheck, otherKeyHeader, probeAnswer, probeBatches, probeRun, routeSuspicion } from './model-probe.ts';
 
 const result = (model, status, latency_ms, api = 'anthropic-messages') => ({ model, status, api, ...(latency_ms === undefined ? {} : { latency_ms }) });
 
@@ -154,4 +151,13 @@ test('an answer reads the same in the panel and in the form check', () => {
   assert.deepEqual(probeAnswer(result('m', 'ok', 820), t), { kind: 'ok', text: 'Works · 820 ms' });
   assert.deepEqual(probeAnswer({ ...result('m', 'not_found'), detail: 'The endpoint has no such model' }, t), { kind: 'broken', text: 'Model not found', title: 'The endpoint has no such model' });
   assert.equal(probeAnswer(result('m', 'unauthorized'), t).kind, 'warn');
+});
+
+test('a key refused everywhere is tried once in the other common header, never instead of an endpoint\'s own', () => {
+  assert.equal(otherKeyHeader('', 'anthropic-messages'), 'bearer');
+  assert.equal(otherKeyHeader('', 'openai-responses'), 'x-api-key');
+  assert.equal(otherKeyHeader('', 'google-generative-ai'), 'bearer');
+  assert.equal(otherKeyHeader('bearer', 'anthropic-messages'), 'x-api-key');
+  assert.equal(otherKeyHeader('x-api-key', 'openai-completions'), 'bearer');
+  assert.equal(otherKeyHeader('custom', 'openai-completions'), undefined);
 });

@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref } from "vue";
 import { useI18n } from "../i18n";
-import { PROBE_APIS, chooseApi, probeAnswer, type ModelProbeApi, type ModelProbePlan, type ModelProbeResult } from "./model-probe";
+import Icon from "./Icon.vue";
+import type { KeyHeader } from "@tendly/protocol";
+import { PROBE_APIS, chooseApi, otherKeyHeader, probeAnswer, type ModelProbeApi, type ModelProbePlan, type ModelProbeResult } from "./model-probe";
+import { KEY_HEADERS, type KeyMode } from "./profile-form";
 
 /**
  * The form's one check: does this endpoint run this client at all, and over
@@ -30,9 +33,11 @@ const props = defineProps<{
   batch: boolean;
   /** Why the form cannot be checked as it stands, if it cannot. */
   blocked?: string;
-  probe: (models: string[], api?: ModelProbeApi) => Promise<ModelProbeResult[]>;
+  /** Where the form puts the key now; another header is tried only when this one was a preset. */
+  keyMode?: KeyMode;
+  probe: (models: string[], api?: ModelProbeApi, header?: KeyHeader | null) => Promise<ModelProbeResult[]>;
 }>();
-const emit = defineEmits<{ "use-api": [api: ModelProbeApi]; checked: [] }>();
+const emit = defineEmits<{ "use-api": [api: ModelProbeApi]; "use-key": [mode: KeyMode]; checked: [] }>();
 const { t } = useI18n();
 
 const running = ref(false);
@@ -54,8 +59,17 @@ async function run() {
   try {
     // A client with a choice is asked once per protocol, at the same time: four
     // short requests, and the answers come back side by side.
-    const results = (await Promise.all(tried.value.map(api => props.probe([props.model], choosing.value ? api : undefined)))).flat();
+    let results = (await Promise.all(tried.value.map(api => props.probe([props.model], choosing.value ? api : undefined)))).flat();
     if (!alive) return;
+    // A key refused everywhere may only be in the wrong header: the other
+    // common one is tried once, and kept where it is let in.
+    const other = (api: ModelProbeApi) => otherKeyHeader(props.keyMode, api);
+    let retried = false;
+    if (results.length && results.every(result => result.status === "unauthorized") && props.keyMode !== "custom") {
+      const again = (await Promise.all(tried.value.map(api => props.probe([props.model], choosing.value ? api : undefined, { ...KEY_HEADERS[other(api)!] })))).flat();
+      if (!alive) return;
+      if (again.some(result => result.status === "ok")) { results = again; retried = true; }
+    }
     answers.value = results;
     let api = props.fixedApi;
     if (choosing.value) {
@@ -67,8 +81,12 @@ async function run() {
       outcome.value = { tone: "warn", text: t("{model} did not run over {api}, so the chosen models were not checked.", { model: props.model, api: api ? PROBE_APIS[api].label : "" }) };
       return;
     }
+    // The header that let the key in, for the protocol now in use; the chosen
+    // models are checked with it, so the form has it first.
+    const moved = retried && api ? other(api) : undefined;
+    if (moved) { emit("use-key", moved); await nextTick(); }
     if (!alive) return;
-    const using = api ? PROBE_APIS[api].label : "";
+    const using = (api ? PROBE_APIS[api].label : "") + (moved ? ` · ${moved === "bearer" ? "Authorization: Bearer" : "x-api-key"}` : "");
     outcome.value = { tone: "ok", text: props.batch
       ? t("Using {api}. Checking the chosen models over it below.", { api: using })
       : t("Using {api}. Load the endpoint's models to check the rest.", { api: using }) };
@@ -83,11 +101,12 @@ async function run() {
 
 <template>
   <div class="endpoint-check">
-    <button type="button" class="small-button" :disabled="running || !model || !!blocked" :title="blocked" @click="run">
-      {{ t(running ? 'Checking…' : choosing ? 'Check protocols and models' : 'Check models') }}
-    </button>
-    <p class="form-help">{{ help }}</p>
-    <p v-if="!model" class="form-help">{{ t('Choose a default model to check.') }}</p>
+    <div class="endpoint-check-head">
+      <button type="button" class="small-button" :disabled="running || !model || !!blocked" :title="blocked ?? (model ? undefined : t('Choose a default model to check.'))" @click="run">
+        {{ t(running ? 'Checking…' : choosing ? 'Check protocols and models' : 'Check models') }}
+      </button>
+      <span class="endpoint-check-tip" tabindex="0" role="img" :title="help" :aria-label="help"><Icon name="info" :size="13" /></span>
+    </div>
     <ul v-if="answers.length" aria-live="polite">
       <li v-for="answer in answers" :key="answer.api">
         <span class="endpoint-check-api">{{ PROBE_APIS[answer.api].label }}</span>
@@ -104,8 +123,11 @@ async function run() {
 </template>
 
 <style scoped>
-.endpoint-check{padding:12px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--sunken)}
-.endpoint-check ul{margin:8px 0;padding:0;list-style:none;display:grid;gap:6px}
+.endpoint-check{display:flex;flex-direction:column;gap:6px}
+.endpoint-check-head{display:flex;align-items:center;gap:8px}
+.endpoint-check-tip{display:inline-flex;color:var(--faint);cursor:help}
+.endpoint-check-tip:hover,.endpoint-check-tip:focus-visible{color:var(--ink-soft);outline:0}
+.endpoint-check ul{margin:0;padding:8px 10px;list-style:none;display:grid;gap:6px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--sunken)}
 .endpoint-check li{display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;font-size:var(--text-sm);color:var(--ink-soft)}
 .endpoint-check-api{min-width:0;overflow-wrap:anywhere}
 .endpoint-check-pill{flex-shrink:0;display:inline-flex;align-items:center;padding:2px 8px;border:1px solid transparent;border-radius:var(--radius-full);font-size:var(--text-xs);font-variant-numeric:tabular-nums;white-space:nowrap}

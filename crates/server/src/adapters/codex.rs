@@ -2,6 +2,7 @@
 //! and `-c` overrides.
 use super::{AccountOperations, CatalogStep, ClientAdapter, EndpointLaunch, encode};
 use crate::ApiError;
+use crate::providers::{KEY_VARIABLE, KeyPlacement, key_placement, key_value};
 use crate::usage::{
     Call, FileState, LoggedLimits, Outcome, Source, Tokens, jsonl_files, number, timestamp,
 };
@@ -13,6 +14,9 @@ use std::{
 use tendly_domain::ProviderKind;
 
 pub struct Codex;
+
+/// Where a key header's value is read from, key included (`env_http_headers`).
+const HEADER_VARIABLE: &str = "TENDLY_ENDPOINT_KEY_HEADER";
 
 impl ClientAdapter for Codex {
     fn kind(&self) -> ProviderKind {
@@ -103,9 +107,25 @@ impl ClientAdapter for Codex {
                 .and_then(|p| p.endpoint_url.as_deref())
                 .unwrap_or("https://api.openai.com/v1");
             config.push_str(&format!("base_url = {}\n", encode(base)));
-            if let Some(secret) = secret {
-                config.push_str("env_key = \"OPENAI_API_KEY\"\n");
-                environment.insert("OPENAI_API_KEY".into(), secret);
+            // Any header but Bearer is sent from a variable of its own, and
+            // without one Codex sends no Authorization at all.
+            let header = profile
+                .filter(|p| !matches!(key_placement(p), KeyPlacement::Bearer))
+                .and_then(|p| p.key_header.as_ref());
+            match (secret, header) {
+                (Some(secret), Some(header)) => {
+                    config.push_str(&format!(
+                        "env_http_headers = {{ {} = \"{HEADER_VARIABLE}\" }}\n",
+                        encode(&header.name)
+                    ));
+                    environment.insert(HEADER_VARIABLE.into(), key_value(header, &secret));
+                    environment.insert(KEY_VARIABLE.into(), secret);
+                }
+                (Some(secret), None) => {
+                    config.push_str("env_key = \"OPENAI_API_KEY\"\n");
+                    environment.insert("OPENAI_API_KEY".into(), secret);
+                }
+                (None, _) => {}
             }
         }
         // Immutable generated config. CLI auth/history/settings remain its own.

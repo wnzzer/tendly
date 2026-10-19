@@ -32,7 +32,7 @@ impl Store {
             "SELECT EXISTS(SELECT 1 FROM endpoint_profiles WHERE provider=?1 AND native_source_id IS NULL)",
             [provider_name(&p.provider)], |row| row.get::<_, bool>(0),
         )?;
-        tx.execute("INSERT INTO endpoint_profiles (id,name,provider,endpoint_url,model,permission_mode,secret_ref,created_at,proxy_url,model_aliases,native_source_id,native_config_dir,native_config_env,environment,effort,models,api) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",params![p.id.to_string(),p.name,provider_name(&p.provider),p.endpoint_url,p.model,p.permission_mode,p.secret_ref,p.created_at.to_rfc3339(),p.proxy_url,aliases,p.native_config.as_ref().map(|native| &native.source_id),p.native_config.as_ref().map(|native| &native.config_dir),p.native_config.as_ref().and_then(|native| native.config_env.as_deref()),serde_json::to_string(&p.environment).map_err(conversion_error)?,p.effort,serde_json::to_string(&p.models).map_err(conversion_error)?,p.api])?;
+        tx.execute("INSERT INTO endpoint_profiles (id,name,provider,endpoint_url,model,permission_mode,secret_ref,created_at,proxy_url,model_aliases,native_source_id,native_config_dir,native_config_env,environment,effort,models,api,key_header) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",params![p.id.to_string(),p.name,provider_name(&p.provider),p.endpoint_url,p.model,p.permission_mode,p.secret_ref,p.created_at.to_rfc3339(),p.proxy_url,aliases,p.native_config.as_ref().map(|native| &native.source_id),p.native_config.as_ref().map(|native| &native.config_dir),p.native_config.as_ref().and_then(|native| native.config_env.as_deref()),serde_json::to_string(&p.environment).map_err(conversion_error)?,p.effort,serde_json::to_string(&p.models).map_err(conversion_error)?,p.api,key_header(p)?])?;
         if first_custom {
             let stored: Option<String> = tx
                 .query_row("SELECT value FROM preferences WHERE id=1", [], |row| {
@@ -91,7 +91,7 @@ impl Store {
             return Err(rusqlite::Error::InvalidQuery);
         }
         let aliases = serde_json::to_string(&p.model_aliases).map_err(conversion_error)?;
-        let updated = tx.execute("UPDATE endpoint_profiles SET name=?1,endpoint_url=?2,model=?3,permission_mode=?4,secret_ref=?5,proxy_url=?6,model_aliases=?7,environment=?9,effort=?10,models=?11,api=?12 WHERE id=?8",params![p.name,p.endpoint_url,p.model,p.permission_mode,p.secret_ref,p.proxy_url,aliases,p.id.to_string(),serde_json::to_string(&p.environment).map_err(conversion_error)?,p.effort,serde_json::to_string(&p.models).map_err(conversion_error)?,p.api])? == 1;
+        let updated = tx.execute("UPDATE endpoint_profiles SET name=?1,endpoint_url=?2,model=?3,permission_mode=?4,secret_ref=?5,proxy_url=?6,model_aliases=?7,environment=?9,effort=?10,models=?11,api=?12,key_header=?13 WHERE id=?8",params![p.name,p.endpoint_url,p.model,p.permission_mode,p.secret_ref,p.proxy_url,aliases,p.id.to_string(),serde_json::to_string(&p.environment).map_err(conversion_error)?,p.effort,serde_json::to_string(&p.models).map_err(conversion_error)?,p.api,key_header(p)?])? == 1;
         tx.commit()?;
         Ok(updated)
     }
@@ -118,6 +118,7 @@ impl Store {
             model_aliases: Default::default(),
             models: Vec::new(),
             api: None,
+            key_header: None,
             native_config: Some(reference),
             environment: Default::default(),
             created_at: Utc::now(),
@@ -151,4 +152,12 @@ impl Store {
             [id.to_string()],
         )? == 1)
     }
+}
+
+/// The key header as stored: JSON, or NULL for the protocol's own.
+fn key_header(p: &EndpointProfile) -> Result<Option<String>> {
+    p.key_header
+        .as_ref()
+        .map(|header| serde_json::to_string(header).map_err(conversion_error))
+        .transpose()
 }

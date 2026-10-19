@@ -318,9 +318,24 @@ pub struct EndpointProfile {
     /// (adapters' `apis`). Absent leaves it to the client's adapter.
     #[serde(default)]
     pub api: Option<String>,
+    /// The header the endpoint reads its key from, where that is not the one
+    /// its protocol names. Absent keeps the protocol's own.
+    #[serde(default)]
+    pub key_header: Option<KeyHeader>,
     #[serde(default)]
     pub native_config: Option<NativeConfigReference>,
     pub created_at: DateTime<Utc>,
+}
+
+/// One request header carrying an endpoint's key: `value` holds `{key}`
+/// once, as `x-api-key: {key}`, `Authorization: Bearer {key}` or
+/// `X-Token: {key}`. Only this template is kept; the key stays a secret
+/// reference and is filled in on the server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KeyHeader {
+    pub name: String,
+    pub value: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

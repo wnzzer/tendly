@@ -4,7 +4,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-use tendly_domain::{EndpointProfile, ProviderKind};
+use tendly_domain::{EndpointProfile, KeyHeader, ProviderKind};
 use url::Url;
 
 /// Levels both native clients accept. Tendly forwards one of these or none.
@@ -14,6 +14,83 @@ pub fn validate_effort(value: Option<&str>) -> Result<(), ApiError> {
     if value.is_some_and(|value| !EFFORT_LEVELS.contains(&value)) {
         return Err(ApiError::bad(
             "Reasoning effort must be low, medium, high, xhigh or max",
+        ));
+    }
+    Ok(())
+}
+
+/// Where a profile's key goes on each request. Two headers each client
+/// already knows how to send are told apart from any other, which a client
+/// sends next to a placeholder in its own (`KEY_STAND_IN`).
+pub enum KeyPlacement<'a> {
+    /// The protocol's own header: no key header set.
+    Protocol,
+    XApiKey,
+    Bearer,
+    Custom(&'a KeyHeader),
+}
+
+pub fn key_placement(p: &EndpointProfile) -> KeyPlacement<'_> {
+    match &p.key_header {
+        None => KeyPlacement::Protocol,
+        Some(h) if h.name.eq_ignore_ascii_case("x-api-key") && h.value == KEY_SLOT => {
+            KeyPlacement::XApiKey
+        }
+        Some(h) if h.name.eq_ignore_ascii_case("authorization") && h.value == "Bearer {key}" => {
+            KeyPlacement::Bearer
+        }
+        Some(h) => KeyPlacement::Custom(h),
+    }
+}
+
+/// Where a key header's value takes the key.
+pub const KEY_SLOT: &str = "{key}";
+/// What a client that will not send a request without a key of its own gets
+/// for it, when the real key travels in another header. Never a credential.
+pub const KEY_STAND_IN: &str = "tendly";
+
+/// Holds the key itself where a client sends it inside a header of the
+/// profile's own: read by no client, it is there so a session's output that
+/// names the key is redacted like any other key (native_chat/values.rs).
+pub const KEY_VARIABLE: &str = "TENDLY_ENDPOINT_API_KEY";
+
+/// The header's value with the key in it.
+pub fn key_value(header: &KeyHeader, key: &str) -> String {
+    header.value.replacen(KEY_SLOT, key, 1)
+}
+
+/// A header name and a one-line value with `{key}` once. No `$`, and no
+/// leading `!`: Pi reads either in its configuration as a variable or a
+/// command to run.
+fn validate_key_header(header: &KeyHeader) -> Result<(), ApiError> {
+    let token = |b: u8| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b);
+    let name = header.name.as_str();
+    if name.is_empty() || name.len() > 64 || !name.bytes().all(token) {
+        return Err(ApiError::bad("Use a valid HTTP header name for the key"));
+    }
+    if [
+        "host",
+        "cookie",
+        "proxy-authorization",
+        "content-length",
+        "content-type",
+        "transfer-encoding",
+        "connection",
+        "upgrade",
+    ]
+    .contains(&name.to_ascii_lowercase().as_str())
+    {
+        return Err(ApiError::bad("That header cannot carry the key"));
+    }
+    let value = header.value.as_str();
+    if value.len() > 256
+        || value.matches(KEY_SLOT).count() != 1
+        || value.chars().any(char::is_control)
+        || value.contains('$')
+        || value.starts_with('!')
+    {
+        return Err(ApiError::bad(
+            "The header value must contain {key} exactly once, on one line, without $ or a leading !",
         ));
     }
     Ok(())
@@ -41,6 +118,7 @@ pub fn validate_profile(p: &EndpointProfile) -> Result<(), ApiError> {
             || p.permission_mode != "native"
             || p.endpoint_url.is_some()
             || p.secret_ref.is_some()
+            || p.key_header.is_some()
         {
             return Err(ApiError::bad(
                 "An existing native configuration cannot be combined with endpoint, credential, proxy or permission overrides",
@@ -112,6 +190,9 @@ pub fn validate_profile(p: &EndpointProfile) -> Result<(), ApiError> {
             "{} does not speak the {api} API",
             p.provider.label()
         )));
+    }
+    if let Some(header) = &p.key_header {
+        validate_key_header(header)?;
     }
     if p.models.len() > 500
         || p.models
@@ -227,6 +308,7 @@ mod tests {
             model_aliases: Default::default(),
             models: Vec::new(),
             api: None,
+            key_header: None,
             native_config: None,
             environment: Default::default(),
             created_at: chrono::Utc::now(),
@@ -237,6 +319,43 @@ mod tests {
         assert!(validate_profile(&p).is_err());
         p.secret_ref = Some("env:TENDLY_SECRET_WORK".into());
         assert!(validate_profile(&p).is_ok());
+        // A key header: a header name, and one line with the key once.
+        let header = |name: &str, value: &str| {
+            Some(KeyHeader {
+                name: name.into(),
+                value: value.into(),
+            })
+        };
+        for (name, value) in [
+            ("x-api-key", "{key}"),
+            ("Authorization", "Bearer {key}"),
+            ("X-Token", "Token {key}"),
+        ] {
+            p.key_header = header(name, value);
+            assert!(validate_profile(&p).is_ok(), "{name}: {value}");
+        }
+        for (name, value) in [
+            ("X Token", "{key}"),
+            ("Host", "{key}"),
+            ("X-Token", "fixed"),
+            ("X-Token", "{key}{key}"),
+            ("X-Token", "{key}\nX-Other: 1"),
+            // Pi reads these as a variable and as a command to run.
+            ("X-Token", "${key}"),
+            ("X-Token", "!{key}"),
+        ] {
+            p.key_header = header(name, value);
+            assert!(validate_profile(&p).is_err(), "{name}: {value:?}");
+        }
+        // The two any client sends by itself are told apart from the rest.
+        p.key_header = header("X-API-Key", "{key}");
+        assert!(matches!(key_placement(&p), KeyPlacement::XApiKey));
+        p.key_header = header("authorization", "Bearer {key}");
+        assert!(matches!(key_placement(&p), KeyPlacement::Bearer));
+        p.key_header = header("Authorization", "Token {key}");
+        assert!(matches!(key_placement(&p), KeyPlacement::Custom(_)));
+        p.key_header = None;
+        assert!(matches!(key_placement(&p), KeyPlacement::Protocol));
     }
 
     #[test]
@@ -254,6 +373,7 @@ mod tests {
             model_aliases: Default::default(),
             models: Vec::new(),
             api: None,
+            key_header: None,
             native_config: Some(tendly_domain::NativeConfigReference {
                 source_id: "claude-default".into(),
                 config_dir: std::env::temp_dir()
@@ -289,6 +409,12 @@ mod tests {
         p.endpoint_url = None;
         p.secret_ref = Some("env:TENDLY_SECRET_WORK".into());
         assert!(validate_profile(&p).is_err());
+        p.secret_ref = None;
+        p.key_header = Some(KeyHeader {
+            name: "X-Token".into(),
+            value: "{key}".into(),
+        });
+        assert!(validate_profile(&p).is_err());
     }
 
     #[test]
@@ -306,6 +432,7 @@ mod tests {
             model_aliases: Default::default(),
             models: Vec::new(),
             api: None,
+            key_header: None,
             native_config: None,
             environment: Default::default(),
             created_at: chrono::Utc::now(),

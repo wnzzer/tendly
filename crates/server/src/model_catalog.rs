@@ -389,7 +389,8 @@ async fn fetch(profile: &EndpointProfile, secret: Option<&str>) -> Result<ModelC
     let client = builder
         .build()
         .map_err(|_| ApiError::bad("Unable to configure the model-list connection"))?;
-    let request = crate::adapters::agent(profile.provider)?.authorize(
+    let request = crate::adapters::authorize(
+        crate::adapters::agent(profile.provider)?,
         profile,
         client.get(url.clone()).header("Accept", "application/json"),
         secret,
@@ -652,6 +653,7 @@ mod tests {
             model_aliases: Default::default(),
             models: Vec::new(),
             api: None,
+            key_header: None,
             native_config: None,
             environment: Default::default(),
             created_at: chrono::Utc::now(),

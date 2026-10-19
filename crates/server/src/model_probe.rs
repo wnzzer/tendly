@@ -203,7 +203,7 @@ async fn one(run: &Run<'_>, model: String, url: Url, body: serde_json::Value) ->
         .post(url)
         .header("Accept", "application/json")
         .json(&body);
-    let request = client.authorize(profile, request, secret);
+    let request = crate::adapters::authorize(client, profile, request, secret);
     let started = Instant::now();
     let response = match tokio::time::timeout(TIMEOUT, request.send()).await {
         Ok(Ok(response)) => response,
@@ -401,6 +401,7 @@ mod tests {
             model_aliases: Default::default(),
             models: Vec::new(),
             api: None,
+            key_header: None,
             native_config: None,
             environment: Default::default(),
             created_at: chrono::Utc::now(),
@@ -463,6 +464,58 @@ mod tests {
         // The metadata host is refused here as it is for discovery.
         p.endpoint_url = Some("http://169.254.169.254/latest".into());
         assert!(probe_url(&p, "/v1/messages").is_err());
+    }
+
+    #[test]
+    fn a_check_sends_the_key_in_the_headers_the_launch_does() {
+        let connection = reqwest::Client::new();
+        let sent = |p: &EndpointProfile| {
+            let client = crate::adapters::agent(p.provider).unwrap();
+            let request = connection.post("https://gateway.test/v1/messages");
+            crate::adapters::authorize(client, p, request, Some("sk-1"))
+                .build()
+                .unwrap()
+                .headers()
+                .clone()
+        };
+        let header = |name: &str, value: &str| {
+            Some(tendly_domain::KeyHeader {
+                name: name.into(),
+                value: value.into(),
+            })
+        };
+        let mut p = profile("https://gateway.test".into());
+        p.provider = ProviderKind::ClaudeCode;
+        let h = sent(&p);
+        assert_eq!(h["x-api-key"], "sk-1");
+        assert!(h.get("authorization").is_none());
+        p.key_header = header("Authorization", "Bearer {key}");
+        let h = sent(&p);
+        assert_eq!(h["authorization"], "Bearer sk-1");
+        assert!(
+            h.get("x-api-key").is_none(),
+            "as ANTHROPIC_AUTH_TOKEN alone sends"
+        );
+        // Another header goes beside the stand-in Claude Code needs.
+        p.key_header = header("X-Token", "Token {key}");
+        let h = sent(&p);
+        assert_eq!(h["x-token"], "Token sk-1");
+        assert_eq!(h["x-api-key"], "tendly");
+        assert_eq!(h["anthropic-version"], "2023-06-01");
+        // Codex sends no Authorization beside a header of the profile's.
+        p.provider = ProviderKind::Codex;
+        p.key_header = header("x-api-key", "{key}");
+        let h = sent(&p);
+        assert_eq!(h["x-api-key"], "sk-1");
+        assert!(h.get("authorization").is_none());
+        // A header of the same name replaces the client's own, never doubles it.
+        p.provider = ProviderKind::Pi;
+        p.key_header = header("Authorization", "Token {key}");
+        let h = sent(&p);
+        assert_eq!(
+            h.get_all("authorization").iter().collect::<Vec<_>>(),
+            ["Token sk-1"]
+        );
     }
 
     #[test]

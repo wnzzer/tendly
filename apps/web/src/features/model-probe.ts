@@ -229,3 +229,15 @@ export function formatLatency(ms: number | undefined): string {
   if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return "";
   return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`;
 }
+
+/**
+ * The header a key refused everywhere is tried in next, over `api`: the
+ * other of the two any client sends, from whichever the form uses now (its
+ * own preset, or the protocol's: Bearer for the OpenAI APIs, a key header for
+ * the rest). A header of the endpoint's own is never swapped for a guess.
+ */
+export function otherKeyHeader(mode: "" | "x-api-key" | "bearer" | "custom" | undefined, api: ModelProbeApi): "x-api-key" | "bearer" | undefined {
+  if (mode === "custom") return undefined;
+  const now = mode || (api.startsWith("openai-") ? "bearer" : "x-api-key");
+  return now === "bearer" ? "x-api-key" : "bearer";
+}

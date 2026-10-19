@@ -123,6 +123,12 @@ pub trait ClientAdapter: Sync {
         request: reqwest::RequestBuilder,
         secret: Option<&str>,
     ) -> reqwest::RequestBuilder;
+    /// Whether a launch whose key goes in the profile's own header still puts
+    /// a stand-in in the client's, because the client sends nothing without
+    /// one. A check sends the same, so it passes only where the launch would.
+    fn key_stand_in(&self, _profile: &EndpointProfile) -> bool {
+        false
+    }
     /// Whether, with neither endpoint nor key, the client itself is asked
     /// which models its default account offers.
     fn lists_models_unconfigured(&self) -> bool {
@@ -211,6 +217,37 @@ static CODEX: codex::Codex = codex::Codex;
 static PI: pi::Pi = pi::Pi;
 
 /// The adapter for an agent client; a plain terminal has none.
+/// A request with the profile's key where its endpoint reads it: the
+/// client's own header, or the one the profile names, which replaces any of
+/// that name the client set.
+pub fn authorize(
+    client: &dyn ClientAdapter,
+    profile: &EndpointProfile,
+    request: reqwest::RequestBuilder,
+    secret: Option<&str>,
+) -> reqwest::RequestBuilder {
+    let (Some(header), Some(key)) = (profile.key_header.as_ref(), secret) else {
+        return client.authorize(profile, request, secret);
+    };
+    let stand_in = client
+        .key_stand_in(profile)
+        .then_some(crate::providers::KEY_STAND_IN);
+    let request = client.authorize(profile, request, stand_in);
+    let value = crate::providers::key_value(header, key);
+    match (
+        reqwest::header::HeaderName::from_bytes(header.name.as_bytes()),
+        reqwest::header::HeaderValue::from_str(&value),
+    ) {
+        (Ok(name), Ok(mut value)) => {
+            value.set_sensitive(true);
+            request.headers([(name, value)].into_iter().collect())
+        }
+        // Saved profiles are validated; a draft with a broken header is
+        // simply sent without it, and the endpoint says so.
+        _ => request,
+    }
+}
+
 pub fn adapter(kind: ProviderKind) -> Option<&'static dyn ClientAdapter> {
     match kind {
         ProviderKind::ClaudeCode => Some(&CLAUDE_CODE),

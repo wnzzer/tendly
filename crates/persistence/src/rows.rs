@@ -28,6 +28,7 @@ pub(crate) fn validate_native_profile(profile: &EndpointProfile) -> Result<()> {
         || !profile.model_aliases.is_empty()
         || !profile.models.is_empty()
         || profile.api.is_some()
+        || profile.key_header.is_some()
         || profile.permission_mode != "native"
     {
         return Err(rusqlite::Error::InvalidQuery);
@@ -94,6 +95,10 @@ pub(crate) fn profile_row(r: &rusqlite::Row<'_>) -> Result<EndpointProfile> {
         model_aliases: serde_json::from_str(&r.get::<_, String>(9)?).map_err(conversion_error)?,
         models: serde_json::from_str(&r.get::<_, String>(15)?).map_err(conversion_error)?,
         api: r.get(16)?,
+        key_header: r
+            .get::<_, Option<String>>(17)?
+            .map(|text| serde_json::from_str(&text).map_err(conversion_error))
+            .transpose()?,
         native_config,
     })
 }

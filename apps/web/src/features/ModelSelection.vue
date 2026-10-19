@@ -43,6 +43,9 @@ const emit = defineEmits<{
   look: [model: string];
 }>();
 const { t } = useI18n();
+/** A saved list opens folded to its count; a list just loaded, or being checked, opens out. */
+const unfolded = ref(props.catalog.length > 0);
+watch(() => props.catalog.length, (count, before) => { if (count > before) unfolded.value = true; });
 
 const query = ref("");
 const filter = ref<CheckFilter>("all");
@@ -86,8 +89,6 @@ const filters = computed(() => ([
 ] as const).filter(entry => entry.id === "all" || counts.value[entry.id] > 0));
 /** Rows on screen that a check would still say something about: no answer, or
  * an answer that only described the moment (a timeout, a rate limit). */
-const recheckable = computed(() => shown.value.filter(entry => needsCheck(checks.value[entry.id]?.status)).length);
-const recheckableChosen = computed(() => props.selected.filter(id => needsCheck(checks.value[id]?.status)).length);
 /**
  * What "keep working only" keeps: the chosen models if anything is chosen,
  * and otherwise every model that answered — so checking a fresh list and
@@ -129,6 +130,7 @@ function toggleAdvanced(id: string) { if (!open.delete(id)) { open.add(id); emit
  * run with one message; per-model answers are already on their rows.
  */
 async function run(models: readonly string[], again = false) {
+  unfolded.value = true;
   const probe = props.probe;
   if (!probe || running.value) return;
   const wanted = probeRun(models, checks.value, PROBE_RUN, again);
@@ -209,8 +211,8 @@ watch(filters, entries => { if (!entries.some(entry => entry.id === filter.value
 <template>
   <section class="model-panel">
     <header class="model-panel-head">
-      <div class="model-panel-title">
-        <strong>{{ t('Model catalog') }}</strong>
+      <button type="button" class="model-panel-title" :aria-expanded="unfolded" @click="unfolded = !unfolded">
+        <strong>{{ t('Model catalog') }}<span class="model-panel-chevron" aria-hidden="true" /></strong>
         <span class="model-panel-summary">
           <template v-if="tally.tested">
             <template v-if="tally.inconclusive">
@@ -225,15 +227,12 @@ watch(filters, entries => { if (!entries.some(entry => entry.id === filter.value
           </template>
           <template v-else>{{ t('{chosen} of {count} chosen', { chosen: selected.length, count: rows.length }) }}</template>
         </span>
-      </div>
+      </button>
       <div class="model-panel-actions">
-        <button v-if="canCheck && !running" type="button" class="small-button" :disabled="!recheckable" :title="t(recheckable ? 'Sends one very short request per model, billed by the endpoint.' : 'Nothing on screen still needs a check.')" @click="checkShown">
-          <Icon name="refresh" :size="14" />{{ t('Check shown') }}
-        </button>
         <button v-if="canCheck && running" type="button" class="small-button" @click="stop">{{ t('Stop') }}</button>
-        <button v-if="canCheck && !running && selected.length" type="button" class="small-button" :disabled="!recheckableChosen" :title="t(recheckableChosen ? 'Sends one very short request per chosen model.' : 'Every chosen model has an answer already.')" @click="checkChosen">{{ t('Check chosen') }}</button>
       </div>
     </header>
+    <div v-show="unfolded" class="model-panel-body">
 
     <div v-if="running" class="model-progress" role="progressbar" :aria-valuenow="progress.done" :aria-valuemin="0" :aria-valuemax="progress.total" :aria-valuetext="t('Checking {done} of {total}…', { done: progress.done, total: progress.total })" :aria-label="t('Checking models')">
       <div class="model-progress-bar" :style="{ width: `${progress.total ? Math.round((progress.done / progress.total) * 100) : 0}%` }" />
@@ -296,14 +295,18 @@ watch(filters, entries => { if (!entries.some(entry => entry.id === filter.value
       </div>
       <p class="model-panel-hint">{{ selected.length ? t("A session's model menu offers only the chosen models.") : t("None chosen: a session's model menu offers every model the endpoint serves.") }}</p>
     </footer>
+    </div>
   </section>
 </template>
 
 <style scoped>
 .model-panel{display:flex;flex-direction:column;gap:10px;min-width:0;border:1px solid var(--border);border-radius:var(--radius-xl);background:var(--surface);padding:14px}
 .model-panel-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px 12px}
-.model-panel-title{display:flex;flex-direction:column;gap:2px;min-width:0}
-.model-panel-title strong{font-size:var(--text-md);font-weight:600;color:var(--ink)}
+.model-panel-title{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0;padding:0;border:0;background:none;font:inherit;text-align:left;cursor:pointer}
+.model-panel-title strong{display:inline-flex;align-items:center;gap:8px;font-size:var(--text-md);font-weight:600;color:var(--ink)}
+.model-panel-chevron{width:6px;height:6px;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(-45deg);transition:transform var(--duration-fast)}
+.model-panel-title[aria-expanded="true"] .model-panel-chevron{transform:rotate(45deg)}
+.model-panel-body{display:contents}
 .model-panel-summary{font-size:var(--text-xs);color:var(--muted);font-variant-numeric:tabular-nums}
 .model-panel-actions{display:flex;flex-wrap:wrap;gap:6px}
 .model-panel-note{margin:0;font-size:var(--text-xs);line-height:1.7;color:var(--muted)}

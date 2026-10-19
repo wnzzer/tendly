@@ -981,3 +981,133 @@ async fn a_model_check_refuses_a_batch_it_cannot_finish_and_names_the_reason() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(body["error"].as_str().unwrap().contains("at most 24"));
 }
+
+#[tokio::test]
+async fn a_key_header_goes_where_each_client_sends_it() {
+    let f = Fixture::new("127.0.0.1:8787".parse().unwrap(), None);
+    let id = register(&f).await;
+    let name = "TENDLY_SECRET_API_TEST_HEADER";
+    call(
+        f.app(),
+        "PUT",
+        &format!("/api/secrets/{name}"),
+        json!({"value":"sk-header-value"}),
+    )
+    .await;
+
+    // Claude Code: Bearer is its own variable; any other header goes beside
+    // a stand-in key, without which it sends nothing.
+    let spec = launch_with(
+        &f,
+        &id,
+        name,
+        "claude_code",
+        json!({"name":"Authorization","value":"Bearer {key}"}),
+    )
+    .await;
+    assert_eq!(spec.env["ANTHROPIC_AUTH_TOKEN"], "sk-header-value");
+    assert!(!spec.env.contains_key("ANTHROPIC_API_KEY"));
+    let spec = launch_with(
+        &f,
+        &id,
+        name,
+        "claude_code",
+        json!({"name":"X-Token","value":"Token {key}"}),
+    )
+    .await;
+    assert_eq!(spec.env["ANTHROPIC_API_KEY"], "tendly");
+    assert_eq!(
+        spec.env["ANTHROPIC_CUSTOM_HEADERS"],
+        "X-Token: Token sk-header-value"
+    );
+    assert_eq!(
+        spec.env["TENDLY_ENDPOINT_API_KEY"], "sk-header-value",
+        "so its output is redacted"
+    );
+
+    // Codex: any header but Bearer is read from a variable, with no
+    // Authorization at all.
+    let spec = launch_with(
+        &f,
+        &id,
+        name,
+        "codex",
+        json!({"name":"x-api-key","value":"{key}"}),
+    )
+    .await;
+    let config =
+        fs::read_to_string(PathBuf::from(&spec.env["CODEX_HOME"]).join("config.toml")).unwrap();
+    assert!(
+        config.contains("env_http_headers = { \"x-api-key\" = \"TENDLY_ENDPOINT_KEY_HEADER\" }"),
+        "{config}"
+    );
+    assert!(!config.contains("env_key"), "{config}");
+    assert!(
+        !config.contains("sk-header-value"),
+        "the key stays out of the file"
+    );
+    assert_eq!(spec.env["TENDLY_ENDPOINT_KEY_HEADER"], "sk-header-value");
+
+    // Pi: the header reads the key from the same variable, and the API's own
+    // header gets the placeholder; the API's own header needs nothing more.
+    let spec = launch_with(
+        &f,
+        &id,
+        name,
+        "pi",
+        json!({"name":"X-Token","value":"Token {key}"}),
+    )
+    .await;
+    let home = PathBuf::from(&spec.env["PI_CODING_AGENT_DIR"]);
+    let config: Value =
+        serde_json::from_str(&fs::read_to_string(home.join("models.json")).unwrap()).unwrap();
+    let provider = &config["providers"]["tendly"];
+    assert_eq!(provider["apiKey"], "tendly");
+    assert_eq!(
+        provider["headers"],
+        json!({"X-Token":"Token ${TENDLY_PI_API_KEY}"})
+    );
+    assert_eq!(spec.env["TENDLY_PI_API_KEY"], "sk-header-value");
+    let spec = launch_with(
+        &f,
+        &id,
+        name,
+        "pi",
+        json!({"name":"Authorization","value":"Bearer {key}"}),
+    )
+    .await;
+    let home = PathBuf::from(&spec.env["PI_CODING_AGENT_DIR"]);
+    let config: Value =
+        serde_json::from_str(&fs::read_to_string(home.join("models.json")).unwrap()).unwrap();
+    assert_eq!(
+        config["providers"]["tendly"]["apiKey"],
+        "$TENDLY_PI_API_KEY"
+    );
+    assert!(config["providers"]["tendly"].get("headers").is_none());
+
+    // A header that is no header is refused.
+    let (status, _) = call(f.app(), "POST", "/api/endpoint-profiles", json!({"name":"bad","provider":"codex","endpoint_url":"http://gateway.test/v1","key_header":{"name":"X-Token","value":"no key"}})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+/// A session's launch on a new profile for `provider` with this key header.
+async fn launch_with(
+    f: &Fixture,
+    workspace: &impl std::fmt::Display,
+    secret: &str,
+    provider: &str,
+    header: Value,
+) -> tendly_runtime::SpawnSpec {
+    let (status, profile) = call(f.app(), "POST", "/api/endpoint-profiles", json!({"name":"gateway","provider":provider,"endpoint_url":"http://gateway.test/v1","secret_ref":format!("env:{secret}"),"model":"m1","key_header":header})).await;
+    assert_eq!(status, StatusCode::CREATED, "{profile}");
+    assert_eq!(profile["key_header"], header);
+    let (_, created) = call(
+        f.app(),
+        "POST",
+        &format!("/api/workspaces/{workspace}/sessions"),
+        json!({"title":"task","provider":provider,"endpoint_profile_id":profile["id"]}),
+    )
+    .await;
+    let session: Session = serde_json::from_value(created).unwrap();
+    launch::build(&f.state, &session, f.path.join("repo")).unwrap()
+}
