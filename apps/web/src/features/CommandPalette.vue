@@ -77,7 +77,7 @@ const startsGroup = (index: number) => index === 0 || results.value[index - 1]?.
 
 <style scoped>
 .palette-backdrop{position:fixed;inset:0;z-index:150;display:flex;justify-content:center;align-items:flex-start;padding:min(14vh,120px) 16px 16px;background:color-mix(in srgb, var(--shade) 30%, transparent);animation:palette-fade var(--duration-fast) ease-out}
-.palette{display:flex;flex-direction:column;width:min(640px,100%);max-height:min(560px,calc(100dvh - 120px));border-radius:var(--radius-xl);background:var(--glass-surface);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);box-shadow:var(--shadow-xl),0 0 0 1px color-mix(in srgb, var(--ink) 8%, transparent),inset 0 1px 0 var(--card-highlight);overflow:hidden;animation:palette-in var(--duration-normal) var(--ease-out)}
+.palette{display:flex;flex-direction:column;width:min(640px,100%);max-height:min(560px,calc(100dvh - 120px));border-radius:var(--radius-xl);background:var(--elevated);box-shadow:var(--shadow-xl),0 0 0 1px color-mix(in srgb, var(--ink) 8%, transparent),inset 0 1px 0 var(--card-highlight);overflow:hidden;animation:palette-in var(--duration-normal) var(--ease-out)}
 .palette-input{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border);color:var(--muted)}
 .palette-input input{flex:1;min-width:0;border:0;outline:0;background:none;font-size:var(--text-lg);color:var(--ink)}
 .palette-input input::placeholder{color:var(--muted)}
