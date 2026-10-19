@@ -56,6 +56,7 @@ import { readPanelVisibility, sidebarIsRail, useSidebarWidth, writePanelVisibili
 import { hasDirtyDrafts } from "./features/file-drafts";
 import { hasGitDrafts } from "./features/git-view-state";
 import { sessionConnections } from "./features/session-connection";
+import { conversationCache } from "./features/conversation-cache";
 import { backTargetFor, hasUnsavedWork, rememberPane, resolveReference } from "./features/app-shell";
 import { layoutInTrouble, useCanvasPersistence } from "./features/canvas-persistence";
 import { opensOnArrival, useSessionChanges } from "./features/session-changes";
@@ -137,7 +138,7 @@ const sessionsLoading = ref(false);
 /** Set once the session list has loaded, so an empty list before then is not read as "every session is gone". */
 const sessionsKnown = ref(false);
 let sessionsRevision = 0;
-const { archiveBusyIds, keepBusyIds, deleteBusyIds, discardPrompt, sessionNotice, archiveSession, archiveSessions, deleteSessions, confirmClosePane, confirmDiscard, keepSession, keepSessionById, renameSession, enableChat } = useSessionChanges({ sessions, layout, canvas, report, t, touch: () => { sessionsRevision++; } });
+const { archiveBusyIds, keepBusyIds, deleteBusyIds, discardPrompt, sessionNotice, archiveSession, archiveSessions, deleteSessions, confirmClosePane, confirmDiscard, keepSession, keepSessionById, renameSession, enableChat } = useSessionChanges({ sessions, layout, canvas, report, t, touch: () => { sessionsRevision++; }, returnTo: returnToConversation });
 let workspaceRegistryRevision = 0;
 let wasDesktop = window.innerWidth > 1100;
 /**
@@ -256,6 +257,15 @@ function openSession(session: Session) {
   if (opensOnArrival(session)) sessionConnections.requestOpen(session.id);
   sidebarOpen.value = false;
   canvas.value?.openPane(sessionPane(session));
+}
+/** Back from an escape-hatch terminal to the conversation it reopened: its tab, opened again if it was closed meanwhile.
+ * The view it held from before is dropped, so the conversation is read afresh rather than resumed from it; the open
+ * intent `openSession` records is what makes a view already on screen read it again. */
+function returnToConversation(id: string) {
+  const source = sessions.value.find(item => item.id === id);
+  if (!source) return;
+  conversationCache.forget(id);
+  openSession(source);
 }
 function sessionPaneDropped(pane: PaneNode) {
   const session = paneSession(pane, sessions.value);
@@ -630,7 +640,7 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
         <div v-if="localRecovery" class="canvas-compat-notice"><span>{{ t('A local recovery layout is available.') }}</span><button class="text-button" @click="restoreLocalRecovery">{{ t('Restore local layout') }}</button><button class="icon-button" :aria-label="t('Dismiss error')" @click="localRecovery=undefined"><Icon name="close" :size="13"/></button></div>
         <template v-if="workspaces.length">
           <Canvas v-if="canvasReady" ref="canvas" v-model="layout" :compact="mobile" :selected-pane-id="selectedPaneId" :default-workspace-id="contextWorkspace?.id" :accept-pane="acceptDroppedPane" :confirm-close-pane="confirmClosePane" :ephemeral-session-ids="ephemeralIds" :ephemeral-supported="backendCapabilities.ephemeralSessions" @create-session="createSessionInPane" :workspace-labels="Object.fromEntries(workspaces.map(workspace=>[workspace.id,workspace.name]))" :mixed-workspaces="new Set(flattenPanes(layout.root).map(pane=>paneString(pane,'workspace_id')).filter(Boolean)).size>1" :session-branches="Object.fromEntries(sessions.flatMap(session=>session.checkout_path&&session.checkout_branch?[[session.id,session.checkout_branch]]:[]))" :workspace-branches="workspaceBranches" :session-providers="sessionProviders" @select-pane="selectPane" @open-pane="sessionPaneDropped">
-            <template #pane="{ pane }"><WorkspacePane :key="pane.id" :pane="pane" :workspaces="workspaces" :sessions="sessions" :profiles="profiles" :git-refresh="gitRefresh" @session-changed="refreshSessions" @new-session="(id,provider)=>newSession(id??selectedWorkspaceId,provider)" @open-session="openSession" @reveal-session="revealSession" @keep-session="keepSessionById" @rename-request="requestRenameSession" @session-environment="environmentSessionId=$event" @structured-session="enableChat" @profiles="openSettings('endpoints')" @git-changed="gitChanged" @open-file="openFile" @open-reference="openReference" @files-saved="filesSaved" @browse="id=>openFiles(id??selectedWorkspaceId)" @draft-created="draftCreated" @close-draft="id=>canvas?.closePane(id)"/></template>
+            <template #pane="{ pane }"><WorkspacePane :key="pane.id" :pane="pane" :workspaces="workspaces" :sessions="sessions" :profiles="profiles" :git-refresh="gitRefresh" @session-changed="refreshSessions" @new-session="(id,provider)=>newSession(id??selectedWorkspaceId,provider)" @open-session="openSession" @reveal-session="revealSession" @keep-session="keepSessionById" @rename-request="requestRenameSession" @session-environment="environmentSessionId=$event" @structured-session="enableChat" @profiles="openSettings('endpoints')" @git-changed="gitChanged" @open-file="openFile" @open-reference="openReference" @files-saved="filesSaved" @browse="id=>openFiles(id??selectedWorkspaceId)" @draft-created="draftCreated" @close-draft="id=>canvas?.closePane(id)" @leave-terminal="id=>canvas?.closePane(id)"/></template>
           </Canvas>
           <div v-else class="pane-empty"><p>{{ t('Opening workspace…') }}</p></div>
         </template>

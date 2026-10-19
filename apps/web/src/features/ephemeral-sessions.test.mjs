@@ -241,6 +241,48 @@ test('a temporary terminal closes with its tab, without asking, though its proce
   assert.deepEqual(state.sessions.value.map(item => item.id), [keeper.id]);
 });
 
+test('closing a terminal reopened from a conversation discards it and goes back to that conversation', async t => {
+  const hatch = session('hatch', { ephemeral: true, status: 'running', interaction_mode: 'pty', provider: 'claude_code', resume_source_id: keeper.id, title: 'Keeper (terminal)' });
+  const { state, requests } = await harness(t, {
+    sessions: [keeper, hatch], layout: stackOf(sessionPane(keeper), sessionPane(hatch)),
+    fetch: () => Response.json({ id: hatch.id }),
+  });
+  const opened = [];
+  state.canvas.value = { ...state.canvas.value, openPane: pane => opened.push(pane.id) };
+  const pane = flattenPanes(state.layout.value.root).find(item => item.metadata?.session_id === hatch.id);
+  assert.equal(await state.confirmClosePane(pane), true, 'a terminal does not ask: its process running says nothing about work under way');
+  assert.deepEqual(requests, [{ url: `/api/sessions/${hatch.id}`, method: 'DELETE', body: undefined }]);
+  assert.deepEqual(opened, [], 'the conversation is shown only after the canvas has settled the close');
+  await new Promise(resolve => setTimeout(resolve));
+  assert.deepEqual(opened, [sessionPane(keeper).id]);
+
+  // Leaving by the button stops the process under the DELETE, and its exit
+  // asks to close the same tab again: that second close waits for the first.
+  requests.length = 0; opened.length = 0;
+  const again = session('again', { ...hatch, id: 'again' });
+  state.sessions.value = [keeper, again];
+  let release, arrived;
+  const sent = new Promise(resolve => { arrived = resolve; });
+  globalThis.fetch.mock.mockImplementation(async (url, init = {}) => { requests.push({ url: String(url), method: init.method }); const reply = new Promise(resolve => { release = resolve; }); arrived(); await reply; return Response.json({ id: again.id }); });
+  const first = state.confirmClosePane(sessionPane(again));
+  assert.equal(await state.confirmClosePane(sessionPane(again)), false, 'the tab is already on its way out');
+  await sent;
+  release();
+  assert.equal(await first, true);
+  assert.equal(requests.length, 1, 'one DELETE, not two');
+  await new Promise(resolve => setTimeout(resolve));
+  assert.deepEqual(opened, [sessionPane(keeper).id]);
+
+  // Any other temporary window just closes.
+  opened.length = 0;
+  globalThis.fetch.mock.mockImplementation(async () => Response.json({ id: 'shell' }));
+  const shell = session('shell', { ephemeral: true, status: 'running', interaction_mode: 'pty', provider: 'terminal', resume_source_id: keeper.id });
+  state.sessions.value = [keeper, shell];
+  assert.equal(await state.confirmClosePane(sessionPane(shell)), true);
+  await new Promise(resolve => setTimeout(resolve));
+  assert.deepEqual(opened, []);
+});
+
 test('a working temporary session is confirmed inline before anything is stopped', async t => {
   const busy = session('busy', { ephemeral: true, status: 'running', title: 'Busy scratch' });
   const { state, requests, closed } = await harness(t, {

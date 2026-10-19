@@ -36,3 +36,21 @@ export function canReopenInTerminal(session: Pick<Session, "provider" | "interac
   if (session.interaction_mode !== "structured") return false;
   return !!session.provider_session_id;
 }
+
+/**
+ * The conversation an escape hatch is a detour from, or nothing for any other
+ * session. Leaving the terminal (its client exits, its tab closes) returns
+ * there: the terminal was only ever a way into that conversation.
+ */
+export function escapeHatchSource(session: Pick<Session, "provider" | "resume_source_id">): string | undefined {
+  return session.provider !== "terminal" && session.resume_source_id ? session.resume_source_id : undefined;
+}
+
+/**
+ * The escape hatch open on `source`'s conversation right now, if any. While it
+ * runs, two clients hold one conversation: a message sent from the
+ * conversation view meanwhile is not part of what the terminal's client knows.
+ */
+export function liveEscapeHatch(source: Pick<Session, "id">, sessions: readonly Session[]): Session | undefined {
+  return sessions.find(session => escapeHatchSource(session) === source.id && ["starting", "running", "waiting"].includes(session.status));
+}

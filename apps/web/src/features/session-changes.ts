@@ -6,6 +6,7 @@ import { backendCapabilities } from "./backend-capabilities";
 import { paneSession, paneString, renameSessionPanes } from "./pane-context";
 import { sessionConnections } from "./session-connection";
 import { isEphemeralSession } from "./session-list";
+import { escapeHatchSource } from "./terminal-reopen";
 import { showToast, type ToastAction } from "./toasts";
 
 /**
@@ -47,13 +48,15 @@ export interface SessionChangesOptions {
   t: (key: string, values?: Record<string, string | number>) => string;
   /** The list is about to change here: a poll already under way must not overwrite it with what it fetched before. */
   touch: () => void;
+  /** Show the conversation an escape-hatch terminal came from, once its tab has closed. */
+  returnTo?: (sourceId: string) => void;
 }
 
-export function useSessionChanges({ sessions, layout, canvas, report, t, touch }: SessionChangesOptions) {
+export function useSessionChanges({ sessions, layout, canvas, report, t, touch, returnTo }: SessionChangesOptions) {
   const archiveBusyIds = ref<string[]>([]), keepBusyIds = ref<string[]>([]), deleteBusyIds = ref<string[]>([]);
   const discardPrompt = ref<{ paneId: string; session: Session }>();
   const sessionNotice = ref(""), sessionNoticeValues = ref<Record<string, number>>();
-  const enablingChat = new Set<string>();
+  const enablingChat = new Set<string>(), discarding = new Set<string>();
   // A prompt outlives neither its pane nor its record: a poll that already removed
   // the session, or a pane closed elsewhere, must not leave a stale question.
   watch([sessions, layout], () => {
@@ -138,9 +141,22 @@ export function useSessionChanges({ sessions, layout, canvas, report, t, touch }
    * still working (`asksBeforeDiscard`): then the bar asks first. */
   async function confirmClosePane(pane: PaneNode): Promise<boolean> {
     const session = paneSession(pane, sessions.value);
-    if (!session || !isEphemeralSession(session)) return true;
-    if (asksBeforeDiscard(session)) { discardPrompt.value = { paneId: pane.id, session }; return false; }
-    return await discardEphemeral(session);
+    if (!session) return true;
+    let closing = true;
+    if (isEphemeralSession(session)) {
+      if (asksBeforeDiscard(session)) { discardPrompt.value = { paneId: pane.id, session }; return false; }
+      // A second close while the first is still discarding leaves the tab to
+      // that one: an escape hatch left by its button exits under the DELETE,
+      // and its exit asks to close the same tab again.
+      if (discarding.has(session.id)) return false;
+      discarding.add(session.id);
+      try { closing = await discardEphemeral(session); } finally { discarding.delete(session.id); }
+    }
+    // An escape hatch is a detour from a conversation, so closing it goes back
+    // there. After the canvas has settled what the close selects, not before.
+    const source = escapeHatchSource(session);
+    if (closing && source) setTimeout(() => returnTo?.(source));
+    return closing;
   }
   async function confirmDiscard() {
     const prompt = discardPrompt.value;

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { canReopenInTerminal } from './terminal-reopen.ts';
+import { canReopenInTerminal, escapeHatchSource, liveEscapeHatch } from './terminal-reopen.ts';
 
 const structured = { provider: 'claude_code', interaction_mode: 'structured', provider_session_id: 'thread_01' };
 const enabled = { sessionTerminalEscape: true };
@@ -51,4 +51,19 @@ test('the capability is read from the health response, defaulting to absent', ()
   // A capability that defaulted to `true` for a modern api_version would turn
   // on for every backend at version 2, including ones without the route.
   assert.match(source, /sessionTerminalEscape: has\("session_terminal_escape", false\)/);
+});
+
+test('an escape hatch leads back to the conversation it reopened, and only then', () => {
+  assert.equal(escapeHatchSource({ provider: 'claude_code', resume_source_id: 'source' }), 'source');
+  assert.equal(escapeHatchSource({ provider: 'claude_code', resume_source_id: null }), undefined);
+  // A terminal session's own shell is never a detour from a conversation.
+  assert.equal(escapeHatchSource({ provider: 'terminal', resume_source_id: 'source' }), undefined);
+});
+
+test('the conversation knows when its terminal is live', () => {
+  const hatch = (status, extra = {}) => ({ id: `t-${status}`, provider: 'claude_code', resume_source_id: 'source', status, ...extra });
+  assert.equal(liveEscapeHatch({ id: 'source' }, [hatch('running')])?.id, 't-running');
+  assert.equal(liveEscapeHatch({ id: 'source' }, [hatch('stopped'), hatch('failed')]), undefined, 'an exited terminal holds nothing');
+  assert.equal(liveEscapeHatch({ id: 'other' }, [hatch('running')]), undefined);
+  assert.equal(liveEscapeHatch({ id: 'source' }, [hatch('running', { provider: 'terminal' })]), undefined);
 });

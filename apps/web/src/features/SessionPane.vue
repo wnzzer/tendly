@@ -7,6 +7,7 @@ import SessionCommonActions from "./SessionCommonActions.vue";
 import { useI18n } from "../i18n";
 import { sessionView, setSessionView, type SessionView } from "./session-view";
 import SessionRunInfo from "./SessionRunInfo.vue";
+import { liveEscapeHatch } from "./terminal-reopen";
 
 const props = defineProps<{
   paneId?: string;
@@ -24,6 +25,7 @@ const emit = defineEmits<{
   select: [session: Session];
   reveal: [id: string];
   keep: [id: string];
+  leave: [];
   openFile: [reference: { path: string; line?: number; checkout?: string | null }];
 }>();
 
@@ -60,10 +62,14 @@ function onStructured(id: string): void {
   if (id === props.session.id) openChat();
 }
 function renameSession(id: string): void { emit("renameRequest", id); }
+// The terminal this conversation was reopened in, while it runs: the two
+// clients do not share what is said in either, so the view says where it is.
+const liveTerminal = computed(() => isChat.value ? liveEscapeHatch(props.session, props.sessions) : undefined);
 </script>
 
 <template>
   <section class="session-shell" :data-session-id="session.id" :data-view="view" :aria-label="t('Session view for {session}', { session: session.title })">
+    <div v-if="liveTerminal" class="inline-notice session-terminal-notice"><span>{{ t('This conversation is open in a terminal. Continue there, or leave the terminal to come back here.') }}</span><button type="button" class="small-button" @click="emit('select', liveTerminal)">{{ t('Go to terminal') }}</button></div>
     <div class="session-shell-content" :data-session-id="session.id">
       <ChatSessionPane
         v-if="isChat"
@@ -100,6 +106,7 @@ function renameSession(id: string): void { emit("renameRequest", id); }
         @environment="emit('environment', $event)"
         @structured="onStructured"
         @profiles="emit('profiles')"
+        @leave="emit('leave')"
       >
         <template #session-actions="{ closeMenu }">
           <SessionCommonActions :session="session" :close-menu="closeMenu" @rename="renameSession(session.id)" @environment="emit('environment', session.id)" @keep="emit('keep', session.id)" @info="showInfo = true" />
@@ -114,5 +121,6 @@ function renameSession(id: string): void { emit("renameRequest", id); }
 
 <style scoped>
 .session-shell{display:flex;flex:1;min-height:0;min-width:0;flex-direction:column;overflow:hidden;background:var(--surface,var(--surface))}
+.session-terminal-notice{display:flex;align-items:center;justify-content:space-between;gap:10px;flex:none;margin:8px 8px 0}
 .session-shell-content{display:flex;flex:1;min-height:0;min-width:0}.session-shell-content>*{flex:1 1 auto;width:auto;min-width:0;min-height:0}
 </style>
