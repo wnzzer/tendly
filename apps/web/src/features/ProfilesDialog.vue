@@ -7,8 +7,9 @@ import { sharesHostConfig, nativeProfileRenamePayload, nativeProfileUpdatePayloa
 import { environmentRows, newEnvironmentRow, type EnvironmentRow } from "./environment-model";
 import { limitKey, nextLimits, validWindow, windowValue, type Limits } from "./model-limits";
 import ModelSelection from "./ModelSelection.vue";
+import EndpointCheck from "./EndpointCheck.vue";
 import { offeredModels } from "./model-choices";
-import { FIXED_APIS, PROBE_APIS, type ModelProbePlan, type ModelProbeResult } from "./model-probe";
+import { FIXED_APIS, PROBE_APIS, type ModelProbeApi, type ModelProbePlan, type ModelProbeResult } from "./model-probe";
 import EndpointBalanceEditor from "./EndpointBalanceEditor.vue";
 import EnvironmentEditor from "./EnvironmentEditor.vue";
 import { AGENT_CLIENTS, DEFAULT_CLIENT, clientInfo, clientLabel } from "./clients";
@@ -107,25 +108,6 @@ async function releaseSecret(reference: string | null | undefined, remaining: Ar
 }
 const deletingProfile = computed(() => props.profiles.find(p => p.id === deleteId.value) ?? (editingRecord.value?.id === deleteId.value ? editingRecord.value : undefined));
 const aliases = computed(() => { try { return { value: parseModelAliases(aliasesText.value), error: "" }; } catch (cause) { return { value: {} as Record<string,string>, error: errorMessage(cause) }; } });
-type ProtocolCheck = { protocol: string; status: 'supported' | 'unsupported' | 'unknown'; http_status: number | null };
-const protocolChecks = ref<ProtocolCheck[]>([]), checkingProtocols = ref(false), protocolError = ref("");
-let protocolRevision = 0;
-watch(() => [form.provider, form.endpoint_url, form.proxy_url, form.secret_ref, form.api, form.model, apiKey.value, aliasesText.value], () => {
-  protocolRevision++; protocolChecks.value = []; protocolError.value = "";
-});
-async function checkProtocols() {
-  if (checkingProtocols.value || !form.model.trim() || !secretValid.value || aliases.value.error) return;
-  checkingProtocols.value = true; protocolError.value = ""; protocolChecks.value = [];
-  try {
-    await storePastedKey(); await nextTick();
-    const revision = protocolRevision;
-    try {
-      const result = await request<ProtocolCheck[]>("/endpoint-profiles/check-protocols", json("POST", payload(false)));
-      if (revision === protocolRevision) protocolChecks.value = result;
-    } catch (cause) { if (revision === protocolRevision) protocolError.value = errorMessage(cause); }
-  } catch (cause) { protocolError.value = errorMessage(cause); }
-  finally { checkingProtocols.value = false; }
-}
 const resolved = computed(() => aliases.value.value[form.model] ?? form.model);
 const offered = computed(() => offeredModels(models.value?.models ?? [], chosenModels.value));
 const choices = computed(() => [...Object.entries(aliases.value.value).map(([id, actual]) => ({id,name:id + " → " + actual})), ...offered.value]);
@@ -222,7 +204,7 @@ function edit(p?: EndpointProfile) {
   // A new profile starts on the default client, whose slots follow its main model.
   environmentDraft.value = p ? environmentRows(p.environment) : clientInfo(DEFAULT_CLIENT).modelSlots ? followingRows() : [];
   initialEnvironment.value = environmentDraft.value.map(row => ({ ...row }));
-  resetDiscovery(); protocolRevision++; protocolChecks.value = []; protocolError.value = ""; editingRecord.value=p;
+  resetDiscovery(); editingRecord.value=p;
   editing.value=p?.id; formVisible.value=true; error.value=""; deleteId.value=undefined;
   Object.assign(form,{name:p?.name??"",provider:p?.provider??DEFAULT_CLIENT,endpoint_url:p?.endpoint_url??"",api:p?.api??"",model:p?.model??"",effort:p?.effort??"",permission_mode:p?.permission_mode??"native",secret_ref:p?.secret_ref??"",proxy_url:p?.proxy_url??""});
   apiKey.value = ""; chooseSecretMode(p?.secret_ref);
@@ -251,7 +233,7 @@ async function discover() {
  * but not yet saved is stored first so the endpoint sees the same credential
  * discovery did.
  */
-async function probeModels(batch: string[]): Promise<ModelProbeResult[]> {
+async function probeModels(batch: string[], api?: ModelProbeApi): Promise<ModelProbeResult[]> {
   if (!backendCapabilities.modelProbe || editingNative.value || !secretValid.value || aliases.value.error) throw new Error(t("This profile cannot be checked as it stands; fix the fields above first."));
   if (secretMode.value === "stored" && apiKey.value.trim()) {
     // Stored first: the server resolves the reference, so the check must see
@@ -259,8 +241,18 @@ async function probeModels(batch: string[]): Promise<ModelProbeResult[]> {
     await storePastedKey();
     await nextTick();
   }
-  return request<ModelProbeResult[]>("/endpoint-profiles/probe-models", json("POST", { profile: payload(false), models: batch }));
+  // Pi is tried over each protocol in turn: the draft names the one asked about.
+  const profile = api ? { ...payload(false), api } : payload(false);
+  return request<ModelProbeResult[]>("/endpoint-profiles/probe-models", json("POST", { profile, models: batch }));
 }
+const modelSelection = ref<InstanceType<typeof ModelSelection>>();
+/** What the form's check tries first: the default model, else the first chosen one. */
+const checkModel = computed(() => resolved.value.trim() || chosenModels.value[0] || "");
+const checkBlocked = computed(() => !backendCapabilities.modelProbe ? t("Backend upgrade required")
+  : !secretValid.value || aliases.value.error ? t("This profile cannot be checked as it stands; fix the fields above first.") : undefined);
+const checkApis = computed(() => (client.value.apis ?? []).map(api => api.value as ModelProbeApi));
+/** Answers about one endpoint say nothing about another: a new endpoint, key or client starts the check over. */
+const checkKey = computed(() => [form.provider, form.endpoint_url, form.proxy_url, form.secret_ref, apiKey.value].join("\n"));
 /**
  * Which protocol a check would speak. Asked as the form changes and sent
  * nowhere near the endpoint, so it is safe on every keystroke; the answer is
@@ -363,7 +355,7 @@ watch(() => [error.value, deleteId.value], ([message, id]) => { if (message || i
 // Open on something to read rather than on a blank page that asks for a click.
 if (props.profiles.length) edit(props.profiles[0]);
 void loadSecrets().then(() => chooseSecretMode(form.secret_ref));
-onBeforeUnmount(()=>{discoveryRevision++;protocolRevision++;});
+onBeforeUnmount(()=>{discoveryRevision++;});
 </script>
 
 <template>
@@ -420,16 +412,9 @@ onBeforeUnmount(()=>{discoveryRevision++;protocolRevision++;});
           <div class="model-fetch"><strong>{{ t('Model selection') }}</strong><button type="button" class="small-button" :disabled="discovering||!backendCapabilities.models||!secretValid||!!aliases.error" :title="!backendCapabilities.models?t('Backend upgrade required'):t('Reads the endpoint\'s model list. No model is run.')" @click="discover"><Icon name="refresh" :size="14" />{{ discovering?t('Loading models…'):t('Load models from endpoint') }}</button></div>
           <div v-if="modelError" class="inline-error" role="alert">{{ modelError }}<p>{{ t('You can still enter a model ID or alias manually.') }}</p></div>
           <p v-if="models" class="form-help">{{ t('{count} models returned', {count:models.models.length}) }} · <span>{{ models.source_url }}</span><br v-if="models.has_more" /><span v-if="models.has_more">{{ t('The endpoint has more models; this is the first page.') }}</span></p>
-          <ModelSelection v-if="!editingNative && (models?.models.length || chosenModels.length)" v-model:selected="chosenModels" :catalog="models?.models ?? []" :window-text="windowText" :placeholder="windowPlaceholder" :probe="backendCapabilities.modelProbe ? probeModels : undefined" :plan="probePlan" @window="setWindow" @look="lookPublished" />
+          <ModelSelection ref="modelSelection" v-if="!editingNative && (models?.models.length || chosenModels.length)" v-model:selected="chosenModels" :catalog="models?.models ?? []" :window-text="windowText" :placeholder="windowPlaceholder" :probe="backendCapabilities.modelProbe ? probeModels : undefined" :plan="probePlan" @window="setWindow" @look="lookPublished" />
           <label>{{ t('Default model') }}<ModelPicker v-model="form.model" :models="choices" :placeholder="t('Choose a model or enter an ID')" /></label>
-          <div class="protocol-check">
-            <button type="button" class="small-button" :disabled="checkingProtocols || busy || !form.model.trim() || !secretValid || !!aliases.error" @click="checkProtocols">{{ t(checkingProtocols ? 'Checking protocols…' : 'Check model and protocol support') }}</button>
-            <p class="form-help">{{ t('Sends a tiny request for this model to each of Messages, Responses and Chat Completions. May use a small amount of credit.') }}</p>
-            <p class="form-help">{{ t('Claude Code requires Messages; Codex requires Responses; Pi uses the selected endpoint API.') }}</p>
-            <ul v-if="protocolChecks.length" aria-live="polite"><li v-for="check in protocolChecks" :key="check.protocol">{{ check.protocol }} · {{ t(check.status === 'supported' ? 'Supported' : check.status === 'unsupported' ? 'Unsupported' : 'Unable to confirm') }}<span v-if="check.http_status"> (HTTP {{ check.http_status }})</span></li></ul>
-            <p v-if="protocolChecks.some(check => check.status === 'unknown')" class="form-help">{{ t('Authentication, model access, missing routes, request parameters or rate limits can prevent verification. An unverified protocol is not necessarily unsupported.') }}</p>
-            <p v-if="protocolError" class="inline-error" role="alert">{{ protocolError }}</p>
-          </div>
+          <EndpointCheck v-if="!editingNative" :key="checkKey" :client="providerLabel(form.provider)" :apis="checkApis" :fixed-api="FIXED_APIS[form.provider]" :named="(form.api || undefined) as ModelProbeApi | undefined" :plan="probePlan" :model="checkModel" :batch="!!modelSelection" :blocked="checkBlocked" :probe="probeModels" @use-api="form.api = $event" @checked="modelSelection?.checkModels()" />
           <label v-if="form.model.trim() && savedLimits">{{ t('Context window') }} <small>{{ t('tokens, for this model in every profile') }}</small><input :value="windowText(form.model)" class="field-mono" inputmode="numeric" autocomplete="off" spellcheck="false" :placeholder="windowPlaceholder(form.model)" @input="setWindow(form.model, ($event.target as HTMLInputElement).value)" /></label>
           <p v-if="form.model.trim() && savedLimits" :class="validWindow(windowText(form.model)) ? 'form-help' : 'inline-error'">{{ !validWindow(windowText(form.model)) ? t('A context window is between 1,000 and 100,000,000 tokens.') : t(client.contextWindow.help) }}</p>
           <div v-if="client.modelSlots" class="model-slots">
@@ -476,8 +461,6 @@ onBeforeUnmount(()=>{discoveryRevision++;protocolRevision++;});
   </ModalDialog>
 </template>
 <style scoped>
-.protocol-check{padding:12px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--sunken)}
-.protocol-check ul{margin:8px 0;padding-left:20px;font-size:var(--text-sm);line-height:1.8;color:var(--ink-soft)}
 .secret-switch{align-self:flex-start;margin-top:-6px}
 .secret-adopt{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
 .model-slots{display:flex;flex-direction:column;gap:6px;margin-top:-4px}

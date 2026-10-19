@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  PROBE_APIS, PROBE_BATCH, apisUsed, checkTally, routeSuspicion, dropBroken, formatLatency, isBroken, isInconclusive,
+  PROBE_APIS, PROBE_BATCH, apisUsed, checkTally, chooseApi, probeAnswer, routeSuspicion, dropBroken, formatLatency, isBroken, isInconclusive,
   keepWorking, matchesCheckFilter, mergeChecks, needsCheck, probeBatches, probeRun,
 } from './model-probe.ts';
 
@@ -135,4 +135,23 @@ test('a batch of 404s points at the route, not at every model', () => {
   // A single model cannot be a pattern.
   assert.equal(routeSuspicion([result('a', 'not_found')]), false);
   assert.equal(routeSuspicion([]), false);
+});
+
+test('the protocol kept is the named one if it worked, then the guess, then the first that worked', () => {
+  const order = ['openai-completions', 'openai-responses', 'anthropic-messages', 'google-generative-ai'];
+  const tried = statuses => order.map((api, index) => result('m', statuses[index], undefined, api));
+  // Responses and Messages both run: the profile's own choice stays.
+  assert.equal(chooseApi(tried(['not_found', 'ok', 'ok', 'failed']), order, 'anthropic-messages'), 'anthropic-messages');
+  // The named one failed: the URL's guess comes next, then the client's order.
+  assert.equal(chooseApi(tried(['not_found', 'ok', 'ok', 'failed']), order, 'openai-completions', 'anthropic-messages'), 'anthropic-messages');
+  assert.equal(chooseApi(tried(['not_found', 'ok', 'ok', 'failed']), order), 'openai-responses');
+  // A refused key or a timeout proves nothing: the profile is not switched.
+  assert.equal(chooseApi(tried(['unauthorized', 'timeout', 'rate_limited', 'not_found']), order, 'openai-completions'), undefined);
+});
+
+test('an answer reads the same in the panel and in the form check', () => {
+  const t = (text, values = {}) => text.replace(/\{(\w+)\}/g, (_, key) => String(values[key]));
+  assert.deepEqual(probeAnswer(result('m', 'ok', 820), t), { kind: 'ok', text: 'Works · 820 ms' });
+  assert.deepEqual(probeAnswer({ ...result('m', 'not_found'), detail: 'The endpoint has no such model' }, t), { kind: 'broken', text: 'Model not found', title: 'The endpoint has no such model' });
+  assert.equal(probeAnswer(result('m', 'unauthorized'), t).kind, 'warn');
 });

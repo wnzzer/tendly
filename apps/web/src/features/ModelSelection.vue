@@ -4,7 +4,7 @@ import { useI18n } from "../i18n";
 import { filterModels } from "./model-choices";
 import { validWindow } from "./model-limits";
 import {
-  checkTally, dropBroken, formatLatency, isBroken, isInconclusive, routeSuspicion,
+  checkTally, dropBroken, isBroken, isInconclusive, probeAnswer, routeSuspicion,
   PROBE_APIS, PROBE_RUN, apisUsed, keepWorking, matchesCheckFilter, mergeChecks, needsCheck, probeBatches, probeRun,
   type CheckFilter, type ModelProbeApi, type ModelProbePlan, type ModelProbeResult,
 } from "./model-probe";
@@ -113,17 +113,7 @@ const planned = computed(() => props.plan);
 function statusOf(id: string): { kind: string; text: string; title?: string } {
   if (checking.value.has(id)) return { kind: "checking", text: t("Checking…") };
   const result = checks.value[id];
-  if (!result) return { kind: "untested", text: t("Untested") };
-  const detail = result.detail ? { title: result.detail } : {};
-  const latency = formatLatency(result.latency_ms);
-  switch (result.status) {
-    case "ok": return { kind: "ok", text: latency ? t("Works · {latency}", { latency }) : t("Works"), ...detail };
-    case "not_found": return { kind: "broken", text: t("Model not found"), ...detail };
-    case "unauthorized": return { kind: "warn", text: t("Key refused"), ...detail };
-    case "rate_limited": return { kind: "warn", text: t("Rate limited"), ...detail };
-    case "timeout": return { kind: "warn", text: t("Timed out"), ...detail };
-    default: return { kind: "broken", text: t("Failed"), ...detail };
-  }
+  return result ? probeAnswer(result, t) : { kind: "untested", text: t("Untested") };
 }
 
 function toggle(id: string) {
@@ -180,6 +170,10 @@ function checkChosen() { void run(props.selected.filter(id => needsCheck(checks.
  * only way to learn otherwise is to ask once more. */
 function checkOne(id: string) { void run([id], true); }
 function stop() { stopRequested.value = true; }
+/** What the form's own check runs once it has settled the protocol: the chosen
+ * models, or the rows on screen when none is chosen. */
+function checkModels() { if (props.selected.length) checkChosen(); else checkShown(); }
+defineExpose({ checkModels });
 
 function keepWorkingOnly() {
   if (keepable.value.length) emit("update:selected", keepable.value);

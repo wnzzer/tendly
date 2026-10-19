@@ -95,19 +95,6 @@ pub(super) async fn discover_models(
     model_catalog::discover(&state, &p).await.map(Json)
 }
 
-/// Which protocols the endpoint supports for one model: a single tiny call per
-/// protocol. Narrower than `probe_models` on purpose — it answers "does this
-/// endpoint speak Responses at all", which a batch of model checks cannot,
-/// because a whole batch failing looks the same for every wrong reason.
-pub(super) async fn check_protocols(
-    State(state): State<AppState>,
-    Json(input): Json<CreateProfile>,
-) -> Result<Json<Vec<model_catalog::ProtocolCheck>>> {
-    model_catalog::check_protocols(&state, &draft_profile(input, "Protocol check"))
-        .await
-        .map(Json)
-}
-
 /// Models a stored profile can run.
 ///
 /// Official accounts are asked through the profile Tendly already holds,
@@ -296,10 +283,6 @@ pub(super) fn routes() -> Router<AppState> {
         .route(
             "/api/host/native-configurations",
             get(native_configuration_sources),
-        )
-        .route(
-            "/api/endpoint-profiles/check-protocols",
-            post(check_protocols),
         )
         .route(
             "/api/endpoint-profiles/discover-models",

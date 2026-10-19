@@ -191,6 +191,39 @@ export function matchesCheckFilter(
   }
 }
 
+type Translate = (text: string, values?: Record<string, string | number>) => string;
+
+/** What an answer's pill says, in the panel and in the form's own check. */
+export function probeAnswer(result: ModelProbeResult, t: Translate): { kind: "ok" | "broken" | "warn"; text: string; title?: string } {
+  const detail = result.detail ? { title: result.detail } : {};
+  const latency = formatLatency(result.latency_ms);
+  switch (result.status) {
+    case "ok": return { kind: "ok", text: latency ? t("Works · {latency}", { latency }) : t("Works"), ...detail };
+    case "not_found": return { kind: "broken", text: t("Model not found"), ...detail };
+    case "unauthorized": return { kind: "warn", text: t("Key refused"), ...detail };
+    case "rate_limited": return { kind: "warn", text: t("Rate limited"), ...detail };
+    case "timeout": return { kind: "warn", text: t("Timed out"), ...detail };
+    default: return { kind: "broken", text: t("Failed"), ...detail };
+  }
+}
+
+/**
+ * The protocol to keep once one model was tried on each a client can speak:
+ * the one the profile already names if it worked, then the one the URL
+ * suggests, then the first that worked in the client's own order. None when
+ * nothing worked — a refused key or a timeout proves nothing about a protocol,
+ * so the profile is left as it was rather than switched on no evidence.
+ */
+export function chooseApi(
+  results: readonly ModelProbeResult[],
+  order: readonly ModelProbeApi[],
+  named?: ModelProbeApi,
+  guessed?: ModelProbeApi,
+): ModelProbeApi | undefined {
+  const working = new Set(results.filter(result => result.status === "ok").map(result => result.api));
+  return [named, guessed, ...order].find((api): api is ModelProbeApi => !!api && working.has(api));
+}
+
 /** "820 ms" — one decimal only where it says something. */
 export function formatLatency(ms: number | undefined): string {
   if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return "";
