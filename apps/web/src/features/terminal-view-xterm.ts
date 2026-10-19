@@ -27,6 +27,7 @@ export function createXtermView(host: HTMLElement, theme: TerminalTheme, events:
   useWebgl(terminal);
   const subscriptions = [
     terminal.onData(events.typed),
+    terminal.onResize(events.resized),
     terminal.onScroll(events.scrolled),
     terminal.onWriteParsed(events.scrolled),
     terminal.onBinary(data => events.send(Uint8Array.from(data, value => value.charCodeAt(0) & 255))),

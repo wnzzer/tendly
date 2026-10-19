@@ -177,6 +177,8 @@ const viewEvents: TerminalViewEvents = {
     cleanupView();
   },
   searched(progress) { searchProgress.value = progress; },
+  // Before it is ready the grid is still being built; `ready` sends the size.
+  resized(size) { if (view?.ready) sendSize(size); },
 };
 
 function resize() {
@@ -185,9 +187,10 @@ function resize() {
     if (disposed || !view?.ready || !host.value || host.value.clientWidth < 30 || host.value.clientHeight < 30) return;
     try { view.fit(); } catch { return; }
     const size = view.size();
-    if (size) stream.send(JSON.stringify({ type: "resize", ...size }));
+    if (size) sendSize(size);
   });
 }
+function sendSize(size: { cols: number; rows: number }) { stream.send(JSON.stringify({ type: "resize", ...size })); }
 
 /** Send exactly the bytes the physical key would, so the client sees a key. */
 function sendKeys(sequence: string) {

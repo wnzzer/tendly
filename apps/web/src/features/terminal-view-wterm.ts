@@ -52,6 +52,7 @@ export function createWtermView(host: HTMLElement, theme: TerminalTheme, events:
         cursorBlink: true,
         onData: events.typed,
         onBinary: events.send,
+        onResize: (cols, rows) => events.resized({ cols, rows }),
         onSearchChange: state => events.searched?.(state),
       });
       await view.init();

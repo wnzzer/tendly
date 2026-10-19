@@ -22,6 +22,13 @@ export interface TerminalViewEvents {
   ready(): void;
   /** The view could not be built; the pane says so and offers to reconnect. */
   failed(): void;
+  /**
+   * The grid changed, whoever changed it. wterm refits on its own when a web
+   * font loads or its element resizes, and can count one column more or fewer
+   * than a fit asked for; the process must be told every time, or a program
+   * that draws to the full width (Pi) wraps every line and loses its place.
+   */
+  resized(size: { cols: number; rows: number }): void;
   /** Progress of a find through the history, where the view can find. */
   searched?(progress: FindState): void;
 }
