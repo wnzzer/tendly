@@ -457,6 +457,15 @@ test('a background command is marked as one, and a command never logs itself',()
   assert.equal(events.at(-1).status,'running');
 });
 
+test('a failed turn says what the endpoint said, as the Rust adapter does',async()=>{
+  const { failureReason }=await import('./chat-claude.mjs');
+  assert.equal(failureReason({api_error_status:401,result:' Failed to authenticate. API Error: 401 bad key '}),'Claude Code could not complete the turn (HTTP 401). Check the key, and that the endpoint takes it as an x-api-key header. Claude Code said: Failed to authenticate. API Error: 401 bad key');
+  assert.match(failureReason({api_error_status:404}),/\(HTTP 404\)\. Check the model name/);
+  assert.match(failureReason({api_error_status:429}),/limiting requests/);
+  assert.match(failureReason({api_error_status:529}),/The endpoint failed/);
+  for(const message of [{result:''},{api_error_status:'401'},{api_error_status:7}])assert.equal(failureReason(message),'Claude Code could not complete the turn. Check its native account, endpoint and permission settings.');
+});
+
 test('a turn reports what it cost, and a call roughly what its result added',async()=>{
   const { turnUsage, resultTokens }=await import('./chat-claude.mjs');
   assert.deepEqual(turnUsage({input_tokens:100,cache_read_input_tokens:9000,cache_creation_input_tokens:900,output_tokens:450}),{input:10000,output:450,cached:9000});

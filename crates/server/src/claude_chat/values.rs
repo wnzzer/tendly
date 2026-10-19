@@ -210,6 +210,30 @@ pub(super) fn unsupported_authentication(diagnostic: &str) -> bool {
     lower.contains("oauth") || followed("subscription") || followed("authentication")
 }
 
+/// Why a turn failed, from what the client reports. Claude Code names the
+/// cause in `result` and the endpoint's status in `api_error_status`; it
+/// leaves `errors` empty, so reading only that made every failed request
+/// look like the same guess. Mirrors `failureReason` in chat-claude.mjs.
+pub(super) fn failure_reason(message: &Value) -> String {
+    let status = safe_integer(message.get("api_error_status")).filter(|s| (100..600).contains(s));
+    let advice = match status {
+        Some(401 | 403) => "Check the key, and that the endpoint takes it as an x-api-key header.",
+        Some(404) => "Check the model name, and that the endpoint serves Anthropic Messages.",
+        Some(429) => "The endpoint is limiting requests; try again later.",
+        Some(500..=599) => "The endpoint failed; try again later.",
+        _ => "Check its native account, endpoint and permission settings.",
+    };
+    let code = status.map(|s| format!(" (HTTP {s})")).unwrap_or_default();
+    let said = message
+        .get("result")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|said| !said.is_empty())
+        .map(|said| format!(" Claude Code said: {}", clip(said, 600)))
+        .unwrap_or_default();
+    format!("Claude Code could not complete the turn{code}. {advice}{said}")
+}
+
 pub(super) fn now_millis() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

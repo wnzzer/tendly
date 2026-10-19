@@ -75,6 +75,13 @@ function begin(text){
       return;
     case 'fail-auth':reply();result('error_during_execution',{errors:['OAuth token is not supported for this endpoint']});return;
     case 'fail':result('error_max_turns',{result:''});return;
+    // What the client sends when the endpoint refuses a request: a synthetic
+    // assistant message, then a result that still says `success`.
+    case 'fail-401':{
+      const said='Failed to authenticate. API Error: 401 bad key';
+      send({type:'assistant',error:'authentication_failed',is_api_error_message:true,api_error_status:401,message:{id:'error-'+turn,model:'<synthetic>',content:[{type:'text',text:said}]}});
+      result('success',{is_error:true,api_error_status:401,terminal_reason:'api_error',result:said});return;
+    }
     case 'result-only':result();return;
     // Load scenarios for the long-conversation harness: a full reply with
     // the parts that cost the most to render, and a reply streamed at speed.

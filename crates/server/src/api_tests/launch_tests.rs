@@ -139,9 +139,10 @@ async fn terminal_launch_pins_snapshot_revision_credentials_and_flags_for_every_
         );
         match provider {
             ProviderKind::ClaudeCode => {
+                // Claude Code adds /v1 itself.
                 assert_eq!(
                     spec.env["ANTHROPIC_BASE_URL"],
-                    "https://original.example.test/v1"
+                    "https://original.example.test"
                 );
                 assert!(
                     args.windows(2)

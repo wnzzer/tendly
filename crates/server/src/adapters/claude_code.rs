@@ -94,7 +94,7 @@ impl ClientAdapter for ClaudeCode {
             ..
         } = launch;
         if let Some(url) = profile.and_then(|p| p.endpoint_url.as_ref()) {
-            environment.insert("ANTHROPIC_BASE_URL".into(), url.clone());
+            environment.insert("ANTHROPIC_BASE_URL".into(), messages_base(url));
         }
         if let Some(secret) = secret {
             environment.insert("ANTHROPIC_API_KEY".into(), secret);
@@ -427,4 +427,13 @@ fn read_line(line: &str, source: &Source, state: &mut FileState) {
         duration_ms,
         outcome: Outcome::Answered,
     });
+}
+
+/// The base Claude Code appends `/v1/messages` to. A URL that already ends in
+/// `/v1` is how most gateways are written down, and the model check reads it
+/// that way (model_probe.rs); passed on as it is, every turn would go to
+/// `/v1/v1/messages` and fail while the check said the endpoint works.
+fn messages_base(url: &str) -> String {
+    let base = url.trim_end_matches('/');
+    base.strip_suffix("/v1").unwrap_or(base).to_owned()
 }

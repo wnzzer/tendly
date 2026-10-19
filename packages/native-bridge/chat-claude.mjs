@@ -110,6 +110,23 @@ export function callSummary(input){
  * A turn's tokens from its result: everything read (the cached part counted
  * apart, since it is the cheap part), and everything written.
  */
+/**
+ * Why a turn failed, from what the client reports. Claude Code names the
+ * cause in `result` and the endpoint's status in `api_error_status`; it leaves
+ * `errors` empty, so reading only that made every failed request look like the
+ * same guess. Mirrors `failure_reason` in claude_chat/values.rs.
+ */
+export function failureReason(message){
+  const status=Number.isSafeInteger(message.api_error_status)&&message.api_error_status>=100&&message.api_error_status<600?message.api_error_status:undefined;
+  const advice=status===401||status===403?'Check the key, and that the endpoint takes it as an x-api-key header.'
+    :status===404?'Check the model name, and that the endpoint serves Anthropic Messages.'
+    :status===429?'The endpoint is limiting requests; try again later.'
+    :status>=500?'The endpoint failed; try again later.'
+    :'Check its native account, endpoint and permission settings.';
+  const said=typeof message.result==='string'?message.result.trim():'';
+  return `Claude Code could not complete the turn${status?` (HTTP ${status})`:''}. ${advice}${said?` Claude Code said: ${clip(said,600)}`:''}`;
+}
+
 export function turnUsage(usage){
   if(!usage||typeof usage!=='object')return;
   const n=value=>Number.isSafeInteger(value)&&value>=0?value:0;
@@ -261,6 +278,10 @@ export class ClaudeChat extends ChatBase {
     // A turn the client starts by itself: a background command it was waiting
     // on finished, and it carries on. Dropping it hid work that still ran --
     // commits and pushes the user never saw -- so it opens a turn like any other.
+    // An API failure arrives as a synthetic assistant message: the endpoint's
+    // complaint, not the model's answer. The result that follows repeats it
+    // and fails the turn.
+    if(message.type==='assistant'&&message.is_api_error_message)return;
     if(!this.active&&['assistant','stream_event'].includes(message.type)&&!message.parent_tool_use_id)this.open(`background-${randomUUID()}`);
     // A subagent's output belongs to the tool call that started it. Emitting it
     // as a message would overwrite the main assistant reply, which is why this
@@ -303,15 +324,16 @@ export class ClaudeChat extends ChatBase {
       // assistant message describes the live context, so that value is kept and
       // just the window is taken from here.
       this.usage(message.usage,undefined,windows.size===1?[...windows][0]:undefined);
+      const failed=message.is_error||message.subtype!=='success';
       // An empty result is not an answer; a blank bubble only looks like a bug.
-      if(!this.finalAssistant&&typeof message.result==='string'&&message.result.trim())this.emit({type:'message',id:this.assistantId??`assistant-${this.active.id}`,role:'assistant',text:clip(message.result),delta:false});
+      // A failed one is the client's complaint, said in the error below.
+      if(!failed&&!this.finalAssistant&&typeof message.result==='string'&&message.result.trim())this.emit({type:'message',id:this.assistantId??`assistant-${this.active.id}`,role:'assistant',text:clip(message.result),delta:false});
       // What the turn cost, after its reply so the footer has a reply to sit
       // under. The totals are the client's own, summed over the turn's calls.
       const spent=turnUsage(message.usage);if(spent)this.emit({type:'usage',turn:spent});
-      const failed=message.is_error||message.subtype!=='success';
       if(failed&&!this.active.interrupted){
         const diagnostic=JSON.stringify(message.errors??[]);
-        this.error(/oauth|subscription.*(?:not|unsupported)|authentication.*(?:not|unsupported)/i.test(diagnostic)?'Claude Code does not support this authentication mode for this interface. Use its native client or an approved API configuration.':'Claude Code could not complete the turn. Check its native account, endpoint and permission settings.');
+        this.error(/oauth|subscription.*(?:not|unsupported)|authentication.*(?:not|unsupported)/i.test(diagnostic)?'Claude Code does not support this authentication mode for this interface. Use its native client or an approved API configuration.':failureReason(message));
       }
       const interrupted=this.active.interrupted;
       this.finish(interrupted?'interrupted':failed?'failed':'completed');

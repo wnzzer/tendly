@@ -958,6 +958,7 @@ fn finished(n: u8, status: &'static str) -> Step {
         (3, "interrupted") => Wait(|e| turn(e, &uuid(3), "interrupted")),
         (1, "failed") => Wait(|e| turn(e, &uuid(1), "failed")),
         (2, "failed") => Wait(|e| turn(e, &uuid(2), "failed")),
+        (4, "failed") => Wait(|e| turn(e, &uuid(4), "failed")),
         _ => unreachable!("add the pair"),
     }
 }
@@ -1305,6 +1306,8 @@ async fn claude_failed_turns_say_why() {
             finished(2, "failed"),
             send_message(3, "result-only"),
             finished(3, "completed"),
+            send_message(4, "fail-401"),
+            finished(4, "failed"),
         ],
     )
     .await;
@@ -1327,6 +1330,19 @@ async fn claude_failed_turns_say_why() {
             .iter()
             .any(|e| e["type"] == "message" && e["id"] == format!("assistant-{}", uuid(3)))
     );
+    // A refused request says what the endpoint said, and its complaint is
+    // not shown as the model's reply.
+    let refused = errors[2]["message"].as_str().unwrap();
+    assert!(
+        refused.contains("(HTTP 401)") && refused.contains("401 bad key"),
+        "{refused}"
+    );
+    assert!(!events.iter().any(|e| {
+        e["type"] == "message"
+            && e["text"]
+                .as_str()
+                .is_some_and(|t| t.contains("Failed to authenticate"))
+    }));
 }
 
 #[tokio::test]

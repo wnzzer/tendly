@@ -98,6 +98,12 @@ impl Claude {
             }
             return;
         }
+        // An API failure arrives as a synthetic assistant message: the
+        // endpoint's complaint, not the model's answer. The result that
+        // follows repeats it and fails the turn.
+        if kind == "assistant" && truthy(message.get("is_api_error_message")) {
+            return;
+        }
         let parent = message.get("parent_tool_use_id");
         // A turn the client starts by itself: a background command it waited
         // on finished, and it carries on.
@@ -250,8 +256,12 @@ impl Claude {
         let window = (windows.len() == 1).then(|| json!(windows[0]));
         let usage = message.get("usage").filter(|u| !u.is_null());
         self.core.usage(usage, None, window.as_ref());
-        // An empty result is not an answer.
-        if !self.final_assistant
+        let failed = truthy(message.get("is_error"))
+            || message.get("subtype").and_then(Value::as_str) != Some("success");
+        // An empty result is not an answer, and a failed one is the client's
+        // complaint, said in the error below.
+        if !failed
+            && !self.final_assistant
             && let Some(result) = message
                 .get("result")
                 .and_then(Value::as_str)
@@ -264,8 +274,6 @@ impl Claude {
         if let Some(spent) = turn_usage(usage) {
             self.core.emit(json!({"type":"usage","turn":spent}));
         }
-        let failed = truthy(message.get("is_error"))
-            || message.get("subtype").and_then(Value::as_str) != Some("success");
         let interrupted = self.core.turns[turn].interrupted;
         if failed && !interrupted {
             let errors = message
@@ -274,11 +282,11 @@ impl Claude {
                 .cloned()
                 .unwrap_or_else(|| json!([]));
             let reason = if unsupported_authentication(&stringify(&errors)) {
-                "Claude Code does not support this authentication mode for this interface. Use its native client or an approved API configuration."
+                "Claude Code does not support this authentication mode for this interface. Use its native client or an approved API configuration.".to_owned()
             } else {
-                "Claude Code could not complete the turn. Check its native account, endpoint and permission settings."
+                failure_reason(message)
             };
-            self.core.error(reason);
+            self.core.error(&reason);
         }
         let status = if interrupted {
             "interrupted"

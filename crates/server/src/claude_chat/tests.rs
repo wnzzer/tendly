@@ -231,6 +231,33 @@ fn a_failed_turn_names_unsupported_authentication() {
 }
 
 #[test]
+fn a_failed_turn_says_what_the_endpoint_said() {
+    assert_eq!(
+        failure_reason(
+            &json!({"api_error_status":401,"result":" Failed to authenticate. API Error: 401 bad key "})
+        ),
+        "Claude Code could not complete the turn (HTTP 401). Check the key, and that the endpoint takes it as an x-api-key header. Claude Code said: Failed to authenticate. API Error: 401 bad key"
+    );
+    assert!(
+        failure_reason(&json!({"api_error_status":404}))
+            .contains("(HTTP 404). Check the model name")
+    );
+    assert!(failure_reason(&json!({"api_error_status":429})).contains("limiting requests"));
+    assert!(failure_reason(&json!({"api_error_status":529})).contains("The endpoint failed"));
+    // No status, or none that is one, and nothing said: the old advice alone.
+    for message in [
+        json!({"result":""}),
+        json!({"api_error_status":"401"}),
+        json!({"api_error_status":7}),
+    ] {
+        assert_eq!(
+            failure_reason(&message),
+            "Claude Code could not complete the turn. Check its native account, endpoint and permission settings."
+        );
+    }
+}
+
+#[test]
 fn replies_are_control_responses_matched_by_request_id() {
     assert_eq!(
         control_reply(

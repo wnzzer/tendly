@@ -77,7 +77,7 @@ Codex 建议每个 session 使用独立的 `CODEX_HOME`；Claude Code 也使用 
 
 「能不能用」和「用哪种协议问」是两件事，而且答案不同：同一个模型可能在 `openai-completions` 上正常返回、在 `openai-responses` 上直接报错。所以检测结果带着协议，界面也把协议说出来：
 
-- **Claude Code 只有一种协议**：无论端点是谁，都是 Anthropic Messages（`POST {base}/v1/messages`）。表单里不再出现协议下拉框，改为一句说明。
+- **Claude Code 只有一种协议**：无论端点是谁，都是 Anthropic Messages（`POST {base}/v1/messages`）。表单里不再出现协议下拉框，改为一句说明。端点 URL 末尾写不写 `/v1` 都行：检测和启动都会去掉它，否则请求会打到 `/v1/v1/messages`。
 - **Codex 只有一种协议**：OpenAI Responses（`POST {base}/v1/responses`）。
 - **Pi 可以选四种**：OpenAI Chat Completions / OpenAI Responses / Anthropic Messages / Google Generative AI，由 profile 的 `api` 字段决定；留空则按 URL 猜（含 `anthropic` 的主机猜 Messages，其余猜 Chat Completions）。
 
