@@ -55,6 +55,8 @@ test('pi: a message streams its reply, tools and usage, and the turn settles',()
   assert.equal(tool.name,'bash');assert.match(tool.text,/README\.md/);
   const usage=await wait(event=>event.type==='usage');
   assert.deepEqual([usage.output_tokens,usage.context_tokens,usage.context_window],[4,42,40000]);
+  const messageUsage=await wait(event=>event.type==='usage'&&event.turn);
+  assert.deepEqual([messageUsage.message_id,messageUsage.turn],['pi-assistant-1',{input:42,output:4,cached:30}]);
   assert.equal((await sent()).find(command=>command.type==='prompt').message,'hello');
 }));
 

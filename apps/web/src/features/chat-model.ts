@@ -23,7 +23,7 @@ export type ChatEvent = ({ seq?: number } & (
   | { type: 'approval'; id: string; title: string; text: string; choices: string[]; questions?: ApprovalQuestion[]; scope?: ApprovalScope }
   | { type: 'approval_resolved'; id: string }
   | { type: 'turn'; id?: string; status: 'running' | 'completed' | 'failed' | 'interrupted' }
-  | { type: 'usage'; input_tokens?: number; output_tokens?: number; context_tokens?: number; context_window?: number; turn?: TurnUsage }
+  | { type: 'usage'; input_tokens?: number; output_tokens?: number; context_tokens?: number; context_window?: number; turn?: TurnUsage; message_id?: string }
   | { type: 'configuration'; id: string; profile_name: string; text: string }
   | { type: 'error'; message: string }
   | { type: 'exit' }
@@ -138,7 +138,11 @@ export function conversationView(events: readonly ChatEvent[], running?: boolean
     else if (event.type === 'settings') { if (event.models?.length) models = event.models; if (event.model) model = event.model; if (event.effort) effort = event.effort; if (event.permission_mode) permissionMode = event.permission_mode; if (event.permission_modes?.length) permissionModes = event.permission_modes; }
     // A turn's cost sits under that turn's last reply; the rest is the live context.
     else if (event.type === 'usage' && event.turn) {
-      for (let i = items.length - 1; i >= turnStart; i--) { const item = items[i]; if (item.type === 'message' && item.role === 'assistant') { items[i] = { ...item, usage: event.turn }; break; } }
+      const index = event.message_id ? indexes.get('message:' + event.message_id) : undefined;
+      if (event.message_id) {
+        const item = index === undefined ? undefined : items[index];
+        if (index !== undefined && item?.type === 'message' && item.role === 'assistant') items[index] = { ...item, usage: event.turn };
+      } else for (let i = items.length - 1; i >= turnStart; i--) { const item = items[i]; if (item.type === 'message' && item.role === 'assistant') { items[i] = { ...item, usage: event.turn }; break; } }
     }
     else if (event.type === 'usage') { const { seq: _seq, type: _type, turn: _turn, ...values } = event; usage = { ...usage, ...values }; }
     // A new endpoint means a new native client: its command list is whatever it
@@ -258,6 +262,7 @@ export function isChatEvent(value: unknown): value is ChatEvent {
     case 'approval_resolved': return text('id');
     case 'turn': return ['running', 'completed', 'failed', 'interrupted'].includes(String(v.status));
     case 'usage': return ['input_tokens', 'output_tokens', 'context_tokens', 'context_window'].every(key => v[key] === undefined || typeof v[key] === 'number' && Number.isFinite(v[key]) && Number(v[key]) >= 0)
+      && (v.message_id === undefined || typeof v.message_id === 'string' && !!v.message_id)
       && (v.turn === undefined || !!v.turn && typeof v.turn === 'object' && Object.entries(v.turn).every(([key, value]) => ['input', 'output', 'cached'].includes(key) && typeof value === 'number' && value >= 0));
     case 'error': return text('message');
     case 'configuration': return text('id') && text('profile_name') && text('text');

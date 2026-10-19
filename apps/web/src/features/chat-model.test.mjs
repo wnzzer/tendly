@@ -556,6 +556,20 @@ test('a turn\'s cost sits under that turn\'s last reply, and never moves the con
   assert.ok(!isChatEvent({ type: 'usage', turn: { cost: 1 } }));
 });
 
+test('message usage stays with its own Pi reply inside a multi-reply turn', () => {
+  const view = conversationView([
+    { type: 'turn', id: 'u', status: 'running' },
+    { type: 'message', id: 'a1', role: 'assistant', text: 'first' },
+    { type: 'usage', message_id: 'a1', turn: { input: 42, output: 4, cached: 30 } },
+    { type: 'message', id: 'a2', role: 'assistant', text: 'second' },
+    { type: 'usage', message_id: 'a2', turn: { input: 50, output: 6, cached: 40 } },
+  ]);
+  assert.deepEqual(view.items.filter(item => item.type === 'message').map(item => item.usage), [
+    { input: 42, output: 4, cached: 30 },
+    { input: 50, output: 6, cached: 40 },
+  ]);
+});
+
 test('a resumed greeting says where it resumes, and a view resumes from its last event', async () => {
   const { lastChatSeq } = await import('./chat-model.ts');
   const resumed = parseConversationSnapshot({ running: true, events: [{ type: 'ready', seq: 8 }], after: 7 });

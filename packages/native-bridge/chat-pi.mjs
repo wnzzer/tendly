@@ -126,11 +126,15 @@ export class PiChat extends ChatBase {
     if(message.type==='message_end'&&message.message?.role==='assistant'){
       const body=message.message,text=textOf(body.content);
       if(text){this.assistantId??=`pi-assistant-${++this.messageCount}`;this.emit({type:'message',id:this.assistantId,role:'assistant',text:clip(text),delta:false});}
+      const assistantId=this.assistantId;
       this.assistantId=undefined;
       const usage=body.usage;
       if(usage&&typeof usage==='object'){
         const context=[usage.input,usage.cacheRead,usage.cacheWrite].reduce((sum,value)=>sum+(Number.isSafeInteger(value)?value:0),0);
         this.usage({input_tokens:usage.input,output_tokens:usage.output},context||undefined,this.window);
+        const count=value=>Number.isSafeInteger(value)&&value>=0?value:0;
+        const cached=count(usage.cacheRead),input=count(usage.input)+cached+count(usage.cacheWrite),output=count(usage.output);
+        if(assistantId&&(input||output))this.emit({type:'usage',message_id:assistantId,turn:{input,output,cached}});
       }
       if(body.stopReason==='error'){this.failed=true;this.error(clip(typeof body.errorMessage==='string'&&body.errorMessage?body.errorMessage:'Pi could not complete the turn.',2048));}
       return;

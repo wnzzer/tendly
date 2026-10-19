@@ -69,6 +69,7 @@ for(const provider of ['codex','claude_code']){
     assert.equal((await wait(event=>event.type==='message'&&event.role==='assistant'&&event.delta===false)).text,'Hello 🦊');
     assert.ok((await wait(event=>event.type==='ready'&&event.native_session_id)).native_session_id);
     assert.equal((await wait(event=>event.type==='usage')).output_tokens,4);
+    if(provider==='codex')assert.deepEqual((await wait(event=>event.type==='usage'&&event.turn)).turn,{input:12,output:4,cached:0});
   }));
   test(`${provider}: native approvals wait for an explicit decision, never auto-allow or persist new permission rules`,async()=>fixture(provider,async({send,wait,log})=>{
     send({type:'message',id:'approve',content:'approve'});const approval=await wait(event=>event.type==='approval');

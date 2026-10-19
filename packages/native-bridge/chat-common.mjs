@@ -188,7 +188,7 @@ export class NativeProcess {
  * The turn a chat is running. `early`, `nativeTurn` and `interruptSent` are
  * Codex's: steers that arrived before its turn had an id, that id, and whether
  * an interrupt already went out.
- * @typedef {{ id: string, interrupted: boolean, early?: any[], nativeTurn?: any, interruptSent?: boolean, started?: boolean }} Turn
+ * @typedef {{ id: string, interrupted: boolean, early?: any[], nativeTurn?: any, interruptSent?: boolean, started?: boolean, turnUsage?: { input: number, output: number, cached: number } }} Turn
  */
 
 export class ChatBase {

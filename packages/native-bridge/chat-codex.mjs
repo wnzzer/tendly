@@ -194,12 +194,25 @@ export class CodexChat extends ChatBase {
     const p=message.params??{},method=message.method;
     if(p.threadId&&this.nativeSessionId&&p.threadId!==this.nativeSessionId)return;
     if(method==='serverRequest/resolved'){this.resolveNative(requestKey(p.requestId));return;}
-    if(method==='thread/tokenUsage/updated'){const usage=p.tokenUsage?.last??p.tokenUsage?.total;this.usage(usage,p.tokenUsage?.last?.totalTokens,p.tokenUsage?.modelContextWindow);return;}
+    if(method==='thread/tokenUsage/updated'){
+      const last=p.tokenUsage?.last,usage=last??p.tokenUsage?.total;
+      this.usage(usage,last?.totalTokens,p.tokenUsage?.modelContextWindow);
+      if(this.active&&last&&(!p.turnId||!this.active.nativeTurn||p.turnId===this.active.nativeTurn)){
+        const count=value=>Number.isSafeInteger(value)&&value>=0?value:0;
+        const input=count(last.inputTokens),output=count(last.outputTokens),cached=count(last.cachedInputTokens);
+        if(input||output)this.active.turnUsage={input,output,cached};
+      }
+      return;
+    }
     if(method==='error'){this.error('Codex reported a native turn error. Check its account, endpoint and permission settings.');return;}
     if(!this.active)return;
     if(p.turnId&&this.active.nativeTurn&&p.turnId!==this.active.nativeTurn)return;
     if(method==='turn/started'){this.active.nativeTurn=p.turn?.id;if(this.active.interrupted)void this.sendInterrupt(this.active);return;}
-    if(method==='turn/completed'){const status=p.turn?.status==='interrupted'?'interrupted':p.turn?.status==='failed'?'failed':'completed';this.finish(status);if(status==='interrupted')this.deferred.length=0;else this.continueDeferred();return;}
+    if(method==='turn/completed'){
+      const status=p.turn?.status==='interrupted'?'interrupted':p.turn?.status==='failed'?'failed':'completed';
+      if(this.active.turnUsage)this.emit({type:'usage',turn:this.active.turnUsage});
+      this.finish(status);if(status==='interrupted')this.deferred.length=0;else this.continueDeferred();return;
+    }
     if(method==='item/agentMessage/delta'||method==='item/plan/delta'){
       if(typeof p.itemId==='string'&&typeof p.delta==='string')this.emit({type:'message',id:p.itemId,role:'assistant',text:clip(p.delta),delta:true});return;
     }
