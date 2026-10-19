@@ -35,6 +35,24 @@ test("only the clients' models are kept, without dated copies, and overrides win
   assert.equal(models["o3"].contextWindow, 400000);
 });
 
+test("other makers' models are kept by their bare names, at the maker's own price", () => {
+  const priced = (provider, input) => ({ litellm_provider: provider, mode: "chat", input_cost_per_token: input, output_cost_per_token: 1e-6 });
+  const models = build({
+    "deepseek-v4-flash": priced("deepseek", 3e-7),
+    "deepseek/deepseek-v4-flash": priced("deepseek", 9e-7),
+    "zai/glm-5.3-flash": priced("zai", 1.5e-7),
+    "gemini/gemini-3.8-flash": priced("gemini", 7.5e-7),
+    "moonshot/kimi-k3": priced("moonshot", 3e-6),
+    "dashscope/qwen3.8-max": priced("dashscope", 2e-6),
+    // A reseller's copy, and a maker's model filed deeper than its prefix.
+    "dashscope/deepseek-v4-flash": priced("dashscope", 2e-7),
+    "azure_ai/glm-5.1": priced("azure_ai", 1e-6),
+    "zai/org/glm-5": priced("zai", 1e-6),
+  });
+  assert.deepEqual(Object.keys(models), ["deepseek-v4-flash", "gemini-3.8-flash", "glm-5.3-flash", "kimi-k3", "qwen3.8-max"]);
+  assert.equal(models["deepseek-v4-flash"].input, 0.3, "the bare entry wins over the prefixed one");
+});
+
 test("a list that lost a required model, a sane price or most of its models is not published", () => {
   const good = { "gpt-5.5": { input: 5, output: 30, cacheRead: 0.5 } };
   assert.deepEqual(problems(good, { required: ["gpt-5.5"] }), []);

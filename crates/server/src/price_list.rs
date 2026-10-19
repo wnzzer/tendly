@@ -31,7 +31,7 @@ const MIRRORS: [&str; 3] = [
 ];
 const REFRESH_AFTER: Duration = Duration::from_secs(24 * 3600);
 const CHECK_EVERY: Duration = Duration::from_secs(6 * 3600);
-/// The real file is a few kilobytes; anything far larger is not it.
+/// The real file is a few dozen kilobytes; anything far larger is not it.
 const MOST_BYTES: usize = 2 * 1024 * 1024;
 
 /// Dollars per million tokens. A cache write is priced only where the
@@ -118,24 +118,45 @@ impl PriceList {
 }
 
 /// A tail that names a dated or rebuilt release of the same model, at the
-/// same price: `20260901`, `2025-08-07`, `v2`, `latest`, `preview`, `codex`.
-/// `mini`, `nano`, `pro` and the rest are other models, priced differently.
+/// same price: `20260901`, `2025-08-07`, `v2`, `latest`, `preview`, `codex`;
+/// or the thinking depth a gateway spells into the name (`-thinking`,
+/// `-high`), which bills the same tokens at the same rate. `mini`, `nano`,
+/// `pro`, `max` and the rest are other models, priced differently.
 fn variant_suffix(tail: &str) -> bool {
     tail.split('-').all(|segment| {
         !segment.is_empty() && segment.bytes().all(|b| b.is_ascii_digit())
             || segment
                 .strip_prefix('v')
                 .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
-            || matches!(segment, "latest" | "preview" | "codex")
+            || matches!(
+                segment,
+                "latest"
+                    | "preview"
+                    | "codex"
+                    | "thinking"
+                    | "minimal"
+                    | "low"
+                    | "medium"
+                    | "high"
+                    | "xhigh"
+            )
     })
 }
 
-/// `us.anthropic.claude-opus-5-5-20260901-v1:0` and `claude-opus-5-5[1m]`
-/// both become `claude-opus-5-5`.
+/// `us.anthropic.claude-opus-5-5-20260901-v1:0`, `claude-opus-5-5[1m]` and
+/// a gateway's `anthropic/claude-opus-5-5` all become `claude-opus-5-5`; a
+/// display name, `DeepSeek V4 Flash`, becomes `deepseek-v4-flash`.
 fn normalize(model: &str) -> String {
-    let mut name = model.trim().to_ascii_lowercase();
+    let mut name = model
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join("-")
+        .to_ascii_lowercase();
     if let Some(at) = name.find('[') {
         name.truncate(at);
+    }
+    if let Some(at) = name.rfind('/') {
+        name.drain(..=at);
     }
     for prefix in ["us.", "eu.", "apac.", "global."] {
         if let Some(rest) = name.strip_prefix(prefix) {
@@ -316,6 +337,10 @@ mod tests {
         let built = PriceList::parse(EMBEDDED.as_bytes()).expect("data/prices.json");
         assert!(built.lookup("claude-sonnet-4-5-20250929").is_some());
         assert!(built.lookup("claude-3-5-haiku-20241022").is_some());
+        // Other makers' models, at their own prices.
+        for model in ["deepseek-v4-flash", "glm-5.3-flash", "gemini-3.8-flash"] {
+            assert!(built.lookup(model).is_some(), "{model}");
+        }
         for gateway in [
             "claude-fable-5-dd-lacol-b9-5.3newq",
             "claude-fable-5-dd-lacol-inim-gnil",
@@ -339,9 +364,18 @@ mod tests {
             ("gpt-5.5-codex", true),
             ("gpt-5-2025-08-07", true),
             ("gpt-5.5-latest", true),
+            // A thinking depth a gateway spells into the name.
+            ("claude-opus-5-5-thinking", true),
+            ("gpt-5.5-high", true),
+            ("gpt-5.5-xhigh", true),
+            // A gateway's maker prefix, and a display name.
+            ("anthropic/claude-opus-5-5", true),
+            ("openrouter/openai/gpt-5.5", true),
+            ("GPT 5.5", true),
             // A smaller or larger model is not priced as its family.
             ("gpt-5-mini", false),
             ("gpt-5.5-pro", false),
+            ("gpt-5.5-max", false),
             // A gateway's own models behind a Claude-looking prefix.
             ("claude-opus-5-5-dd-lacol-b9-5.3newq", false),
             // A different family is not the nearest one.

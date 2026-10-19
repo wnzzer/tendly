@@ -1,8 +1,9 @@
 name: Prices Data
 
 # LiteLLM's community price list -> data/prices.json, the published price of
-# each model Claude Code and Codex call. The server fetches that file from a
-# CDN or the GitCode mirror (crates/server/src/price_list.rs), so a price
+# each model the clients call, at its maker's own price. The server fetches
+# that file from a CDN or the GitCode mirror (crates/server/src/price_list.rs),
+# so a price
 # changes without a release. Nothing is committed when the prices are
 # unchanged, or when the new list fails the checks in scripts/prices/lib.mjs.
 on:

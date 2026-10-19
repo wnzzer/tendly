@@ -1,6 +1,7 @@
 // Turns LiteLLM's community price list into data/prices.json: the models
-// Claude Code and Codex call, in dollars per million tokens. Pure functions
-// only, so the transform and the checks are tested without the network.
+// Claude Code, Codex and Pi call, at their makers' own prices, in dollars per
+// million tokens. Pure functions only, so the transform and the checks are
+// tested without the network.
 
 export const SCHEMA_VERSION = 1;
 
@@ -11,12 +12,37 @@ const MOST_PER_MILLION = 5_000;
 /** A dated snapshot repeats its undated name: gpt-5-2025-08-07, claude-haiku-4-5-20251001. */
 const DATED = /-(\d{4}-\d{2}-\d{2}|\d{8})$/;
 
-function wanted(name, entry) {
-  if (!entry || typeof entry !== "object") return false;
-  if (!["chat", "responses"].includes(entry.mode)) return false;
-  if (entry.litellm_provider === "anthropic") return name.startsWith("claude-");
-  if (entry.litellm_provider === "openai") return /^(gpt-|o\d|codex-)/.test(name) && !name.includes("ft:");
-  return false;
+/**
+ * Each maker's own API and the model names it sells. A reseller's copy of a
+ * model (dashscope's DeepSeek, azure_ai's GLM) has the reseller's price, so
+ * only the maker's is kept; dashscope is Qwen's maker.
+ */
+const MAKERS = {
+  anthropic: name => name.startsWith("claude-"),
+  openai: name => /^(gpt-|o\d|codex-)/.test(name) && !name.includes("ft:"),
+  gemini: name => name.startsWith("gemini-"),
+  deepseek: name => name.startsWith("deepseek-"),
+  zai: name => name.startsWith("glm-"),
+  moonshot: name => name.startsWith("kimi-"),
+  dashscope: name => name.startsWith("qwen"),
+  xai: name => name.startsWith("grok-"),
+  minimax: name => name.startsWith("minimax-"),
+};
+
+/**
+ * The name a client logs for a wanted entry, or undefined. LiteLLM files some
+ * makers' models under their own prefix (`zai/glm-5.3`); clients log the
+ * bare name.
+ */
+function wanted(key, entry) {
+  if (!entry || typeof entry !== "object") return undefined;
+  if (!["chat", "responses"].includes(entry.mode)) return undefined;
+  const maker = entry.litellm_provider;
+  const keep = Object.hasOwn(MAKERS, maker) ? MAKERS[maker] : undefined;
+  if (!keep) return undefined;
+  const lower = key.toLowerCase();
+  const name = lower.startsWith(`${maker}/`) ? lower.slice(maker.length + 1) : lower;
+  return !name.includes("/") && keep(name) ? name : undefined;
 }
 
 const perMillion = value => (typeof value === "number" && Number.isFinite(value) ? +(value * PER_MILLION).toFixed(6) : undefined);
@@ -50,13 +76,21 @@ export function convert(entry) {
   return price;
 }
 
-/** Every wanted model from LiteLLM, without dated copies of a name already present, then the overrides on top. */
+/**
+ * Every wanted model from LiteLLM, without dated copies of a name already
+ * present, then the overrides on top. Where a model is listed both bare and
+ * under its maker's prefix, the bare entry wins.
+ */
 export function build(litellm, overrides = {}) {
   const models = {};
-  for (const [name, entry] of Object.entries(litellm)) {
-    if (!wanted(name, entry)) continue;
+  const bare = new Set();
+  for (const [key, entry] of Object.entries(litellm)) {
+    const name = wanted(key, entry);
+    if (!name || bare.has(name)) continue;
     const price = convert(entry);
-    if (price) models[name.toLowerCase()] = price;
+    if (!price) continue;
+    models[name] = price;
+    if (!key.includes("/")) bare.add(name);
   }
   for (const name of Object.keys(models)) {
     const base = name.replace(DATED, "");
