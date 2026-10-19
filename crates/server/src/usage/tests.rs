@@ -376,3 +376,93 @@ fn a_codex_account_reads_its_limits_from_the_newest_session_log() {
     );
     std::fs::remove_dir_all(home).ok();
 }
+
+#[test]
+fn speed_and_failures_come_from_what_each_client_logs() {
+    let home = std::env::temp_dir().join(format!("tendly-usage-{}", uuid::Uuid::new_v4()));
+    let claude = home.join("projects/-repo/c3.jsonl");
+    let base = |kind: &str, uuid: &str, at: &str| serde_json::json!({"type":kind,"uuid":uuid,"timestamp":at,"sessionId":"c3","cwd":"/repo"});
+    let mut request = base("api-request", "q1", "2026-10-01T10:00:00.000Z");
+    request["id"] = "req-1".into();
+    request["params"] = serde_json::json!({"model":"claude-opus-5-5"});
+    let reply = |at: &str| {
+        let mut line = base("assistant", "a1", at);
+        line["requestId"] = "r1".into();
+        line["requestRef"] = "req-1".into();
+        line["message"] = serde_json::json!({"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":200}});
+        line
+    };
+    let mut retry = base("system", "e1", "2026-10-01T10:05:00Z");
+    retry["subtype"] = "api_error".into();
+    let mut failure = base("assistant", "e2", "2026-10-01T10:06:00Z");
+    failure["isApiErrorMessage"] = true.into();
+    failure["message"] = serde_json::json!({"id":"x","model":"<synthetic>","usage":{"input_tokens":0,"output_tokens":0}});
+    // Thinking ends at two seconds, the reply at four: four seconds it took.
+    write(
+        &claude,
+        &[
+            request,
+            reply("2026-10-01T10:00:02.000Z"),
+            reply("2026-10-01T10:00:04.000Z"),
+            retry,
+            failure,
+        ],
+    );
+    let pi = home.join("sessions/--repo--/p1.jsonl");
+    let message = |id: &str, sent: i64, at: &str, stop: &str, error: Option<&str>| {
+        serde_json::json!({"type":"message","id":id,"timestamp":at,"message":{"role":"assistant","model":"glm-5.3-flash",
+            "timestamp":sent,"stopReason":stop,"errorMessage":error,"usage":{"input":5,"output":100}}})
+    };
+    let sent = DateTime::parse_from_rfc3339("2026-10-01T11:00:00Z")
+        .unwrap()
+        .timestamp_millis();
+    write(
+        &pi,
+        &[
+            serde_json::json!({"type":"session","id":"p1","timestamp":"2026-10-01T11:00:00Z","cwd":"/repo"}),
+            message("1", sent, "2026-10-01T11:00:01.000Z", "stop", None),
+            message(
+                "2",
+                sent,
+                "2026-10-01T11:00:02Z",
+                "error",
+                Some("Request timed out."),
+            ),
+            // The person stopping a reply is not the endpoint failing.
+            message(
+                "3",
+                sent,
+                "2026-10-01T11:00:03Z",
+                "error",
+                Some("This operation was aborted"),
+            ),
+        ],
+    );
+    let calls = collect(&[(home.clone(), None)]);
+    let from = DateTime::parse_from_rfc3339("2026-10-01T00:00:00Z")
+        .unwrap()
+        .timestamp();
+    let result = report(
+        &calls,
+        from,
+        from + 86_400,
+        0,
+        &HashMap::new(),
+        &Prices::default(),
+        &Filter::default(),
+    );
+    let row = |model: &str| result.models.iter().find(|row| row.model == model).unwrap();
+    let opus = &row("claude-opus-5-5").bucket;
+    assert_eq!(opus.calls, 1, "a reply logged block by block is one call");
+    assert_eq!((opus.timed_output, opus.timed_ms), (200, 4000));
+    assert_eq!(
+        (opus.answered, opus.failed, opus.retried),
+        (1, 1, 1),
+        "a failure is put down to the model last asked for"
+    );
+    let glm = &row("glm-5.3-flash").bucket;
+    assert_eq!((glm.timed_output, glm.timed_ms), (100, 1000));
+    assert_eq!((glm.answered, glm.failed), (1, 1));
+    assert_eq!(glm.calls, 2, "a stopped reply still spent its tokens");
+    std::fs::remove_dir_all(home).ok();
+}

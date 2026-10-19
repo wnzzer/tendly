@@ -10,7 +10,7 @@ import Icon from './Icon.vue';
 import { useI18n } from '../i18n';
 import { formatDuration, levelFor } from './system-format';
 import { usageBackoffSeconds, usageRetryHint, type AccountView } from './account-ui';
-import { cacheHitRate, formatCost, formatHours, formatTokens, rangeStart, type Allowance, type Price, type UsageBucket, type UsageProvider, type UsageReport } from './usage-model';
+import { cacheHitRate, failureRate, formatCost, formatHours, formatTokens, outputSpeed, rangeStart, type Allowance, type Price, type UsageBucket, type UsageProvider, type UsageReport } from './usage-model';
 import { allowanceCards, changeLabel, dateLabel, dayParts, heatShade, SERIES, shade, stackedBar, usageInsights, usageTiles, windowLabel, type Metric, type SeriesKey } from './usage-chart';
 
 /**
@@ -147,6 +147,8 @@ const heatColor = (value: number) => heatShade(value, heatMax.value);
 const weekdays = computed(() => Array.from({ length: 7 }, (_, index) => new Intl.DateTimeFormat(locale.value, { weekday: 'short' }).format(new Date(2026, 0, 5 + index))));
 
 const workspaceFor = (cwd: string) => props.workspaces.filter(workspace => cwd === workspace.root_path || cwd.startsWith(workspace.root_path.replace(/\/$/, '') + '/')).sort((a, b) => b.root_path.length - a.root_path.length)[0];
+const speedHint = (row: UsageBucket) => outputSpeed(row) === undefined ? t('This client does not log how long a call takes') : undefined;
+const failureHint = (row: UsageBucket) => failureRate(row) === undefined ? t('This client does not log failed requests') : t('{failed} failed, {retried} retried', { failed: row.failed ?? 0, retried: row.retried ?? 0 });
 const projectName = (cwd: string) => workspaceFor(cwd)?.name ?? cwd.split('/').filter(Boolean).pop() ?? cwd;
 const modelMax = computed(() => Math.max(1, ...(report.value?.models ?? []).map(row => row.total)));
 const directoryMax = computed(() => Math.max(1, ...(report.value?.directories ?? []).map(([, total]) => total)));
@@ -262,11 +264,11 @@ const insights = computed(() => report.value ? usageInsights(report.value, t, we
           <section class="panel">
             <header class="panel-head"><h2>{{ t('Models') }}</h2><small>{{ t('Cost uses the published API price unless you set your own, for a gateway or a plan.') }}</small></header>
             <div class="table-wrap"><table class="table">
-              <thead><tr><th>{{ t('Model') }}</th><th>{{ t('Tokens') }}</th><th>{{ t('Cache hit rate') }}</th><th>{{ t('Cost') }}</th><th>{{ t('Price per million (in / out / cache read)') }}</th></tr></thead>
+              <thead><tr><th>{{ t('Model') }}</th><th>{{ t('Tokens') }}</th><th>{{ t('Cache hit rate') }}</th><th>{{ t('Cost') }}</th><th :title="t('From the request leaving to the last token arriving')">{{ t('Speed') }}</th><th :title="t('Requests that ended in an error, after retries')">{{ t('Failure rate') }}</th><th>{{ t('Price per million (in / out / cache read)') }}</th></tr></thead>
               <tbody>
                 <tr v-for="row in report.models" :key="row.model + row.provider">
                   <td><span class="name"><ProviderIcon :provider="row.provider" :size="13" />{{ row.model || t('Unknown model') }}</span><span class="share"><i :style="{ width: row.total / modelMax * 100 + '%' }" /></span></td>
-                  <td>{{ formatTokens(row.total) }}</td><td>{{ Math.round(cacheHitRate(row)) }}%</td><td class="money">{{ row.price ? formatCost(row.cost) : '—' }}</td>
+                  <td>{{ formatTokens(row.total) }}</td><td>{{ Math.round(cacheHitRate(row)) }}%</td><td class="money">{{ row.price ? formatCost(row.cost) : '—' }}</td><td :title="speedHint(row)">{{ outputSpeed(row) === undefined ? '—' : t('{speed} tok/s', { speed: Math.round(outputSpeed(row)!) }) }}</td><td :title="failureHint(row)">{{ failureRate(row) === undefined ? '—' : `${failureRate(row)!.toFixed(1)}%` }}</td>
                   <td class="price">
                     <template v-if="editing === row.model"><input v-model.number="draft.input" type="number" min="0" step="0.01" :aria-label="t('Input price')" /><input v-model.number="draft.output" type="number" min="0" step="0.01" :aria-label="t('Output price')" /><input v-model.number="draft.cache_read" type="number" min="0" step="0.01" :aria-label="t('Cache read price')" /><button class="small-button primary" :disabled="savingPrice" @click="savePrice(row.model)">{{ t('Save') }}</button><button class="small-button" @click="editing = undefined">{{ t('Cancel') }}</button></template>
                     <template v-else><span v-if="row.price">${{ row.price.input }} / ${{ row.price.output }} / ${{ row.price.cache_read }}<small v-if="row.custom_price" class="mine">{{ t('yours') }}</small></span><span v-else class="muted">{{ t('No price') }}</span><button type="button" class="text-button" @click="editPrice(row.model, row.price)">{{ t(row.price ? 'Edit' : 'Set price') }}</button><button v-if="row.custom_price" type="button" class="text-button" :disabled="savingPrice" @click="savePrice(row.model, true)">{{ t('Reset') }}</button></template>

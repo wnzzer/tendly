@@ -2,7 +2,9 @@
 //! and `-c` overrides.
 use super::{AccountOperations, CatalogStep, ClientAdapter, EndpointLaunch, encode};
 use crate::ApiError;
-use crate::usage::{Call, FileState, LoggedLimits, Source, Tokens, jsonl_files, number, timestamp};
+use crate::usage::{
+    Call, FileState, LoggedLimits, Outcome, Source, Tokens, jsonl_files, number, timestamp,
+};
 use serde_json::Value;
 use std::{
     path::{Path, PathBuf},
@@ -285,6 +287,8 @@ fn read_line(line: &str, source: &Source, state: &mut FileState) {
                 dedupe: None,
                 user: true,
                 tokens: Tokens::default(),
+                duration_ms: None,
+                outcome: Outcome::Unlogged,
             });
         }
         Some("event_msg") if payload.get("type").and_then(Value::as_str) == Some("token_count") => {
@@ -323,6 +327,8 @@ fn read_line(line: &str, source: &Source, state: &mut FileState) {
                     output: number(last, "output_tokens"),
                     reasoning: number(last, "reasoning_output_tokens"),
                 },
+                duration_ms: None,
+                outcome: Outcome::Unlogged,
             });
         }
         _ => {}

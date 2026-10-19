@@ -16,6 +16,16 @@ pub struct Bucket {
     pub user_messages: u64,
     /// Five-minute slots with anything happening, in minutes.
     pub active_minutes: u64,
+    /// Requests answered, from clients that log the ones that fail, and
+    /// requests that failed: a failure rate is `failed / (answered + failed)`.
+    pub answered: u64,
+    pub failed: u64,
+    /// Attempts that failed and were tried again, on top of either.
+    pub retried: u64,
+    /// The output of the calls whose duration is known, and that duration:
+    /// tokens a second, waiting for the first included.
+    pub timed_output: u64,
+    pub timed_ms: u64,
 }
 impl Bucket {
     fn add(&mut self, call: &Call, prices: &Prices) {
@@ -23,13 +33,28 @@ impl Bucket {
             self.user_messages += 1;
             return;
         }
+        match call.outcome {
+            Outcome::Retried => {
+                self.retried += 1;
+                return;
+            }
+            Outcome::Failed => self.failed += 1,
+            Outcome::Answered => self.answered += 1,
+            Outcome::Unlogged => {}
+        }
         self.tokens.add(&call.tokens);
         self.total += call.tokens.total();
         match prices.cost(call) {
             Some(value) => self.cost += value,
             None => self.unpriced += call.tokens.total(),
         }
-        self.calls += 1;
+        if call.outcome != Outcome::Failed {
+            self.calls += 1;
+        }
+        if let Some(ms) = call.duration_ms {
+            self.timed_output += call.tokens.output;
+            self.timed_ms += ms;
+        }
     }
 }
 
@@ -199,7 +224,10 @@ pub(super) fn report(
         days.entry(at.format("%Y-%m-%d").to_string())
             .or_default()
             .add(call, prices);
-        if !call.user {
+        // A failure before any model was named belongs to no model's row.
+        let nameless_failure =
+            call.model.is_empty() && matches!(call.outcome, Outcome::Failed | Outcome::Retried);
+        if !call.user && !nameless_failure {
             models
                 .entry((call.model.to_string(), call.provider))
                 .or_default()

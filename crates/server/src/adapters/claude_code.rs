@@ -1,7 +1,9 @@
 //! Claude Code: `claude`, configured through `CLAUDE_CONFIG_DIR`, flags and
 //! `ANTHROPIC_*` variables.
 use super::{AccountOperations, CatalogStep, ClientAdapter, EndpointLaunch};
-use crate::usage::{Call, FileState, Source, Tokens, empty, number, timestamp};
+use crate::usage::{
+    Call, FileState, Outcome, Source, Tokens, empty, number, timestamp, timestamp_ms,
+};
 use crate::{ApiError, AppState};
 use serde_json::Value;
 use std::{collections::BTreeMap, sync::Arc};
@@ -293,6 +295,45 @@ fn claude_user_message(line: &str, source: &Source, state: &mut FileState) {
             .map(|id| Arc::from(format!("user:{id}"))),
         user: true,
         tokens: Tokens::default(),
+        duration_ms: None,
+        outcome: Outcome::Unlogged,
+    });
+}
+
+/// A request Claude Code logs before sending it (recent versions): when it
+/// left, for the reply that names it to time itself by, and the model it
+/// asked for, for a failure that names none.
+fn claude_request(value: &Value, state: &mut FileState) {
+    if let Some(model) = value
+        .get("params")
+        .and_then(|params| params.get("model"))
+        .and_then(Value::as_str)
+    {
+        state.stated_model = Arc::from(model);
+    }
+    if let (Some(id), Some(at)) = (value.get("id").and_then(Value::as_str), timestamp_ms(value)) {
+        state.request_starts.insert(Arc::from(id), at);
+    }
+}
+
+/// An attempt that failed and was retried (`api_error`), or a request that
+/// failed for good, logged as a reply the client wrote itself.
+fn claude_failure(value: &Value, outcome: Outcome, source: &Source, state: &mut FileState) {
+    let (Some(at), Some(id)) = (timestamp(value), value.get("uuid").and_then(Value::as_str)) else {
+        return;
+    };
+    state.calls.push(Call {
+        at,
+        provider: ProviderKind::ClaudeCode,
+        model: state.stated_model.clone(),
+        conversation: Arc::from(value.get("sessionId").and_then(Value::as_str).unwrap_or("")),
+        cwd: Arc::from(value.get("cwd").and_then(Value::as_str).unwrap_or("")),
+        home_session: source.home_session.clone(),
+        dedupe: Some(Arc::from(format!("failure:{id}"))),
+        user: false,
+        tokens: Tokens::default(),
+        duration_ms: None,
+        outcome,
     });
 }
 
@@ -301,12 +342,25 @@ fn read_line(line: &str, source: &Source, state: &mut FileState) {
         claude_user_message(line, source, state);
         return;
     }
-    if !line.contains("\"usage\"") {
+    let request = line.contains("\"type\":\"api-request\"");
+    let retry = line.contains("\"subtype\":\"api_error\"");
+    if !request && !retry && !line.contains("\"usage\"") {
         return;
     }
     let Ok(value) = serde_json::from_str::<Value>(line) else {
         return;
     };
+    match value.get("type").and_then(Value::as_str) {
+        Some("api-request") => return claude_request(&value, state),
+        Some("system") if retry => {
+            return claude_failure(&value, Outcome::Retried, source, state);
+        }
+        Some("assistant") => {}
+        _ => return,
+    }
+    if value.get("isApiErrorMessage").and_then(Value::as_bool) == Some(true) {
+        return claude_failure(&value, Outcome::Failed, source, state);
+    }
     let Some(message) = value.get("message") else {
         return;
     };
@@ -318,6 +372,15 @@ fn read_line(line: &str, source: &Source, state: &mut FileState) {
         return;
     }
     let Some(at) = timestamp(&value) else { return };
+    state.stated_model = Arc::from(model);
+    // Each content block of a reply is its own line, the last written when
+    // the reply ends: the reply took until then.
+    let duration_ms = value
+        .get("requestRef")
+        .and_then(Value::as_str)
+        .and_then(|id| state.request_starts.get(id))
+        .zip(timestamp_ms(&value))
+        .and_then(|(start, end)| u64::try_from(end - start).ok());
     let (write_5m, write_1h) = match usage.get("cache_creation") {
         Some(split) => (
             number(split, "ephemeral_5m_input_tokens"),
@@ -331,6 +394,16 @@ fn read_line(line: &str, source: &Source, state: &mut FileState) {
             value.get("requestId").and_then(Value::as_str).unwrap_or("")
         ))
     });
+    if let Some(earlier) = state
+        .calls
+        .iter_mut()
+        .rev()
+        .take(8)
+        .find(|call| dedupe.is_some() && call.dedupe == dedupe)
+    {
+        earlier.duration_ms = duration_ms.or(earlier.duration_ms);
+        return;
+    }
     state.calls.push(Call {
         at,
         provider: ProviderKind::ClaudeCode,
@@ -351,5 +424,7 @@ fn read_line(line: &str, source: &Source, state: &mut FileState) {
                 .map(|details| number(details, "thinking_tokens"))
                 .unwrap_or(0),
         },
+        duration_ms,
+        outcome: Outcome::Answered,
     });
 }

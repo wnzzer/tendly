@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cacheHitRate, cacheSavings, formatCost, formatTokens, rangeStart, trend } from './usage-model.ts';
+import { cacheHitRate, cacheSavings, failureRate, formatCost, formatTokens, outputSpeed, rangeStart, trend } from './usage-model.ts';
 
 test('tokens and cost read at a glance', () => {
   assert.equal(formatTokens(0), '0');
@@ -25,4 +25,13 @@ test('a trend needs a previous period, and a range starts at local midnight', ()
   assert.equal(trend(5, 0), undefined);
   const start = new Date(rangeStart(7, new Date(2026, 9, 5, 15, 30)) * 1000);
   assert.deepEqual([start.getDate(), start.getHours(), start.getMinutes()], [29, 0, 0]);
+});
+
+test('speed and failure rate only where a client logs them', () => {
+  assert.equal(outputSpeed({ timed_output: 650, timed_ms: 10_000 }), 65);
+  assert.equal(outputSpeed({ timed_output: 0, timed_ms: 0 }), undefined, 'nothing timed');
+  assert.equal(outputSpeed({}), undefined, 'an older backend');
+  assert.equal(failureRate({ answered: 98, failed: 2 }), 2);
+  assert.equal(failureRate({ answered: 0, failed: 0 }), undefined, 'a client that logs no failures is not 0%');
+  assert.equal(failureRate({}), undefined);
 });

@@ -15,6 +15,14 @@ export interface UsageBucket {
   calls: number;
   user_messages: number;
   active_minutes: number;
+  /** Requests answered and failed, from clients that log failures; absent from an older backend. */
+  answered?: number;
+  failed?: number;
+  /** Attempts that failed and were tried again. */
+  retried?: number;
+  /** Output of the calls whose duration is known, and that duration. */
+  timed_output?: number;
+  timed_ms?: number;
 }
 export interface Price { input: number; output: number; cache_read: number }
 export interface UsageModel extends UsageBucket { model: string; provider: UsageProvider; price: Price | null; custom_price: boolean }
@@ -98,6 +106,17 @@ export function cacheHitRate(bucket: Pick<UsageBucket, "input" | "cache_read" | 
 /** What cache reads saved against paying full input price for them, where the price is known. */
 export function cacheSavings(models: readonly UsageModel[]): number {
   return models.reduce((sum, row) => sum + (row.price ? row.cache_read * (row.price.input - row.price.cache_read) / 1e6 : 0), 0);
+}
+
+/** Output tokens a second, from the request leaving to the reply's last token; undefined when no call was timed. */
+export function outputSpeed(bucket: Pick<UsageBucket, "timed_output" | "timed_ms">): number | undefined {
+  return bucket.timed_ms && bucket.timed_output !== undefined ? bucket.timed_output / bucket.timed_ms * 1000 : undefined;
+}
+
+/** Requests that ended in an error, in percent of those a client logs the outcome of; undefined when none does. */
+export function failureRate(bucket: Pick<UsageBucket, "answered" | "failed">): number | undefined {
+  const failed = bucket.failed ?? 0, tried = (bucket.answered ?? 0) + failed;
+  return tried ? failed / tried * 100 : undefined;
 }
 
 /** The local start of today, and of the day N days back, as Unix seconds. */

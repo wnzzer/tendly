@@ -5,7 +5,9 @@
 //! so it offers no permission modes, and Tendly's own tools do not reach
 //! it. Its chat runs over `pi --mode rpc` (chat-pi.mjs).
 use super::{AccountOperations, CatalogStep, ClientAdapter, EndpointLaunch};
-use crate::usage::{Call, FileState, Source, Tokens, empty, number, timestamp};
+use crate::usage::{
+    Call, FileState, Outcome, Source, Tokens, empty, number, timestamp, timestamp_ms,
+};
 use crate::{ApiError, AppState};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -385,6 +387,8 @@ fn read_line(line: &str, source: &Source, state: &mut FileState) {
                 dedupe: dedupe.clone(),
                 tokens,
                 user,
+                duration_ms: None,
+                outcome: Outcome::Unlogged,
             };
             match message.get("role").and_then(Value::as_str) {
                 Some("user") => {
@@ -416,7 +420,28 @@ fn read_line(line: &str, source: &Source, state: &mut FileState) {
                         output: number(usage, "output"),
                         reasoning: 0,
                     };
-                    let call = call(Arc::from(model), tokens, false);
+                    let mut call = call(Arc::from(model), tokens, false);
+                    // A stop the person asked for is reported as an error too.
+                    let stopped = message.get("stopReason").and_then(Value::as_str)
+                        == Some("aborted")
+                        || message
+                            .get("errorMessage")
+                            .and_then(Value::as_str)
+                            .is_some_and(|error| error.contains("aborted"));
+                    call.outcome = match message.get("stopReason").and_then(Value::as_str) {
+                        _ if stopped => Outcome::Unlogged,
+                        Some("error") => Outcome::Failed,
+                        _ => Outcome::Answered,
+                    };
+                    // The message is stamped when its request leaves, the
+                    // entry when the reply is complete.
+                    if call.outcome == Outcome::Answered {
+                        call.duration_ms = message
+                            .get("timestamp")
+                            .and_then(Value::as_i64)
+                            .zip(timestamp_ms(&value))
+                            .and_then(|(start, end)| u64::try_from(end - start).ok());
+                    }
                     state.calls.push(call);
                 }
                 _ => {}

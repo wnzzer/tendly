@@ -20,6 +20,23 @@ pub(crate) struct Call {
     /// A message the person sent, rather than a model call: it counts toward
     /// messages and activity, never tokens.
     pub(crate) user: bool,
+    /// From the request leaving to the last of the reply arriving, where the
+    /// client logs both ends.
+    pub(crate) duration_ms: Option<u64>,
+    pub(crate) outcome: Outcome,
+}
+
+/// Whether a request got its answer, as far as its client's logs tell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Outcome {
+    /// The client logs no failed request (Codex), so its answers prove no
+    /// rate; and a reply the person stopped is not the endpoint failing.
+    Unlogged,
+    Answered,
+    /// The request ended in an error, after whatever retries the client made.
+    Failed,
+    /// One attempt failed and the client tried again: not a call of its own.
+    Retried,
 }
 
 pub(crate) fn number(value: &Value, key: &str) -> u64 {
@@ -27,9 +44,13 @@ pub(crate) fn number(value: &Value, key: &str) -> u64 {
 }
 
 pub(crate) fn timestamp(value: &Value) -> Option<i64> {
+    timestamp_ms(value).map(|at| at.div_euclid(1000))
+}
+
+pub(crate) fn timestamp_ms(value: &Value) -> Option<i64> {
     DateTime::parse_from_rfc3339(value.get("timestamp")?.as_str()?)
         .ok()
-        .map(|at| at.timestamp())
+        .map(|at| at.timestamp_millis())
 }
 
 /// What a file has given so far, and where to continue.
@@ -44,6 +65,9 @@ pub(crate) struct FileState {
     pub(crate) stated_conversation: Arc<str>,
     pub(crate) stated_cwd: Arc<str>,
     pub(crate) stated_total: u64,
+    /// When each request a client logged on its own line left, in
+    /// milliseconds, by the id its reply refers back to.
+    pub(crate) request_starts: HashMap<Arc<str>, i64>,
 }
 
 pub(crate) struct Source {
@@ -117,6 +141,7 @@ fn new_state() -> FileState {
         stated_conversation: empty(),
         stated_cwd: empty(),
         stated_total: 0,
+        request_starts: HashMap::new(),
     }
 }
 
