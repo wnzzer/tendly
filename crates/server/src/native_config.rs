@@ -215,7 +215,7 @@ pub fn launch_environment(
     // own secret references/access token never become native client overrides.
     // Shell aliases/functions and interactive shell startup files are not loaded.
     let mut remove: Vec<String> = crate::bridge::tendly_secrets()
-        .chain(env::var_os("CLAUDECODE").map(|_| "CLAUDECODE".to_owned()))
+        .chain(crate::bridge::host_client_session())
         .collect();
     if config_env.is_none() {
         // In particular, CLAUDE_CONFIG_DIR=<default path> can select a different

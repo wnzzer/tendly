@@ -27,6 +27,30 @@ pub fn tendly_secrets() -> impl Iterator<Item = String> {
         .filter(|key| is_tendly_secret(key))
 }
 
+/// What a Claude Code process sets for the commands it runs, present when
+/// Tendly itself was started from one. A client that inherits them takes
+/// itself for part of that outer session: Claude Code then saves no
+/// transcript, so neither its history nor its usage is found afterwards.
+const HOST_CLIENT_SESSION: &[&str] = &[
+    "CLAUDECODE",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_PID",
+];
+
+/// The names of [`HOST_CLIENT_SESSION`] present in this process's environment.
+pub fn host_client_session() -> impl Iterator<Item = String> {
+    HOST_CLIENT_SESSION
+        .iter()
+        .filter(|key| env::var_os(key).is_some())
+        .map(|key| (*key).to_owned())
+}
+
 /// The JavaScript runtime the bridges run under: `TENDLY_JS_RUNTIME`, then
 /// the legacy `TENDLY_NODE_BIN`, then `node`. An empty value is unset.
 pub fn js_runtime() -> OsString {

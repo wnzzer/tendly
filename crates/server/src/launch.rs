@@ -204,7 +204,7 @@ fn build_base(state: &AppState, session: &Session, cwd: PathBuf) -> Result<Spawn
         }
     }
     let mut remove: Vec<String> = crate::bridge::tendly_secrets()
-        .chain(env::var_os("CLAUDECODE").map(|_| "CLAUDECODE".to_owned()))
+        .chain(crate::bridge::host_client_session())
         .collect();
     let client = crate::adapters::adapter(session.provider);
     let program = match client {
