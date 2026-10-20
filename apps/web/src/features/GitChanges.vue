@@ -135,7 +135,7 @@ onBeforeUnmount(() => { alive = false; diffRevision++; });
   <div class="git-content git-changes">
     <div class="git-sidebar">
       <form class="commit-form" @submit.prevent="commit()">
-        <textarea v-model="message" :aria-label="t('Commit message')" :placeholder="t(amend ? 'Message for the amended commit…' : 'Commit message…')" rows="2" :disabled="busy" @keydown.ctrl.enter.prevent="commit()" @keydown.meta.enter.prevent="commit()" />
+        <textarea v-model="message" data-pane-input :aria-label="t('Commit message')" :placeholder="t(amend ? 'Message for the amended commit…' : 'Commit message…')" rows="2" :disabled="busy" @keydown.ctrl.enter.prevent="commit()" @keydown.meta.enter.prevent="commit()" />
         <label class="git-amend"><input v-model="amend" type="checkbox" :disabled="busy" />{{ t('Amend last commit') }}</label>
         <div class="git-commit-buttons">
           <button class="primary-button" :disabled="busy || !canCommit"><Icon name="check" :size="14" />{{ busy ? t('Working…') : amend ? t('Amend commit') : t('Commit staged ({count})', { count: stagedFiles.length }) }}</button>

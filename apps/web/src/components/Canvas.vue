@@ -17,7 +17,7 @@ import type { LayoutDocument, LayoutNode as Node, LeafPaneKind, PaneNode, SplitD
 import type { ProviderKind } from "@tendly/protocol";
 import LayoutNode from "./LayoutNode.vue";
 import Icon from "../features/Icon.vue";
-import { activatePane, applyPreset, centerDockTarget, closePane as removePane, containerId, createPane, dockPane, findNode, findNodes, flattenPanes, projectLayout, representativePane, replacePane, resizeSplit, restoreCollapsed, selectionGroups, splitPane, updatePane, validateLayout, type DockPosition, type LayoutPreset } from "../layout/layout-engine";
+import { activatePane, applyPreset, centerDockTarget, closePane as removePane, containerId, createPane, dockPane, findNode, findNodes, flattenPanes, nudgeDivider, paneGroups, projectLayout, representativePane, replacePane, resizeSplit, restoreCollapsed, selectionGroups, splitPane, swapGroups, updatePane, validateLayout, type DockPosition, type LayoutPreset } from "../layout/layout-engine";
 import { useI18n } from "../i18n";
 import { DEFAULT_CLIENT } from "../features/clients";
 import { reusablePane } from "../features/pane-context";
@@ -248,11 +248,60 @@ async function cyclePane(step: number) {
   if (!pane || !await focusPane(pane.id)) return;
   focusContent(pane.id);
 }
+/** Into the pane's own input -- the composer, the terminal, the editor, the
+ * commit message -- which each pane marks with data-pane-input. */
 function focusContent(id: string) {
   const panel = document.getElementById(`dock-panel-${id}`);
+  const own = panel?.querySelector<HTMLElement>('[data-pane-input]:not([disabled])');
+  if (own) { own.focus({ preventScroll: true }); return; }
   const terminal = panel?.querySelector<HTMLElement>('.terminal-host');
   if (terminal) { terminal.focus({ preventScroll: true }); return; }
   panel?.querySelector<HTMLElement>('textarea:not([disabled]), .cm-content, [contenteditable="true"], input:not([disabled])')?.focus({ preventScroll: true });
+}
+async function focusAndEnter(id: string | undefined) { if (id && await focusPane(id)) focusContent(id); }
+const currentId = () => selected.value && findNode(working.value.root, selected.value) ? selected.value : panes.value[0]?.id;
+/** Back to the selected pane's input, from the sidebar, a menu or the timeline. */
+function focusSelected() { const id = currentId(); if (id) focusContent(id); }
+/** The pane used before this one, as tmux's last-pane. */
+function focusLast() { void focusAndEnter([...recent].reverse().find(id => id !== selected.value && findNode(working.value.root, id))); }
+function closeSelected() { const id = currentId(); if (id) void close(id); }
+/** The tabs grouped with the selected pane, and where it is among them. */
+function selectedTabs() {
+  const id = currentId();
+  const stack = id ? findNode(working.value.root, containerId(working.value.root, id)) : undefined;
+  const tabs = stack?.type === "stack" ? stack.panes : id ? panes.value.filter(pane => pane.id === id) : [];
+  return { tabs, index: tabs.findIndex(pane => pane.id === id) };
+}
+function cycleTab(step: number) {
+  const { tabs, index } = selectedTabs();
+  if (tabs.length > 1) void focusAndEnter(tabs[(index + step + tabs.length) % tabs.length]?.id);
+}
+function selectTab(number: number) { void focusAndEnter(selectedTabs().tabs[number - 1]?.id); }
+function swapSelected(step: number) {
+  const id = currentId();
+  if (!id) return;
+  const groups = paneGroups(working.value.root), own = containerId(working.value.root, id);
+  const index = groups.findIndex(node => node.id === own);
+  if (index < 0 || groups.length < 2) return;
+  maximized.value = null;
+  commit(swapGroups(working.value.root, own, groups[(index + step + groups.length) % groups.length].id));
+  void nextTick(() => focusContent(id));
+}
+function nudgeSelected(direction: "left" | "right" | "up" | "down") {
+  const id = currentId();
+  if (id) commit(nudgeDivider(working.value.root, containerId(working.value.root, id), direction));
+}
+const PRESETS: LayoutPreset[] = ["1:1", "2x2", "1:2:1"];
+let presetIndex = -1;
+function nextPreset() { presetIndex = (presetIndex + 1) % PRESETS.length; preset(PRESETS[presetIndex]); }
+/** A new session or terminal in the selected pane's group, as "+" there makes. */
+function createHere(provider: ProviderKind) {
+  const id = currentId();
+  emit("create-session", id ? containerId(working.value.root, id) : working.value.root.id, provider, false);
+}
+/** What the prefix keys can act on right now, so the hint can grey the rest. */
+function prefixContext() {
+  return { panes: panes.value.length, groups: paneGroups(working.value.root).length, tabs: selectedTabs().tabs.length, splits: working.value.root.type === "split", selected: currentId() };
 }
 
 async function focusDirection(direction: "left" | "right" | "up" | "down") {
@@ -273,7 +322,7 @@ async function focusDirection(direction: "left" | "right" | "up" | "down") {
   else target?.element.querySelector<HTMLElement>(".dock-empty button")?.focus();
 }
 
-defineExpose({ focusDirection, splitSelected, cyclePane, openPane, openPaneAt, replaceWith, focusPane, closePane: close, maximizePane: maximize });
+defineExpose({ focusDirection, splitSelected, cyclePane, openPane, openPaneAt, replaceWith, focusPane, closePane: close, maximizePane: maximize, focusSelected, focusLast, closeSelected, cycleTab, selectTab, swapSelected, nudgeSelected, nextPreset, createHere, prefixContext });
 
 /**
  * Sideways swipe between open views on a phone, in the order the view

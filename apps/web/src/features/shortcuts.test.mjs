@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SHORTCUTS, formatChord, keyBelongsToTarget, matches, shortcutFor, PANE_SHORTCUTS, prefixKey } from './shortcuts.ts';
+import { SHORTCUTS, PREFIX_COMMANDS, formatChord, keyBelongsToTarget, matches, platformShortcuts, prefixCommand, prefixKey } from './shortcuts.ts';
 
 const key = (key, mods = {}) => ({ key, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
 
@@ -41,18 +41,44 @@ test('prefix is Ctrl+B on every platform, and double prefix passes one real key 
 });
 
 test('prefix commands only run after prefix and shifted punctuation works', () => {
-  for (const item of PANE_SHORTCUTS) {
-    assert.equal(prefixKey(key(item.chord.key), false), undefined);
-    assert.equal(prefixKey(key(item.chord.key), true), item.id);
-    assert.equal(matches(key(item.chord.key), item.chord), false);
+  for (const command of PREFIX_COMMANDS) for (const name of command.keys) {
+    assert.equal(prefixKey(key(name), false), undefined);
+    assert.equal(prefixKey(key(name), true), prefixCommand(name).id);
   }
   assert.equal(prefixKey(key('%', { shiftKey: true }), true), 'split-horizontal');
+  assert.equal(prefixKey(key('|', { shiftKey: true }), true), 'split-horizontal');
+  assert.equal(prefixKey(key('-'), true), 'split-vertical');
   assert.equal(prefixKey(key('Shift', { shiftKey: true }), true), undefined);
+});
+
+test('every prefix key does one thing, and a key names its variant', () => {
+  const keys = PREFIX_COMMANDS.flatMap(command => command.keys);
+  assert.equal(new Set(keys).size, keys.length);
+  assert.equal(prefixCommand('ArrowLeft').id, 'focus-left');
+  assert.equal(prefixCommand('j').id, 'focus-down');
+  assert.equal(prefixCommand('L').id, 'resize-right');
+  assert.equal(prefixCommand('3').id, 'tab-3');
+  assert.equal(prefixCommand('C').id, 'new-session', 'shares the id, and so the action, of the global chord');
+});
+
+test('a repeatable key keeps the prefix for itself, and anything else is typed as usual', () => {
+  assert.equal(prefixKey(key('H', { shiftKey: true }), true, true), 'resize-left');
+  assert.equal(prefixKey(key('K', { shiftKey: true, repeat: true }), true, true), 'resize-up', 'holding the key keeps moving');
+  assert.equal(prefixKey(key('a'), true, true), 'cancel-pass');
+  assert.equal(prefixKey(key('z'), true, true), 'cancel-pass', 'only the repeatable keys');
+  assert.equal(prefixKey(key('Escape'), true, true), 'cancel', 'Esc is not passed on to interrupt a turn');
+  assert.equal(prefixKey(key('b', { ctrlKey: true }), true, true), 'pass');
+});
+
+test('Ctrl+B is the prefix everywhere, so the sidebar chord exists only where ⌘ is not Ctrl', () => {
+  assert.ok(platformShortcuts(true).some(item => item.id === 'sidebar'));
+  assert.ok(!platformShortcuts(false).some(item => item.id === 'sidebar'));
+  assert.ok(PREFIX_COMMANDS.some(item => item.id === 'sidebar'), 'still one key away');
 });
 
 test('escape and unknown keys cancel, composition and browser shortcuts pass through', () => {
   assert.equal(prefixKey(key('Escape'), true), 'cancel');
-  assert.equal(prefixKey(key('j'), true), 'cancel');
+  assert.equal(prefixKey(key('y'), true), 'cancel');
   assert.equal(prefixKey(key('Process', { isComposing: true }), true), 'cancel-pass');
   assert.equal(prefixKey(key('w', { metaKey: true }), true), 'cancel-pass');
   assert.equal(prefixKey(key('ArrowRight', { altKey: true, metaKey: true }), false), undefined);

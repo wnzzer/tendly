@@ -2,11 +2,17 @@ import type { ProviderKind, Session, Workspace } from "@tendly/protocol";
 import type { PaletteItem } from "./CommandPalette.vue";
 import { PROVIDER_KINDS, providerLabel } from "./clients";
 import { isSessionArchived } from "./session-list";
-import { SHORTCUTS, formatChord } from "./shortcuts";
+import { PREFIX_COMMANDS, formatChord, formatPrefix, platformShortcuts } from "./shortcuts";
 import type { SettingsSection } from "../router";
 
 /** The chord shown beside a command, when it has one. */
-export function shortcutHint(id: string): string | undefined { const shortcut = SHORTCUTS.find(item => item.id === id); return shortcut ? formatChord(shortcut.chord) : undefined; }
+/** The chord for `id` on this platform, else its key after Ctrl+B. */
+export function shortcutHint(id: string): string | undefined {
+  const shortcut = platformShortcuts().find(item => item.id === id);
+  if (shortcut) return formatChord(shortcut.chord);
+  const command = PREFIX_COMMANDS.find(item => item.id === id);
+  return command ? formatPrefix(command) : undefined;
+}
 
 /** What a palette entry does once chosen; the shell supplies each. */
 export interface PaletteActions {

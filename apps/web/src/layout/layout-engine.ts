@@ -136,6 +136,44 @@ export function resizeSplit(root: LayoutNode, id: string, ratio: number): Layout
   return replaceNode(root, id, (node) => node.type === "split" ? { ...node, ratio: normalizeRatio(ratio) } : node);
 }
 
+/** The panes and tab groups the splits hold, left to right and top to bottom. */
+export function paneGroups(root: LayoutNode): LayoutNode[] {
+  return root.type === "split" ? [...paneGroups(root.first), ...paneGroups(root.second)] : [root];
+}
+/** Two pane groups trade places; their sizes stay with the places. */
+export function swapGroups(root: LayoutNode, firstId: string, secondId: string): LayoutNode {
+  const first = findNode(root, firstId), second = findNode(root, secondId);
+  if (!first || !second || first === second || first.type === "split" || second.type === "split") return root;
+  const swap = (node: LayoutNode): LayoutNode => {
+    if (node.id === firstId) return second;
+    if (node.id === secondId) return first;
+    if (node.type !== "split") return node;
+    const a = swap(node.first), b = swap(node.second);
+    return a === node.first && b === node.second ? node : { ...node, first: a, second: b };
+  };
+  return swap(root);
+}
+/**
+ * Moves the divider nearest to `id` that runs across `direction`, as tmux's
+ * resize-pane does: left and up move it towards the start, right and down
+ * towards the end, whichever side of it the pane is on.
+ */
+export function nudgeDivider(root: LayoutNode, id: string, direction: "left" | "right" | "up" | "down", step = 0.05): LayoutNode {
+  const axis: SplitDirection = direction === "left" || direction === "right" ? "horizontal" : "vertical";
+  const path: SplitNode[] = [];
+  const visit = (node: LayoutNode): boolean => {
+    if (node.id === id) return true;
+    if (node.type !== "split") return false;
+    if (visit(node.first) || visit(node.second)) { path.push(node); return true; }
+    return false;
+  };
+  if (!visit(root)) return root;
+  const split = path.find(node => node.direction === axis);
+  if (!split) return root;
+  const delta = direction === "left" || direction === "up" ? -step : step;
+  return resizeSplit(root, split.id, Math.min(0.9, Math.max(0.1, split.ratio + delta)));
+}
+
 /** Removing a view must never stop or delete the underlying session.
  * `recent` lists pane ids oldest-first; when given, a stack whose active tab
  * closes returns to the tab used before it rather than its neighbour. */

@@ -3,6 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  nudgeDivider, paneGroups, swapGroups,
   activatePane, applyPreset, cloneNode, closePane, containerId,
   createDefaultLayoutDocument, createPane, dockPane, findNode, findNodes,
   flattenPanes, isPaneNode, normalizeRatio, projectLayout, replacePane, resizeSplit,
@@ -332,4 +333,24 @@ test('dropping into the middle of a collapsed split lands beside the tab on show
   const narrow = projectLayout(root, 300, 600, { selectedPaneId: 'b' });
   assert.equal(centerDockTarget(root, narrow, 's'), 'right');
   assert.equal(centerDockTarget(root, narrow, 'a'), 'a', 'a pane is its own target');
+});
+
+test('pane groups trade places and dividers move as tmux moves them', () => {
+  const stack = { type: 'stack', kind: 'stack', id: 'tabs', panes: [{ type: 'pane', id: 'b', kind: 'terminal' }, { type: 'pane', id: 'c', kind: 'editor' }], activePaneId: 'b' };
+  const root = { type: 'split', id: 'cols', direction: 'horizontal', ratio: 0.5,
+    first: { type: 'pane', id: 'a', kind: 'agent_chat' },
+    second: { type: 'split', id: 'rows', direction: 'vertical', ratio: 0.5, first: stack, second: { type: 'pane', id: 'd', kind: 'git_diff' } } };
+  assert.deepEqual(paneGroups(root).map(node => node.id), ['a', 'tabs', 'd']);
+  const swapped = swapGroups(root, 'a', 'd');
+  assert.deepEqual(paneGroups(swapped).map(node => node.id), ['d', 'tabs', 'a']);
+  assert.equal(swapped.ratio, 0.5, 'sizes stay with the places');
+  assert.equal(swapGroups(root, 'a', 'rows'), root, 'only panes and tab groups move');
+  // Left and up move the divider towards the start, whichever side the pane is on.
+  assert.equal(nudgeDivider(root, 'd', 'left').ratio, 0.45);
+  assert.equal(nudgeDivider(root, 'a', 'right').ratio, 0.55);
+  assert.equal(nudgeDivider(root, 'tabs', 'down').second.ratio, 0.55, 'the nearest divider across that way');
+  assert.equal(nudgeDivider(root, 'a', 'up'), root, 'no divider runs that way');
+  let far = root;
+  for (let i = 0; i < 20; i++) far = nudgeDivider(far, 'a', 'left');
+  assert.equal(far.ratio, 0.1, 'a pane is never pushed shut');
 });

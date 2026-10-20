@@ -25,7 +25,7 @@ export interface PaletteItem {
   keywords?: string;
   run: () => void;
 }
-const props = defineProps<{ items: PaletteItem[] }>();
+const props = defineProps<{ items: PaletteItem[]; placeholder?: string }>();
 const emit = defineEmits<{ close: [] }>();
 const { t } = useI18n();
 const query = ref(''), active = ref(0), input = ref<HTMLInputElement>(), list = ref<HTMLElement>();
@@ -57,7 +57,7 @@ const startsGroup = (index: number) => index === 0 || results.value[index - 1]?.
   <Teleport to="body">
     <div class="palette-backdrop" @mousedown.self="emit('close')">
       <section class="palette" role="dialog" aria-modal="true" :aria-label="t('Search and commands')">
-        <label class="palette-input"><Icon name="search" :size="17" /><input ref="input" v-model="query" type="text" role="combobox" aria-autocomplete="list" aria-controls="palette-results" :aria-activedescendant="results.length ? `palette-item-${active}` : undefined" :placeholder="t('Search sessions, workspaces and commands…')" @keydown="onKey" /><kbd>Esc</kbd></label>
+        <label class="palette-input"><Icon name="search" :size="17" /><input ref="input" v-model="query" type="text" role="combobox" aria-autocomplete="list" aria-controls="palette-results" :aria-activedescendant="results.length ? `palette-item-${active}` : undefined" :placeholder="placeholder ?? t('Search sessions, workspaces and commands…')" @keydown="onKey" /><kbd>Esc</kbd></label>
         <div id="palette-results" ref="list" class="palette-results" role="listbox">
           <template v-for="(item, index) in results" :key="item.id">
             <p v-if="startsGroup(index)" class="palette-group">{{ item.group }}</p>

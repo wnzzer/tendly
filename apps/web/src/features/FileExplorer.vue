@@ -414,7 +414,7 @@ defineExpose({ reveal });
       <button type="submit" class="text-button" :disabled="!creating.name.trim() || creating.busy">{{ t(creating.busy ? 'Creating…' : 'Create') }}</button>
       <button type="button" class="text-button" @click="creating = null">{{ t('Cancel') }}</button>
     </form>
-    <div class="file-search"><Icon name="search" :size="14" /><input v-model="query" :aria-label="t('Filter loaded files')" :placeholder="t('Filter loaded files…')" /><button v-if="query" class="icon-button clear-filter" :aria-label="t('Clear file filter')" @click="query = ''"><Icon name="close" :size="12" /></button></div>
+    <div class="file-search"><Icon name="search" :size="14" /><input v-model="query" data-explorer-filter :aria-label="t('Filter loaded files')" @keydown.down.prevent="($event.currentTarget as HTMLElement).closest('.file-explorer')?.querySelector<HTMLElement>('.tree-row')?.focus()" :placeholder="t('Filter loaded files…')" /><button v-if="query" class="icon-button clear-filter" :aria-label="t('Clear file filter')" @click="query = ''"><Icon name="close" :size="12" /></button></div>
     <p v-if="query" class="tree-filter-note">{{ t('Only loaded folders are searched.') }}</p>
     <p v-if="revealFailure" class="inline-error" role="alert">{{ t('Could not locate {path} in the workspace.', { path: revealFailure }) }}</p>
     <p v-if="error" class="inline-error" role="alert">{{ error }}<button class="text-button" @click="error = ''">{{ t('Dismiss') }}</button></p>

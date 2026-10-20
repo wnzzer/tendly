@@ -36,7 +36,8 @@ import AgentActivity, { type ShowTarget } from "./features/AgentActivity.vue";
 import ToastHost from "./features/ToastHost.vue";
 import CommandPalette from "./features/CommandPalette.vue";
 import ShortcutsDialog from "./features/ShortcutsDialog.vue";
-import { PANE_SHORTCUTS, prefixKey, shortcutFor } from "./features/shortcuts";
+import { PREFIX_COMMANDS, PREFIX_GROUPS, prefixCommand, prefixKey, shortcutFor } from "./features/shortcuts";
+import type { PaletteItem } from "./features/CommandPalette.vue";
 import { setThemePreference } from "./features/theme";
 import { isSessionArchived } from "./features/session-list";
 import { attentionTitle, trackSessions, waitingIds } from "./features/attention";
@@ -483,50 +484,135 @@ const quickProviderLabel = computed(() => { const provider = lastQuickProvider()
 function closeNewSessionMenu(event: Event) { (event.currentTarget as HTMLElement | null)?.closest("details")?.removeAttribute("open"); }
 /** The command palette and the shortcut sheet, and the keys that open everything else. */
 const paletteOpen = ref(false), shortcutsOpen = ref(false);
+/** What the palette lists: everything, the open views (Ctrl+B w) or the sessions (Ctrl+B s). */
+type PaletteMode = "all" | "views" | "sessions";
+const paletteMode = ref<PaletteMode>("all");
+function openPalette(mode: PaletteMode = "all") { paletteMode.value = mode; paletteOpen.value = true; }
 const hint = shortcutHint;
-function runPaneCommand(id: string) {
-  if (id === "pane-palette") { paletteOpen.value = true; return; }
-  if (id === "pane-help") { shortcutsOpen.value = true; return; }
-  if (page.value || !canvas.value) return;
-  if (id.startsWith("focus-")) { void canvas.value.focusDirection(id.slice(6) as "left" | "right" | "up" | "down"); return; }
-  if (id === "split-horizontal") canvas.value.splitSelected("horizontal");
-  else if (id === "split-vertical") canvas.value.splitSelected("vertical");
-  else if (id === "next-pane") void canvas.value.cyclePane(1);
-  else if (id === "previous-pane") void canvas.value.cyclePane(-1);
-  else if (id === "maximize-pane" && selectedPaneId.value) canvas.value.maximizePane(selectedPaneId.value);
+type CanvasApi = NonNullable<typeof canvas.value>;
+const onCanvas = (run: (canvas: CanvasApi) => unknown) => () => { if (!page.value && canvas.value) void run(canvas.value); };
+/**
+ * Every action a key can run, by the id it has in SHORTCUTS or
+ * PREFIX_COMMANDS; the palette lists the same ones.
+ */
+const commands: Record<string, () => void> = {
+  palette: () => { if (paletteOpen.value && paletteMode.value === "all") paletteOpen.value = false; else openPalette(); },
+  help: () => { shortcutsOpen.value = !shortcutsOpen.value; },
+  settings: () => openSettings(),
+  sidebar: toggleSidebar,
+  files: () => { explorerOpen.value = !explorerOpen.value; },
+  sessions: () => openPage("sessions"),
+  system: () => openPage("system"),
+  canvas: () => void router.push({ name: "canvas" }),
+  "new-session": () => { if (contextWorkspace.value) newSession(contextWorkspace.value.id); },
+  "split-horizontal": onCanvas(c => c.splitSelected("horizontal")),
+  "split-vertical": onCanvas(c => c.splitSelected("vertical")),
+  "next-pane": onCanvas(c => c.cyclePane(1)),
+  "last-pane": onCanvas(c => c.focusLast()),
+  "maximize-pane": onCanvas(c => { if (selectedPaneId.value) return c.maximizePane(selectedPaneId.value); }),
+  "swap-previous": onCanvas(c => c.swapSelected(-1)),
+  "swap-next": onCanvas(c => c.swapSelected(1)),
+  "next-layout": onCanvas(c => c.nextPreset()),
+  "close-pane": onCanvas(c => c.closeSelected()),
+  "next-tab": onCanvas(c => c.cycleTab(1)),
+  "previous-tab": onCanvas(c => c.cycleTab(-1)),
+  "rename-session": () => { if (focusedSession.value) requestRenameSession(focusedSession.value.id); },
+  "new-here": onCanvas(c => c.createHere(lastQuickProvider())),
+  "new-terminal": onCanvas(c => c.createHere("terminal")),
+  "open-changes": () => openChanges(),
+  "focus-input": onCanvas(c => c.focusSelected()),
+  "choose-view": () => { if (!page.value) openPalette("views"); },
+  "choose-session": () => openPalette("sessions"),
+  "find-file": () => void findFile(),
+};
+type Direction = "left" | "right" | "up" | "down";
+function runCommand(id: string) {
+  if (/^focus-(left|right|up|down)$/.test(id)) onCanvas(c => c.focusDirection(id.slice(6) as Direction))();
+  else if (id.startsWith("resize-")) onCanvas(c => c.nudgeSelected(id.slice(7) as Direction))();
+  else if (/^tab-\d$/.test(id)) onCanvas(c => c.selectTab(Number(id.slice(4))))();
+  else commands[id]?.();
 }
-const paletteItems = computed(() => buildPaletteItems({ sessions: sessions.value, workspaces: workspaces.value, here: contextWorkspace.value, t }, {
+/** The file panel's filter, opened if it was hidden; ↓ from there walks the tree. */
+async function findFile() {
+  if (!workspaces.value.length) return;
+  explorerOpen.value = true;
+  await nextTick();
+  document.querySelector<HTMLInputElement>(".explorer-panel [data-explorer-filter]")?.focus();
+}
+const VIEW_ICONS: Record<string, string> = { agent_chat: "spark", terminal: "terminal", git_diff: "git", editor: "file", file_preview: "image" };
+const viewItems = computed<PaletteItem[]>(() => openPanes.value.map(pane => {
+  const session = paneSession(pane, sessions.value);
+  return { id: `view:${pane.id}`, title: paneTitle(pane), subtitle: paneDetail(pane) || undefined, group: t("Open views"), provider: session && session.provider !== "terminal" ? session.provider : undefined, icon: VIEW_ICONS[pane.kind], suggested: true,
+    run: () => void canvas.value?.focusPane(pane.id).then(found => { if (found) canvas.value?.focusSelected(); }) };
+}));
+/** Listed by the palette as well; the rest of the prefix keys are already there under their own names, or only make sense as keys. */
+const PALETTE_COMMANDS = PREFIX_COMMANDS.filter(command => !command.action && !["palette", "help", "sidebar", "files", "new-session", "choose-view", "choose-session"].includes(command.id));
+const allPaletteItems = computed(() => buildPaletteItems({ sessions: sessions.value, workspaces: workspaces.value, here: contextWorkspace.value, t }, {
   openSession, quickSession: (id, provider) => void quickSession(id, provider), newSession: id => newSession(id), openPage, openSettings, toggleSidebar, setTheme: setThemePreference,
   openCanvas: () => void router.push({ name: "canvas" }),
   openWorkspace: id => { void router.push({ name: "canvas" }); selectWorkspace(id); },
   addWorkspace: () => { showWorkspace.value = true; },
   toggleFiles: () => { explorerOpen.value = !explorerOpen.value; },
   showShortcuts: () => { shortcutsOpen.value = true; },
-}).concat(page.value ? [] : PANE_SHORTCUTS.map(item => ({ id: item.id, title: t(item.label), group: t("Pane actions"), icon: "layout", hint: hint(item.id), run: () => runPaneCommand(item.id) }))));
+}).concat(page.value ? [] : PALETTE_COMMANDS.map(command => ({ id: command.id, title: t(command.label), group: t("Pane actions"), icon: "layout", hint: hint(command.id), run: () => runCommand(command.id) }))));
+const paletteItems = computed(() => paletteMode.value === "views" ? viewItems.value
+  : paletteMode.value === "sessions" ? allPaletteItems.value.filter(item => item.id.startsWith("session:")).map(item => ({ ...item, suggested: true }))
+  : allPaletteItems.value);
+const palettePlaceholder = computed(() => paletteMode.value === "views" ? t("Go to an open view…") : paletteMode.value === "sessions" ? t("Find a session…") : undefined);
+/** Closing the palette or the shortcut sheet without going anywhere returns to the pane you were in. */
+function closeOverlay(close: () => void) {
+  close();
+  void nextTick(() => { if (!document.activeElement || document.activeElement === document.body) canvas.value?.focusSelected(); });
+}
 function onGlobalKey(event: KeyboardEvent) {
   if (showAuth.value || event.defaultPrevented || prefixPassthrough.has(event)) return;
+  // Esc in the sidebar or the file panel goes back to the pane; menus there close
+  // themselves first, and a field keeps it, but for the file filter Ctrl+B f opens.
+  if (event.key === "Escape" && event.target instanceof Element && event.target.closest(".workspace-sidebar, .explorer-panel") && (!event.target.closest("input, textarea, select") || event.target.matches("[data-explorer-filter]"))) {
+    event.preventDefault(); canvas.value?.focusSelected(); return;
+  }
   const shortcut = shortcutFor(event);
   if (!shortcut) return;
   event.preventDefault();
-  const run: Record<string, () => void> = {
-    palette: () => { paletteOpen.value = !paletteOpen.value; },
-    help: () => { shortcutsOpen.value = !shortcutsOpen.value; },
-    settings: () => openSettings(),
-    sidebar: toggleSidebar,
-    files: () => { explorerOpen.value = !explorerOpen.value; },
-    sessions: () => openPage("sessions"),
-    system: () => openPage("system"),
-    canvas: () => void router.push({ name: "canvas" }),
-    "new-session": () => { if (contextWorkspace.value) newSession(contextWorkspace.value.id); },
-  };
-  run[shortcut.id]?.();
+  runCommand(shortcut.id);
 }
-const prefixActive = ref(false);
+/**
+ * Ctrl+B, then a key. A small label says the prefix is waiting; the whole map
+ * of keys follows only after a pause, so keys pressed in a run never flash it.
+ * After a repeatable key the prefix stays a moment for the same key again.
+ */
+const prefixActive = ref(false), prefixRepeating = ref(false), prefixMap = ref(false);
+const prefixContext = ref<ReturnType<CanvasApi["prefixContext"]>>();
 const prefixPassthrough = new WeakSet<KeyboardEvent>();
-function cancelPrefix() { prefixActive.value = false; }
+let prefixMapTimer: ReturnType<typeof setTimeout> | undefined, prefixRepeatTimer: ReturnType<typeof setTimeout> | undefined;
+function cancelPrefix() {
+  prefixActive.value = prefixRepeating.value = prefixMap.value = false;
+  clearTimeout(prefixMapTimer); clearTimeout(prefixRepeatTimer);
+}
+function startPrefix() {
+  cancelPrefix();
+  prefixActive.value = true;
+  prefixContext.value = page.value ? undefined : canvas.value?.prefixContext();
+  prefixMapTimer = setTimeout(() => { prefixMap.value = true; }, 600);
+}
+/** Whether a key in the map would do anything here; the rest are shown dimmed. */
+function prefixUsable(id: string): boolean {
+  const context = prefixContext.value;
+  if (["palette", "help", "sidebar", "files", "new-session", "choose-session"].includes(id)) return true;
+  if (id === "find-file") return workspaces.value.length > 0;
+  if (id === "open-changes") return !!contextWorkspace.value;
+  if (id === "rename-session") return !!focusedSession.value;
+  if (!context) return false;
+  if (["focus", "swap-previous", "swap-next"].includes(id)) return context.groups > 1;
+  if (["next-pane", "last-pane"].includes(id)) return context.panes > 1;
+  if (["next-tab", "previous-tab", "tab"].includes(id)) return context.tabs > 1;
+  if (id === "resize") return context.splits;
+  if (["maximize-pane", "close-pane", "focus-input", "choose-view", "next-layout"].includes(id)) return !!context.selected;
+  return true;
+}
 function onPrefixKey(event: KeyboardEvent) {
   if (showAuth.value || page.value || document.querySelector('[aria-modal="true"]')) { cancelPrefix(); return; }
-  const action = prefixKey(event, prefixActive.value);
+  const action = prefixKey(event, prefixActive.value, prefixRepeating.value);
   if (!action) return;
   if (action === "pass" || action === "cancel-pass") {
     cancelPrefix();
@@ -536,8 +622,12 @@ function onPrefixKey(event: KeyboardEvent) {
   event.preventDefault();
   event.stopPropagation();
   if (action === "ignore") return;
-  prefixActive.value = action === "prefix";
-  if (!["prefix", "cancel"].includes(action)) runPaneCommand(action);
+  if (action === "prefix") { startPrefix(); return; }
+  const repeat = prefixCommand(event.key)?.command.repeat && action !== "cancel";
+  cancelPrefix();
+  if (action === "cancel") return;
+  runCommand(action);
+  if (repeat) { prefixActive.value = prefixRepeating.value = true; prefixRepeatTimer = setTimeout(cancelPrefix, 900); }
 }
 onMounted(() => {
   window.addEventListener("keydown", onPrefixKey, true);
@@ -548,6 +638,7 @@ onUnmounted(() => {
   window.removeEventListener("keydown", onPrefixKey, true);
   window.removeEventListener("blur", cancelPrefix);
   window.removeEventListener("pointerdown", cancelPrefix, true);
+  cancelPrefix();
 });
 onMounted(() => window.addEventListener("keydown", onGlobalKey));
 onUnmounted(() => window.removeEventListener("keydown", onGlobalKey));
@@ -701,12 +792,17 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
   <HostFilePreview v-if="hostPreview" :key="hostPreview.path" :path="hostPreview.path" :line="hostPreview.line" @close="hostPreview=undefined" @add-workspace="folder=>{hostPreview=undefined;workspaceInitialPath=folder;showWorkspace=true}"/>
   <ImageLightbox />
   <ToastHost />
-  <div v-if="prefixActive" class="prefix-hint" role="status">
-    <strong>Ctrl+B</strong><span v-for="item in PANE_SHORTCUTS" :key="item.id"><kbd>{{ item.chord.key.replace('Arrow', '') }}</kbd> {{ t(item.label) }}</span>
-    <small>{{ t('Esc to cancel · Ctrl+B again to pass through') }}</small>
+  <div v-if="prefixActive" class="prefix-hint">
+    <div v-if="prefixMap && !prefixRepeating" class="prefix-map" aria-hidden="true">
+      <section v-for="group in PREFIX_GROUPS" :key="group">
+        <h4>{{ t(group) }}</h4>
+        <div v-for="command in PREFIX_COMMANDS.filter(item => item.group === group)" :key="command.id" :class="['prefix-row', { off: !prefixUsable(command.id) }]"><kbd>{{ command.display ?? command.keys.join(' ') }}</kbd><span>{{ t(command.label) }}</span></div>
+      </section>
+    </div>
+    <div class="prefix-pill" role="status"><kbd>Ctrl+B</kbd><span>{{ prefixRepeating ? t('Press H J K L again to keep moving, any other key to stop') : t('Waiting for a key…') }}</span><small v-if="!prefixRepeating">{{ t('Esc to cancel · Ctrl+B again to pass through') }}</small></div>
   </div>
-  <CommandPalette v-if="paletteOpen" :items="paletteItems" @close="paletteOpen=false" />
-  <ShortcutsDialog v-if="shortcutsOpen" @close="shortcutsOpen=false" />
+  <CommandPalette v-if="paletteOpen" :key="paletteMode" :items="paletteItems" :placeholder="palettePlaceholder" @close="closeOverlay(() => { paletteOpen = false; })" />
+  <ShortcutsDialog v-if="shortcutsOpen" @close="closeOverlay(() => { shortcutsOpen = false; })" />
   <AgentActivity :enabled="!showAuth && apiOnline" @changed="agentChanged" @show="agentShow" @canvas="agentCanvas" />
   <BottomSheet v-if="switcherOpen" :title="t('Open views')" @close="switcherOpen=false">
     <div class="switcher-list">
@@ -737,7 +833,22 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
 </template>
 
 <style scoped>
-.prefix-hint{position:fixed;bottom:40px;left:50%;transform:translateX(-50%);z-index:160;display:flex;flex-wrap:wrap;gap:12px;padding:16px;max-width:720px;width:calc(100% - 40px);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);pointer-events:none}.prefix-hint small{width:100%;color:var(--muted)}.prefix-hint kbd{font-weight:600;color:var(--accent)}
+/* The prefix: a quiet label over the status bar, and after a pause the map of
+   keys above it, four columns of key and action. */
+.prefix-hint{position:fixed;bottom:36px;left:50%;transform:translateX(-50%);z-index:160;display:flex;flex-direction:column;align-items:center;gap:8px;width:max-content;max-width:calc(100vw - 32px);pointer-events:none}
+.prefix-pill{display:flex;align-items:center;gap:8px;padding:5px 12px 5px 6px;border:1px solid var(--line);border-radius:var(--radius-full);background:var(--elevated);box-shadow:var(--shadow-md);font-size:var(--text-sm);color:var(--ink);animation:prefix-in var(--duration-fast) var(--ease-out)}
+.prefix-pill>kbd{padding:2px 8px;border-radius:var(--radius-full);background:var(--accent);font:600 var(--text-xs) var(--font-body);color:var(--on-accent)}
+.prefix-pill>small{padding-left:8px;border-left:1px solid var(--border);font-size:var(--text-xs);color:var(--muted)}
+.prefix-map{display:grid;grid-template-columns:repeat(5,max-content);align-items:start;gap:14px 30px;padding:16px 22px 18px;border:1px solid var(--line);border-radius:var(--radius-xl);background:var(--elevated);box-shadow:var(--shadow-xl);animation:prefix-in var(--duration-normal) var(--ease-out)}
+.prefix-map>section{display:grid;grid-template-columns:max-content max-content;align-items:center;gap:7px 10px}
+.prefix-map h4{grid-column:1/-1;margin:0;font-size:var(--text-xs);font-weight:600;letter-spacing:.02em;color:var(--muted)}
+.prefix-row{display:contents;font-size:var(--text-sm);color:var(--ink);white-space:nowrap}
+.prefix-row>span{font-size:var(--text-sm);color:var(--ink)}
+.prefix-row>kbd{justify-self:start;padding:1px 6px;border:1px solid var(--line);border-bottom-width:2px;border-radius:var(--radius-xs);background:var(--sunken);font:500 var(--text-xs) var(--font-mono);color:var(--ink-soft)}
+.prefix-row.off>*{opacity:.38}
+@keyframes prefix-in{from{opacity:0;transform:translateY(4px)}}
+@media(max-width:1180px){.prefix-map{grid-template-columns:repeat(3,max-content)}}
+@media(max-width:760px){.prefix-map{grid-template-columns:repeat(2,max-content)}}
 .new-session-split{position:relative;display:inline-flex}.new-session-split>.new-session-top{border-top-right-radius:0;border-bottom-right-radius:0}
 .new-session-more>summary{list-style:none;min-height:30px;padding:0 7px;border-top-left-radius:0;border-bottom-left-radius:0;border-left:1px solid color-mix(in srgb, var(--on-accent) 25%, transparent);cursor:pointer}.new-session-more>summary::-webkit-details-marker{display:none}.new-session-caret{transform:rotate(90deg)}
 .new-session-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:60;min-width:240px;padding:5px;border-radius:var(--radius-lg);background:var(--surface);box-shadow:var(--shadow-lg),0 0 0 1px var(--border),inset 0 1px 0 var(--card-highlight)}
