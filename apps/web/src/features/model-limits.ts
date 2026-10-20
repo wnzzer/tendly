@@ -7,6 +7,9 @@ export type Limits = Record<string, number>;
 
 export const FEWEST_TOKENS = 1_000, MOST_TOKENS = 100_000_000;
 
+/** A window known for a model the user set none for: what the endpoint reported, or the published one. Shown, never applied. */
+export interface KnownWindow { tokens: number; source: "endpoint" | "published" }
+
 export function limitKey(model: string): string { return model.trim().toLowerCase(); }
 
 /** A typed window as a number: separators allowed, empty for none. */

@@ -2,7 +2,8 @@
 import { computed, reactive, ref, watch } from "vue";
 import { useI18n } from "../i18n";
 import { filterModels } from "./model-choices";
-import { validWindow } from "./model-limits";
+import { validWindow, windowValue, type KnownWindow } from "./model-limits";
+import { compactTokens } from "./context-meter";
 import {
   checkTally, dropBroken, isBroken, isInconclusive, probeAnswer, routeSuspicion,
   PROBE_APIS, PROBE_RUN, apisUsed, keepWorking, matchesCheckFilter, mergeChecks, needsCheck, probeBatches, probeRun,
@@ -30,6 +31,8 @@ const props = defineProps<{
   selected: readonly string[];
   windowText: (model: string) => string;
   placeholder: (model: string) => string;
+  /** The window known for a model the user set none for; absent where nothing is known. */
+  knownWindow?: (model: string) => KnownWindow | undefined;
   /** Ask the endpoint which of these models run; absent on an older server. */
   probe?: (models: string[]) => Promise<ModelProbeResult[]>;
   /** Which protocol a check would speak, already resolved by the form (it
@@ -43,6 +46,15 @@ const emit = defineEmits<{
   look: [model: string];
 }>();
 const { t } = useI18n();
+/** A row's context window: the one set here, else the one known, with where it came from. */
+function rowWindow(model: string): { text: string; title: string; set: boolean } | undefined {
+  const typed = props.windowText(model), value = validWindow(typed) ? windowValue(typed) : undefined;
+  if (value) return { text: compactTokens(value), title: t("Context window you set: {tokens} tokens", { tokens: value.toLocaleString() }), set: true };
+  const known = props.knownWindow?.(model);
+  if (!known) return undefined;
+  return { text: compactTokens(known.tokens), set: false,
+    title: t(known.source === "endpoint" ? "The endpoint reports {tokens} tokens. Nothing is set, so the client decides; set it under Advanced." : "Published: {tokens} tokens. Nothing is set, so the client decides; set it under Advanced.", { tokens: known.tokens.toLocaleString() }) };
+}
 /** A saved list opens folded to its count; a list just loaded, or being checked, opens out. */
 const unfolded = ref(props.catalog.length > 0);
 watch(() => props.catalog.length, (count, before) => { if (count > before) unfolded.value = true; });
@@ -271,6 +283,7 @@ watch(filters, entries => { if (!entries.some(entry => entry.id === filter.value
           <!-- One batch speaks one protocol, so the chip only earns its place
                when the rows on screen disagree; otherwise the header says it once. -->
           <span v-if="protocols.length > 1 && checks[entry.id]?.api" class="model-api" :title="t('Checked over the {api} API', { api: PROBE_APIS[checks[entry.id].api].label })">{{ PROBE_APIS[checks[entry.id].api].short }}</span>
+          <span v-if="rowWindow(entry.id)" :class="['model-window', { set: rowWindow(entry.id)!.set }]" :title="rowWindow(entry.id)!.title">{{ rowWindow(entry.id)!.text }}</span>
           <span :class="['model-pill', statusOf(entry.id).kind]" :title="statusOf(entry.id).title">{{ statusOf(entry.id).text }}</span>
           <button v-if="canCheck && !running && checks[entry.id] && checks[entry.id].status !== 'ok'" type="button" class="icon-button model-row-retry" :title="t('Check this model again')" :aria-label="t('Check this model again')" @click="checkOne(entry.id)"><Icon name="refresh" :size="13" /></button>
           <button v-if="chosen.has(entry.id)" type="button" class="text-button model-row-more" :aria-expanded="open.has(entry.id)" @click="toggleAdvanced(entry.id)">{{ t(open.has(entry.id) ? 'Hide' : 'Advanced') }}</button>
@@ -335,6 +348,9 @@ watch(filters, entries => { if (!entries.some(entry => entry.id === filter.value
 .model-api-guess{color:var(--warn-ink)}
 .model-api{flex-shrink:0;padding:1px 6px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:var(--text-xs);color:var(--muted);font-variant-numeric:tabular-nums}
 .model-api.strong{color:var(--ink-soft);font-weight:550;border-color:var(--accent-line);background:var(--accent-soft)}
+/* The context window: muted when only known, in the accent when set here. */
+.model-window{flex-shrink:0;font:var(--text-xs) var(--mono);color:var(--muted);white-space:nowrap}
+.model-window.set{color:var(--accent-ink)}
 .model-pill{flex-shrink:0;display:inline-flex;align-items:center;padding:2px 8px;border:1px solid transparent;border-radius:var(--radius-full);font-size:var(--text-xs);font-variant-numeric:tabular-nums;white-space:nowrap}
 .model-pill.untested{border-color:var(--border);color:var(--muted)}
 .model-pill.checking{border-color:var(--info-line);background:var(--info-soft);color:var(--info-ink)}

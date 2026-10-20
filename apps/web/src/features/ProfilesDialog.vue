@@ -5,7 +5,7 @@ import { errorMessage, json, providerLabel, request } from "./api";
 import { parseModelAliases, formatModelAliases } from "./endpoint-models";
 import { sharesHostConfig, nativeProfileRenamePayload, nativeProfileUpdatePayload, profileEnvironmentPayload, profileEnvironmentDraftChanged } from "./native-profiles";
 import { environmentRows, newEnvironmentRow, type EnvironmentRow } from "./environment-model";
-import { limitKey, nextLimits, validWindow, windowValue, type Limits } from "./model-limits";
+import { limitKey, nextLimits, validWindow, windowValue, type KnownWindow, type Limits } from "./model-limits";
 import ModelSelection from "./ModelSelection.vue";
 import EndpointCheck from "./EndpointCheck.vue";
 import { offeredModels } from "./model-choices";
@@ -143,7 +143,18 @@ async function lookPublished(model: string) {
   publishedWindows[key] = null;
   try { publishedWindows[key] = (await request<{ published: number | null }>(`/models/context?model=${encodeURIComponent(model.trim())}`)).published; } catch { /* Unknown stays unknown. */ }
 }
-function windowPlaceholder(model: string) { const published = publishedWindows[limitKey(model)]; return published ? t("Published: {tokens} tokens", { tokens: published.toLocaleString() }) : t("Unknown · the client decides"); }
+/** The window known for a model without one set: the endpoint's own word first, then the published one. */
+function knownWindow(model: string): KnownWindow | undefined {
+  const key = limitKey(model), entry = models.value?.models.find(item => limitKey(item.id) === key);
+  if (entry?.context_window) return { tokens: entry.context_window, source: "endpoint" };
+  const published = entry?.published_context ?? publishedWindows[key];
+  return published ? { tokens: published, source: "published" } : undefined;
+}
+function windowPlaceholder(model: string) {
+  const known = knownWindow(model);
+  if (!known) return t("Unknown · the client decides");
+  return t(known.source === "endpoint" ? "Endpoint reports: {tokens} tokens" : "Published: {tokens} tokens", { tokens: known.tokens.toLocaleString() });
+}
 watch(() => form.model, model => { if (model.trim()) void lookPublished(model); });
 const contextValid = computed(() => Object.values(contextDrafts).every(validWindow));
 /** Write the windows set here, and where the client reads the window from a variable (Claude Code), make sure the default model's is passed, as one listed below. */
@@ -450,7 +461,7 @@ onBeforeUnmount(()=>{discoveryRevision++;});
               <p v-if="form.model && resolved !== form.model" class="model-effective">{{ t('Effective model') }}: <code>{{ resolved }}</code></p>
               <EndpointCheck :key="checkKey" :client="providerLabel(form.provider)" :apis="checkApis" :fixed-api="FIXED_APIS[form.provider]" :named="(form.api || undefined) as ModelProbeApi | undefined" :plan="probePlan" :model="checkModel" :batch="!!modelSelection" :blocked="checkBlocked" :probe="probeModels" :key-mode="form.key_mode" @use-api="form.api = $event" @use-key="form.key_mode = $event" @checked="modelSelection?.checkModels()" />
               <p v-if="models" class="form-help">{{ t('{count} models returned', {count:models.models.length}) }} · <span>{{ models.source_url }}</span><br v-if="models.has_more" /><span v-if="models.has_more">{{ t('The endpoint has more models; this is the first page.') }}</span></p>
-              <ModelSelection ref="modelSelection" v-if="models?.models.length || chosenModels.length" v-model:selected="chosenModels" :catalog="models?.models ?? []" :window-text="windowText" :placeholder="windowPlaceholder" :probe="backendCapabilities.modelProbe ? probeModels : undefined" :plan="probePlan" @window="setWindow" @look="lookPublished" />
+              <ModelSelection ref="modelSelection" v-if="models?.models.length || chosenModels.length" v-model:selected="chosenModels" :catalog="models?.models ?? []" :window-text="windowText" :placeholder="windowPlaceholder" :known-window="knownWindow" :probe="backendCapabilities.modelProbe ? probeModels : undefined" :plan="probePlan" @window="setWindow" @look="lookPublished" />
             </section>
             <section class="profile-group">
               <header class="profile-group-head"><span class="profile-group-mark"><Icon name="shield" :size="16" /></span><div><h4>{{ t('Behavior') }}</h4><small>{{ t('How deep it thinks and what it may do unasked') }}</small></div></header>

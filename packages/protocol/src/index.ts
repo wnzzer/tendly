@@ -100,7 +100,8 @@ export interface GitDiff { diff: string; path: string | null; staged: boolean; b
 export interface TextFile { path: string; content: string; version: string; }
 export interface NativeHistorySource { id:string; provider:AgentProviderKind; label:string; path:string; available:boolean; config_env?:string|null; }
 export interface NativeHistoryItem { id:string; provider:AgentProviderKind; title:string; cwd:string; updated_at:string; imported_session_id:string|null; }
-export interface ModelCatalog { models: Array<{id:string;name:string;efforts?:string[]}>; source_url: string; has_more: boolean; }
+/** `context_window`: what the endpoint reported for a model; `published_context`: the published window, for one it said nothing about. Both are shown, never applied: only a window the user sets reaches a client. */
+export interface ModelCatalog { models: Array<{id:string;name:string;efforts?:string[];context_window?:number;published_context?:number}>; source_url: string; has_more: boolean; }
 /** One model's answer from an explicit check: it ran, or why it did not. */
 export type ModelProbeStatus = "ok" | "unauthorized" | "not_found" | "rate_limited" | "timeout" | "failed";
 /**

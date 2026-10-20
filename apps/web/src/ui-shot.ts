@@ -53,8 +53,11 @@ const Harness = defineComponent(() => {
     selected: selected.value,
     probe,
     plan,
-    windowText: () => "",
+    windowText: (model: string) => (model === "qwen3-max" ? "262144" : ""),
     placeholder: (model: string) => (model.startsWith("claude") ? "200000" : "128000"),
+    // What an endpoint says, what is published, and nothing at all.
+    knownWindow: (model: string) => model.startsWith("claude") ? { tokens: 200_000, source: "endpoint" as const }
+      : model.startsWith("gpt") ? { tokens: 400_000, source: "published" as const } : undefined,
     "onUpdate:selected": (value: string[]) => { selected.value = value; },
     onWindow: () => {},
     onLook: () => {},

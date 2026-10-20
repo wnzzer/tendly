@@ -20,6 +20,64 @@ pub struct ModelEntry {
     /// guessing from the first row, or offering none at all.
     #[serde(rename = "isDefault", skip_serializing_if = "std::ops::Not::not")]
     pub is_default: bool,
+    /// The context window the endpoint reported for this model, under
+    /// whichever name its catalog uses. Shown, never applied on its own: only
+    /// a window the user set reaches a client (model_limits.rs).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u64>,
+    /// The published window (price_list.rs), for a model the endpoint said
+    /// nothing about; shown the same way.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub published_context: Option<u64>,
+}
+
+/// The names catalogs give a model's context window: OpenRouter and most
+/// gateways `context_length`, vLLM `max_model_len`, Google `inputTokenLimit`,
+/// Anthropic `max_input_tokens`, OpenRouter's provider `top_provider`.
+fn reported_window(row: &Value) -> Option<u64> {
+    let number = |value: &Value| {
+        value
+            .as_u64()
+            .or_else(|| {
+                value
+                    .as_f64()
+                    .filter(|v| v.fract() == 0.0 && *v > 0.0)
+                    .map(|v| v as u64)
+            })
+            .or_else(|| value.as_str().and_then(|text| text.trim().parse().ok()))
+    };
+    [
+        "context_length",
+        "context_window",
+        "contextWindow",
+        "max_context_length",
+        "max_model_len",
+        "inputTokenLimit",
+        "max_input_tokens",
+    ]
+    .iter()
+    .filter_map(|key| row.get(*key))
+    .chain(
+        row.get("top_provider")
+            .and_then(|p| p.get("context_length")),
+    )
+    .find_map(number)
+    .filter(|window| (1_000..=100_000_000).contains(window))
+}
+
+/// What a catalog row says about its context window, with the published one
+/// standing in when the endpoint said nothing.
+fn windows(id: &str, row: &Value) -> (Option<u64>, Option<u64>) {
+    let reported = reported_window(row);
+    let published = reported
+        .is_none()
+        .then(|| {
+            crate::price_list::list()
+                .lookup(id)
+                .and_then(|price| price.context_window)
+        })
+        .flatten();
+    (reported, published)
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct ModelCatalog {
@@ -108,6 +166,7 @@ pub(crate) fn parse_models(value: Value, source_url: String) -> Result<ModelCata
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        let (context_window, published_context) = windows(id, row);
         models.push(ModelEntry {
             id: id.into(),
             name: name.into(),
@@ -119,6 +178,8 @@ pub(crate) fn parse_models(value: Value, source_url: String) -> Result<ModelCata
                 .or_else(|| row.get("is_default"))
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+            context_window,
+            published_context,
         });
     }
     if models.is_empty() {
@@ -505,6 +566,7 @@ pub(crate) fn parse_claude_models(value: Value) -> Result<ModelCatalog, ApiError
         } else {
             Vec::new()
         };
+        let (context_window, published_context) = windows(id, row);
         models.push(ModelEntry {
             id: id.into(),
             name: name.into(),
@@ -516,6 +578,8 @@ pub(crate) fn parse_claude_models(value: Value) -> Result<ModelCatalog, ApiError
                 .or_else(|| row.get("is_default"))
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+            context_window,
+            published_context,
         });
     }
     if models.is_empty() {
@@ -609,6 +673,35 @@ mod tests {
     // A session that has not started has no model of its own. Losing this flag
     // left the composer with nothing to offer a Codex user before their first
     // message, while Claude showed a control from a hardcoded list of levels.
+    #[test]
+    fn a_catalog_row_says_its_context_window_or_the_published_one_stands_in() {
+        let catalog = super::parse_models(
+            serde_json::json!({"data":[
+                {"id":"router-model","context_length":131072},
+                {"id":"vllm-model","max_model_len":"32768"},
+                {"id":"gemini-model","inputTokenLimit":1048576},
+                {"id":"provider-model","top_provider":{"context_length":200000}},
+                {"id":"tiny-model","context_length":12},
+                {"id":"gpt-5.5"},
+                {"id":"unheard-of-model"}
+            ]}),
+            "https://example.test/v1/models".into(),
+        )
+        .unwrap();
+        let entry = |id: &str| catalog.models.iter().find(|m| m.id == id).unwrap();
+        assert_eq!(entry("router-model").context_window, Some(131_072));
+        assert_eq!(entry("vllm-model").context_window, Some(32_768));
+        assert_eq!(entry("gemini-model").context_window, Some(1_048_576));
+        assert_eq!(entry("provider-model").context_window, Some(200_000));
+        // Too small to be a window: read as nothing said.
+        assert_eq!(entry("tiny-model").context_window, None);
+        // The endpoint said nothing: the published window stands in.
+        assert_eq!(entry("gpt-5.5").context_window, None);
+        assert!(entry("gpt-5.5").published_context.is_some());
+        assert_eq!(entry("router-model").published_context, None);
+        assert_eq!(entry("unheard-of-model").published_context, None);
+    }
+
     #[test]
     fn the_catalog_reports_which_model_the_configuration_resolves_to() {
         let catalog = super::parse_models(
