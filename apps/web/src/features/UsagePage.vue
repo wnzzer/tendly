@@ -89,9 +89,17 @@ onBeforeUnmount(() => { resize?.disconnect(); clearInterval(quotaTimer); });
  * instead of spending the next allowance on a retry (see AccountsDialog).
  */
 const quotaBusy = ref(''), quotaNotice = ref(''), quotaNow = ref(Date.now());
-/** Only an account whose client can be asked gets the button; a Codex plan reports through its own logs. */
+/**
+ * Every account whose client can tell its allowance gets the button. Claude
+ * has a usage check of its own, rationed by the provider; Codex reports its
+ * limits whenever the account is refreshed, which costs no allowance.
+ */
 const accountViews = ref<AccountView[]>([]);
-const canRefreshQuota = (id: string) => accountViews.value.find(view => view.id === id)?.capabilities.usage === true;
+const quotaSource = (id: string): 'usage' | 'refresh' | undefined => {
+  const view = accountViews.value.find(item => item.id === id);
+  return view?.capabilities.usage ? 'usage' : view?.capabilities.quota ? 'refresh' : undefined;
+};
+const canRefreshQuota = (id: string) => quotaSource(id) !== undefined;
 const quotaCooldown = reactive<Record<string, number>>({}), quotaRefusals = reactive<Record<string, number>>({});
 let quotaTimer: ReturnType<typeof setInterval> | undefined;
 function quotaWait(id: string): number { return Math.max(0, Math.ceil(((quotaCooldown[id] ?? 0) - quotaNow.value) / 1000)); }
@@ -119,6 +127,12 @@ async function refreshQuota(id: string) {
   if (quotaBusy.value || quotaWait(id) > 0) return;
   quotaBusy.value = id; quotaNotice.value = '';
   try {
+    if (quotaSource(id) === 'refresh') {
+      const view = await request<AccountView>('/accounts/' + encodeURIComponent(id) + '/refresh', json('POST', {}));
+      quotaNotice.value = view.error || t('Allowance updated for {name}.', { name: view.name });
+      allowance.value = await request<Allowance[]>('/usage/allowance').catch(() => allowance.value);
+      return;
+    }
     const view = await request<AccountView>('/accounts/' + encodeURIComponent(id) + '/usage', json('POST', {}));
     const availability = view.usage?.availability;
     quotaNotice.value = availability && QUOTA_NOTICES[availability] ? t(QUOTA_NOTICES[availability]!) : t('Allowance updated for {name}.', { name: view.name });
