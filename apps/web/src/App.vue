@@ -36,7 +36,7 @@ import AgentActivity, { type ShowTarget } from "./features/AgentActivity.vue";
 import ToastHost from "./features/ToastHost.vue";
 import CommandPalette from "./features/CommandPalette.vue";
 import ShortcutsDialog from "./features/ShortcutsDialog.vue";
-import { PREFIX_COMMANDS, PREFIX_GROUPS, prefixCommand, prefixKey, shortcutFor } from "./features/shortcuts";
+import { CHORDS, PREFIX_COMMANDS, PREFIX_GROUPS, isRename, matches, prefixCommand, prefixKey, shortcutFor } from "./features/shortcuts";
 import type { PaletteItem } from "./features/CommandPalette.vue";
 import { setThemePreference } from "./features/theme";
 import { isSessionArchived } from "./features/session-list";
@@ -496,13 +496,14 @@ const onCanvas = (run: (canvas: CanvasApi) => unknown) => () => { if (!page.valu
  * PREFIX_COMMANDS; the palette lists the same ones.
  */
 const commands: Record<string, () => void> = {
-  palette: () => { if (paletteOpen.value && paletteMode.value === "all") paletteOpen.value = false; else openPalette(); },
-  help: () => { shortcutsOpen.value = !shortcutsOpen.value; },
+  palette: () => { if (paletteOpen.value && paletteMode.value === "all") closeOverlay(() => { paletteOpen.value = false; }); else openPalette(); },
+  help: () => { if (shortcutsOpen.value) closeOverlay(() => { shortcutsOpen.value = false; }); else shortcutsOpen.value = true; },
   settings: () => openSettings(),
   sidebar: toggleSidebar,
   files: () => { explorerOpen.value = !explorerOpen.value; },
   sessions: () => openPage("sessions"),
   system: () => openPage("system"),
+  usage: () => openPage("usage"),
   canvas: () => void router.push({ name: "canvas" }),
   "new-session": () => { if (contextWorkspace.value) newSession(contextWorkspace.value.id); },
   "split-horizontal": onCanvas(c => c.splitSelected("horizontal")),
@@ -524,6 +525,8 @@ const commands: Record<string, () => void> = {
   "choose-view": () => { if (!page.value) openPalette("views"); },
   "choose-session": () => openPalette("sessions"),
   "find-file": () => void findFile(),
+  "focus-sidebar": () => void focusSidebar(),
+  "focus-files": () => void focusFiles(),
 };
 type Direction = "left" | "right" | "up" | "down";
 function runCommand(id: string) {
@@ -531,6 +534,22 @@ function runCommand(id: string) {
   else if (id.startsWith("resize-")) onCanvas(c => c.nudgeSelected(id.slice(7) as Direction))();
   else if (/^tab-\d$/.test(id)) onCanvas(c => c.selectTab(Number(id.slice(4))))();
   else commands[id]?.();
+}
+/** Into the sidebar, shown if it was hidden: at the session in view, else the first one, else its search. */
+async function focusSidebar() {
+  if (sidebarRail.value) sidebarExpanded.value = true; else sidebarOpen.value = true;
+  await nextTick();
+  const sidebar = document.querySelector<HTMLElement>(".workspace-sidebar");
+  const row = sidebar?.querySelector<HTMLElement>(".sidebar-session-row.selected [data-sidebar-row-focus]") ?? sidebar?.querySelector<HTMLElement>("[data-sidebar-row-focus]");
+  (row ?? sidebar?.querySelector<HTMLElement>("input"))?.focus();
+}
+/** Into the file tree, shown if it was hidden: at the open file, else the first row, else the filter. */
+async function focusFiles() {
+  if (!workspaces.value.length) return;
+  explorerOpen.value = true;
+  await nextTick();
+  const panel = document.querySelector<HTMLElement>(".explorer-panel");
+  (panel?.querySelector<HTMLElement>(".tree-row.is-selected") ?? panel?.querySelector<HTMLElement>(".tree-row") ?? panel?.querySelector<HTMLElement>("[data-explorer-filter]"))?.focus();
 }
 /** The file panel's filter, opened if it was hidden; ↓ from there walks the tree. */
 async function findFile() {
@@ -546,7 +565,7 @@ const viewItems = computed<PaletteItem[]>(() => openPanes.value.map(pane => {
     run: () => void canvas.value?.focusPane(pane.id).then(found => { if (found) canvas.value?.focusSelected(); }) };
 }));
 /** Listed by the palette as well; the rest of the prefix keys are already there under their own names, or only make sense as keys. */
-const PALETTE_COMMANDS = PREFIX_COMMANDS.filter(command => !command.action && !["palette", "help", "sidebar", "files", "new-session", "choose-view", "choose-session"].includes(command.id));
+const PALETTE_COMMANDS = PREFIX_COMMANDS.filter(command => !command.action && !command.pages && !["files", "choose-view"].includes(command.id));
 const allPaletteItems = computed(() => buildPaletteItems({ sessions: sessions.value, workspaces: workspaces.value, here: contextWorkspace.value, t }, {
   openSession, quickSession: (id, provider) => void quickSession(id, provider), newSession: id => newSession(id), openPage, openSettings, toggleSidebar, setTheme: setThemePreference,
   openCanvas: () => void router.push({ name: "canvas" }),
@@ -566,13 +585,24 @@ function closeOverlay(close: () => void) {
 }
 function onGlobalKey(event: KeyboardEvent) {
   if (showAuth.value || event.defaultPrevented || prefixPassthrough.has(event)) return;
+  // F2 on a session's tab or in its pane, outside a field, renames it as the sidebar does.
+  if (isRename(event) && event.target instanceof Element && !event.target.closest("input, textarea, select, [contenteditable='true'], .xterm, .terminal-host, .workspace-sidebar, .explorer-panel") && event.target.closest(".dock-canvas") && focusedSession.value) {
+    event.preventDefault(); requestRenameSession(focusedSession.value.id); return;
+  }
   // Esc in the sidebar or the file panel goes back to the pane; menus there close
   // themselves first, and a field keeps it, but for the file filter Ctrl+B f opens.
-  if (event.key === "Escape" && event.target instanceof Element && event.target.closest(".workspace-sidebar, .explorer-panel") && (!event.target.closest("input, textarea, select") || event.target.matches("[data-explorer-filter]"))) {
+  if (event.key === "Escape" && event.target instanceof Element && event.target.closest(".workspace-sidebar, .explorer-panel") && (!event.target.closest("input, textarea, select") || event.target.matches("[data-explorer-filter], [data-sidebar-search]"))) {
     event.preventDefault(); canvas.value?.focusSelected(); return;
+  }
+  // Find, in the sidebar or the file panel, is that panel's own search.
+  if (matches(event, CHORDS.find) && event.target instanceof Element) {
+    const field = event.target.closest(".workspace-sidebar, .explorer-panel")?.querySelector<HTMLInputElement>("[data-sidebar-search], [data-explorer-filter]");
+    if (field) { event.preventDefault(); field.focus(); field.select(); return; }
   }
   const shortcut = shortcutFor(event);
   if (!shortcut) return;
+  // Under a dialog only the chord that opened it answers, to close it again.
+  if (document.querySelector('[aria-modal="true"]') && !(shortcut.id === "palette" && paletteOpen.value) && !(shortcut.id === "help" && shortcutsOpen.value)) return;
   event.preventDefault();
   runCommand(shortcut.id);
 }
@@ -598,10 +628,11 @@ function startPrefix() {
 /** Whether a key in the map would do anything here; the rest are shown dimmed. */
 function prefixUsable(id: string): boolean {
   const context = prefixContext.value;
-  if (["palette", "help", "sidebar", "files", "new-session", "choose-session"].includes(id)) return true;
+  if (PREFIX_COMMANDS.find(command => command.id === id)?.pages) return true;
+  if (page.value) return false;
+  if (id === "files" || id === "focus-files") return workspaces.value.length > 0;
   if (id === "find-file") return workspaces.value.length > 0;
   if (id === "open-changes") return !!contextWorkspace.value;
-  if (id === "rename-session") return !!focusedSession.value;
   if (!context) return false;
   if (["focus", "swap-previous", "swap-next"].includes(id)) return context.groups > 1;
   if (["next-pane", "last-pane"].includes(id)) return context.panes > 1;
@@ -611,7 +642,7 @@ function prefixUsable(id: string): boolean {
   return true;
 }
 function onPrefixKey(event: KeyboardEvent) {
-  if (showAuth.value || page.value || document.querySelector('[aria-modal="true"]')) { cancelPrefix(); return; }
+  if (showAuth.value || document.querySelector('[aria-modal="true"]')) { cancelPrefix(); return; }
   const action = prefixKey(event, prefixActive.value, prefixRepeating.value);
   if (!action) return;
   if (action === "pass" || action === "cancel-pass") {
@@ -623,9 +654,11 @@ function onPrefixKey(event: KeyboardEvent) {
   event.stopPropagation();
   if (action === "ignore") return;
   if (action === "prefix") { startPrefix(); return; }
-  const repeat = prefixCommand(event.key)?.command.repeat && action !== "cancel";
+  const hit = prefixCommand(event.key), repeat = hit?.command.repeat && action !== "cancel";
   cancelPrefix();
   if (action === "cancel") return;
+  // On a page only the keys that go somewhere answer; the canvas keys wait for the canvas.
+  if (page.value && !hit?.command.pages) return;
   runCommand(action);
   if (repeat) { prefixActive.value = prefixRepeating.value = true; prefixRepeatTimer = setTimeout(cancelPrefix, 900); }
 }
@@ -724,7 +757,7 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
 <template>
   <div :class="['app-shell', { 'explorer-hidden': !explorerOpen || !explorerWorkspace, 'sidebar-collapsed': sidebarCollapsed, 'is-mobile': mobile }]">
     <header class="topbar">
-      <div class="brand"><button v-if="mobile && backTarget" class="icon-button mobile-menu mobile-back" :aria-label="t('Back')" @click="goBack"><Icon name="chevron" :size="22" /></button><button v-else class="icon-button mobile-menu" :aria-label="t('Toggle workspace navigation')" @click="sidebarOpen = !sidebarOpen"><Icon name="menu" /></button><button class="icon-button sidebar-toggle" :class="{selected:!sidebarCollapsed}" :aria-pressed="!sidebarCollapsed" :aria-label="t(sidebarCollapsed?'Expand workspace panel':'Collapse workspace panel')" :title="t(sidebarCollapsed?'Expand workspace panel':'Collapse workspace panel')" @click="toggleSidebar"><Icon name="panelLeft"/></button><span class="brand-mark"><span /></span><strong :title="serverVersion?t('Tendly {version}',{version:serverVersion}):undefined">Tendly<span v-if="instanceLabel" class="brand-version">{{ instanceLabel }}</span></strong></div>
+      <div class="brand"><button v-if="mobile && backTarget" class="icon-button mobile-menu mobile-back" :aria-label="t('Back')" @click="goBack"><Icon name="chevron" :size="22" /></button><button v-else class="icon-button mobile-menu" :aria-label="t('Toggle workspace navigation')" @click="sidebarOpen = !sidebarOpen"><Icon name="menu" /></button><button class="icon-button sidebar-toggle" :class="{selected:!sidebarCollapsed}" :aria-pressed="!sidebarCollapsed" :aria-label="t(sidebarCollapsed?'Expand workspace panel':'Collapse workspace panel')" :title="t(sidebarCollapsed?'Expand workspace panel':'Collapse workspace panel') + ' · ' + hint('sidebar')" @click="toggleSidebar"><Icon name="panelLeft"/></button><span class="brand-mark"><span /></span><strong :title="serverVersion?t('Tendly {version}',{version:serverVersion}):undefined">Tendly<span v-if="instanceLabel" class="brand-version">{{ instanceLabel }}</span></strong></div>
       <span v-if="mobile && page" class="mobile-title mobile-page-title"><strong>{{ t(page === "settings" ? "Settings" : page === "sessions" ? "All sessions" : page === "usage" ? "Usage" : "System") }}</strong></span>
       <button v-else-if="mobile && canvasReady" class="mobile-title" type="button" :aria-label="t('Switch view')" @click="switcherOpen = true">
         <TabIcon v-if="focusedPane" :kind="focusedPane.kind" :metadata="focusedPane.metadata" :session-providers="sessionProviders" :size="16" />
@@ -746,8 +779,8 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
             </nav>
           </details>
         </div>
-        <button class="icon-button" :aria-label="t('Settings')" :title="t('Settings')" @click="openSettings()"><Icon name="settings"/></button>
-        <button v-if="workspaces.length" :class="['icon-button',{selected:explorerOpen}]" :aria-pressed="explorerOpen" :aria-label="t(explorerOpen?'Collapse file panel':'Expand file panel')" :title="t(explorerOpen?'Collapse file panel':'Expand file panel')" @click="explorerOpen = !explorerOpen"><Icon name="panelRight"/></button>
+        <button class="icon-button" :aria-label="t('Settings')" :title="t('Settings') + ' · ' + hint('settings')" @click="openSettings()"><Icon name="settings"/></button>
+        <button v-if="workspaces.length" :class="['icon-button',{selected:explorerOpen}]" :aria-pressed="explorerOpen" :aria-label="t(explorerOpen?'Collapse file panel':'Expand file panel')" :title="t(explorerOpen?'Collapse file panel':'Expand file panel') + ' · ' + hint('files')" @click="explorerOpen = !explorerOpen"><Icon name="panelRight"/></button>
       </div>
     </header>
     <div class="app-body" :style="bodyStyle">
@@ -759,7 +792,7 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
       
         <div v-else class="drawer-footer">
           <div v-if="contextWorkspace" class="drawer-git"><span :title="contextWorkspace.root_path"><Icon name="git" :size="15"/><WorkspaceBranchMenu v-if="currentGitAvailable" :workspace-id="contextWorkspace.id" :branch="currentGit.branch" @switched="branchSwitched(contextWorkspace.id)" @changed="branchSwitched(contextWorkspace.id)" /><template v-else>{{ t('Git unavailable') }}</template></span><button v-if="currentGitAvailable" type="button" @click="openChanges(contextWorkspace.id)">{{ t(currentGit.files.length===1?'{count} change':'{count} changes',{count:currentGit.files.length}) }}</button></div>
-          <div class="drawer-host"><HostUsage :sessions="sessions" @open="openPage('system')" /><span v-if="layoutTrouble" class="danger-text">{{ t('Layout {status}',{status:t(layoutStatus)}) }}</span><button class="icon-button" type="button" :aria-label="t('Settings')" :title="t('Settings')" @click="openSettings()"><Icon name="settings" :size="19"/></button></div>
+          <div class="drawer-host"><HostUsage :sessions="sessions" @open="openPage('system')" /><span v-if="layoutTrouble" class="danger-text">{{ t('Layout {status}',{status:t(layoutStatus)}) }}</span><button class="icon-button" type="button" :aria-label="t('Settings')" :title="t('Settings') + ' · ' + hint('settings')" @click="openSettings()"><Icon name="settings" :size="19"/></button></div>
         </div>
       </aside>
       <main class="main-workspace">
@@ -839,7 +872,7 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
 .prefix-pill{display:flex;align-items:center;gap:8px;padding:5px 12px 5px 6px;border:1px solid var(--line);border-radius:var(--radius-full);background:var(--elevated);box-shadow:var(--shadow-md);font-size:var(--text-sm);color:var(--ink);animation:prefix-in var(--duration-fast) var(--ease-out)}
 .prefix-pill>kbd{padding:2px 8px;border-radius:var(--radius-full);background:var(--accent);font:600 var(--text-xs) var(--font-body);color:var(--on-accent)}
 .prefix-pill>small{padding-left:8px;border-left:1px solid var(--border);font-size:var(--text-xs);color:var(--muted)}
-.prefix-map{display:grid;grid-template-columns:repeat(5,max-content);align-items:start;gap:14px 30px;padding:16px 22px 18px;border:1px solid var(--line);border-radius:var(--radius-xl);background:var(--elevated);box-shadow:var(--shadow-xl);animation:prefix-in var(--duration-normal) var(--ease-out)}
+.prefix-map{display:grid;grid-template-columns:repeat(6,max-content);align-items:start;gap:14px 30px;padding:16px 22px 18px;border:1px solid var(--line);border-radius:var(--radius-xl);background:var(--elevated);box-shadow:var(--shadow-xl);animation:prefix-in var(--duration-normal) var(--ease-out)}
 .prefix-map>section{display:grid;grid-template-columns:max-content max-content;align-items:center;gap:7px 10px}
 .prefix-map h4{grid-column:1/-1;margin:0;font-size:var(--text-xs);font-weight:600;letter-spacing:.02em;color:var(--muted)}
 .prefix-row{display:contents;font-size:var(--text-sm);color:var(--ink);white-space:nowrap}
@@ -847,7 +880,7 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
 .prefix-row>kbd{justify-self:start;padding:1px 6px;border:1px solid var(--line);border-bottom-width:2px;border-radius:var(--radius-xs);background:var(--sunken);font:500 var(--text-xs) var(--font-mono);color:var(--ink-soft)}
 .prefix-row.off>*{opacity:.38}
 @keyframes prefix-in{from{opacity:0;transform:translateY(4px)}}
-@media(max-width:1180px){.prefix-map{grid-template-columns:repeat(3,max-content)}}
+@media(max-width:1320px){.prefix-map{grid-template-columns:repeat(3,max-content)}}
 @media(max-width:760px){.prefix-map{grid-template-columns:repeat(2,max-content)}}
 .new-session-split{position:relative;display:inline-flex}.new-session-split>.new-session-top{border-top-right-radius:0;border-bottom-right-radius:0}
 .new-session-more>summary{list-style:none;min-height:30px;padding:0 7px;border-top-left-radius:0;border-bottom-left-radius:0;border-left:1px solid color-mix(in srgb, var(--on-accent) 25%, transparent);cursor:pointer}.new-session-more>summary::-webkit-details-marker{display:none}.new-session-caret{transform:rotate(90deg)}

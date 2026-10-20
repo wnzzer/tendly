@@ -48,7 +48,7 @@ import { mentionQuery, applyMention } from './file-mentions';
 import { createFileSearch } from './file-search';
 import type { SearchHit } from './file-search';
 import { useI18n } from '../i18n';
-import { isMac } from './shortcuts';
+import { CHORDS, formatChord, matches } from './shortcuts';
 import { suggestionKey } from './chat-keyboard';
 import { deliveryUncertain, pendingMessage, settleAccepted, settleFailed } from './message-delivery';
 import { useSessionMenuPosition } from './session-menu-position';
@@ -952,23 +952,35 @@ function typeIntoComposer(event: KeyboardEvent): boolean {
   });
   return true;
 }
+/**
+ * The request in the dock answers to the conversation's verbs: confirm accepts
+ * it, or submits the answers, and remove declines it -- from the composer too,
+ * where remove still edits text while there is any.
+ */
+function answerFromKeys(event: KeyboardEvent): boolean {
+  const item = dockedApproval.value;
+  if (!item || isPreview.value || approvalBusy.value || composing.value || streamState.value !== 'connected') return false;
+  const choices = approvalChoices(item);
+  const answer = matches(event, CHORDS.confirm) && choices.includes('accept') && !incompleteAnswers(item) ? 'accept'
+    : matches(event, CHORDS.remove) && choices.includes('decline') && !(event.target === composerInput.value && draft.value.text) ? 'decline' : undefined;
+  if (!answer) return false;
+  event.preventDefault(); event.stopPropagation();
+  void approve(item, answer);
+  return true;
+}
 function paneKeydown(event: KeyboardEvent) {
   if (typeIntoComposer(event)) return;
-  // ⌘/Ctrl+F searches the whole conversation: the browser's own find sees only the rows in the page.
-  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'f' && !isPreview.value) {
+  // Find searches the whole conversation: the browser's own find sees only the rows in the page.
+  if (matches(event, CHORDS.find) && !isPreview.value) {
     event.preventDefault(); event.stopPropagation(); openSearch(); return;
   }
-  // ⌘/Ctrl+Enter answers the request in the dock: allow, or submit the answers.
-  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !composing.value && dockedApproval.value) {
-    const item = dockedApproval.value;
-    if (approvalChoices(item).includes('accept') && !incompleteAnswers(item)) { event.preventDefault(); event.stopPropagation(); void approve(item, 'accept'); }
-    return;
-  }
+  if (answerFromKeys(event)) return;
   if (event.key !== 'Escape' || event.defaultPrevented || composing.value) return;
   if (sessionMenu.value?.open) { event.preventDefault(); event.stopPropagation(); closeSessionMenu(true); return; }
   if (confirmEnd.value) { event.preventDefault(); event.stopPropagation(); confirmEnd.value = false; composerInput.value?.focus({ preventScroll: true }); return; }
   if (endpointConfirm.value) { event.preventDefault(); event.stopPropagation(); cancelEndpointChange(); composerInput.value?.focus({ preventScroll: true }); return; }
-  if (!isPreview.value && view.value.turn === 'running' && !view.value.awaitingApproval) { event.preventDefault(); event.stopPropagation(); void interrupt(); return; }
+  // Interrupting is the composer's Esc, as in the client's own terminal; from the timeline it would be too easy to do by accident.
+  if (event.target === composerInput.value && !isPreview.value && view.value.turn === 'running' && !view.value.awaitingApproval) { event.preventDefault(); event.stopPropagation(); void interrupt(); return; }
   // Leaving the composer stays in the conversation, where the next key typed
   // comes back to it, rather than dropping focus on the page.
   if (event.target === composerInput.value) { event.preventDefault(); event.stopPropagation(); viewport.value?.focus({ preventScroll: true }); }
@@ -984,7 +996,7 @@ const dockedApproval = computed(() => pendingApprovals.value[dockedIndex.value])
 /** Requests folded to their title line, to read the conversation above them. A new request arrives open. */
 const foldedApprovals = reactive(new Set<string>());
 function toggleApprovalFold(id: string) { if (!foldedApprovals.delete(id)) foldedApprovals.add(id); }
-const acceptKey = isMac ? '⌘↵' : 'Ctrl+↵';
+const acceptKey = formatChord(CHORDS.confirm), declineKey = formatChord(CHORDS.remove), findKey = formatChord(CHORDS.find);
 function clearAnswers(id?: string) { for (const key of id ? [id] : new Set([...Object.keys(approvalAnswers), ...Object.keys(approvalOther)])) { delete approvalAnswers[key]; delete approvalOther[key]; } }
 function answer(id: string, question: string, event: Event) { const value = (event.target as HTMLInputElement).value; (approvalAnswers[id] ??= Object.create(null))[question] = value && value !== OTHER_ANSWER ? [value] : []; if (value !== OTHER_ANSWER && approvalOther[id]) delete approvalOther[id][question]; }
 function toggleAnswer(id: string, question: string, value: string, event: Event) { const current = (approvalAnswers[id] ??= Object.create(null))[question] ?? []; approvalAnswers[id][question] = (event.target as HTMLInputElement).checked ? [...new Set([...current, value])] : current.filter(item => item !== value); }
@@ -1046,6 +1058,7 @@ function keydown(event: KeyboardEvent) {
   // the caret, so they never contend for the keys (chat-keyboard.ts).
   if (commandsOpen.value && listKeydown(event, commandIndex, commandMatches.value.length, () => chooseCommand(commandMatches.value[commandIndex.value] ?? commandMatches.value[0]), () => { commandsDismissed.value = true; })) return;
   if (mentionsOpen.value && listKeydown(event, mentionIndex, mentionHits.value.length, () => chooseMention(mentionHits.value[mentionIndex.value] ?? mentionHits.value[0]), () => { mentionsDismissed.value = true; })) return;
+  if (answerFromKeys(event)) return;
   if (event.key !== 'Enter') return;
   // Shift+Enter keeps the native newline behavior; plain Enter and Ctrl/⌘
   // Enter submit. Repeated keydown is suppressed to avoid duplicate turns.
@@ -1061,7 +1074,7 @@ function keydown(event: KeyboardEvent) {
 
 <template>
   <section :class="['chat-pane', { 'has-tab-menu': !!paneId, 'is-phone': mobile }]" :aria-label="t('Conversation with {provider}', {provider:providerLabel(session.provider)})" @keydown="paneKeydown">
-    <ContextMenu v-if="timelineMenu" :x="timelineMenu.x" :y="timelineMenu.y" :label="t('Conversation actions')" @close="closeTimelineMenu"><button v-if="timelineMenu.text" role="menuitem" @click="copyFromTimeline(timelineMenu!.text)">{{ t('Copy selection') }}</button><button role="menuitem" @click="closeTimelineMenu(); scrollToLatest(true)">{{ t('Latest message') }}</button><button v-if="!isPreview" role="menuitem" @click="closeTimelineMenu(); openSearch()">{{ t('Search conversation') }}</button><button role="menuitem" :disabled="loading" @click="closeTimelineMenu(); load()">{{ t('Refresh conversation') }}</button><template v-if="clearAvailable"><hr/><button role="menuitem" :disabled="actionBusy" :title="t('Runs this client\'s own /clear: the transcript and its context are dropped together.')" @click="clearContext">{{ t('Clear context') }}</button></template></ContextMenu>
+    <ContextMenu v-if="timelineMenu" :x="timelineMenu.x" :y="timelineMenu.y" :label="t('Conversation actions')" @close="closeTimelineMenu"><button v-if="timelineMenu.text" role="menuitem" @click="copyFromTimeline(timelineMenu!.text)">{{ t('Copy selection') }}</button><button role="menuitem" @click="closeTimelineMenu(); scrollToLatest(true)">{{ t('Latest message') }}</button><button v-if="!isPreview" role="menuitem" @click="closeTimelineMenu(); openSearch()">{{ t('Search conversation') }} <kbd>{{ findKey }}</kbd></button><button role="menuitem" :disabled="loading" @click="closeTimelineMenu(); load()">{{ t('Refresh conversation') }}</button><template v-if="clearAvailable"><hr/><button role="menuitem" :disabled="actionBusy" :title="t('Runs this client\'s own /clear: the transcript and its context are dropped together.')" @click="clearContext">{{ t('Clear context') }}</button></template></ContextMenu>
     <Teleport v-if="!isPreview" to="body" :disabled="!paneId"><details :data-session-menu-pane="paneId" ref="sessionMenu" :style="tabMenuStyle" :class="['chat-menu','chat-floating-menu', { 'chat-tab-menu': !!paneId, 'is-phone': mobile }]" @toggle="positionMenu" @keydown.esc.stop.prevent="closeSessionMenu(true)"><summary :aria-label="t('Session actions')" :title="t('Session actions')"><Icon name="more" :size="17" /></summary><nav :style="tabMenuPanelStyle"><div class="chat-menu-status"><span class="chat-status-dot" :class="{working:turnBusy}" />{{ t(statusLabel,{provider:providerLabel(session.provider)}) }}</div><div class="chat-menu-session"><button v-if="mobile" @click="closeSessionMenu(); load()"><Icon name="refresh" :size="14" />{{ t('Refresh conversation') }}</button><slot name="session-actions" :close-menu="closeSessionMenu"><button @click="closeSessionMenu(); emit('environment',session.id)"><Icon name="settings" :size="14" />{{ t('Session environment') }}</button></slot></div><hr v-if="legacyAvailable||terminalReopenOffered||capabilities.agentTools" class="chat-menu-divider" /><button v-if="legacyAvailable" @click="closeSessionMenu(); emit('legacy')"><Icon name="terminal" :size="14" />{{ t('Open native client view') }}</button><button v-if="terminalReopenOffered" :disabled="actionBusy||!terminalReopenAvailable" :title="t(terminalReopenAvailable?'For interactive commands such as /config, which the conversation view cannot display':'Available once the conversation has started: send a first message')" @click="closeSessionMenu(); openInTerminal()"><Icon name="terminal" :size="14" />{{ t('Open this session in a terminal') }}</button><AgentToolsSwitch v-if="capabilities.agentTools" :session-id="session.id" /><hr v-if="running" class="chat-menu-divider" /><button v-if="running" class="chat-end-button" :disabled="actionBusy" @click="requestEnd"><Icon name="stop" :size="14" />{{ t('End session…') }}</button></nav></details></Teleport>
     <div v-if="!supported" class="chat-notice">{{ t('Structured conversation requires an updated backend. Your native session is unchanged.') }}<button v-if="legacyAvailable" class="chat-link" @click="emit('legacy')">{{ t('Open native client view') }}</button></div>
     <div v-if="error" class="chat-alert" role="alert">{{ error }}<button @click="load()">{{ t('Refresh conversation') }}</button></div>
@@ -1095,7 +1108,7 @@ function keydown(event: KeyboardEvent) {
             <div v-if="question.options.length&&!question.isSecret" class="chat-answers" :role="question.multiSelect?'group':'radiogroup'" :aria-labelledby="'question-'+session.id+'-'+item.id+'-'+question.id"><label v-for="option in question.options" :key="option.label" :class="['chat-answer',{selected:approvalAnswers[item.id]?.[question.id]?.includes(option.label)}]"><input :type="question.multiSelect?'checkbox':'radio'" :name="'answer-'+session.id+'-'+item.id+'-'+question.id" :value="option.label" :checked="approvalAnswers[item.id]?.[question.id]?.includes(option.label)??false" @change="question.multiSelect?toggleAnswer(item.id,question.id,option.label,$event):answer(item.id,question.id,$event)" /><span class="chat-answer-marker" aria-hidden="true"><Icon v-if="question.multiSelect" name="check" :size="11" /></span><span class="chat-answer-copy"><strong>{{ option.label }}</strong><small v-if="option.description">{{ option.description }}</small></span></label><label v-if="question.isOther" :class="['chat-answer','chat-answer-other',{selected:!!approvalOther[item.id]?.[question.id]?.trim()}]"><span class="chat-answer-marker" aria-hidden="true" /><input type="text" autocomplete="off" :placeholder="t('Other answer')" :aria-label="t('Other answer')" :value="approvalOther[item.id]?.[question.id]??''" @input="otherAnswer(item.id,question.id,$event,question.multiSelect)" /></label></div>
             <template v-else><input class="chat-question-input" :aria-labelledby="'question-'+session.id+'-'+item.id+'-'+question.id" :type="question.isSecret?'password':'text'" :list="!question.isSecret&&question.options.length?'choices-'+session.id+'-'+item.id+'-'+question.id:undefined" autocomplete="off" :placeholder="t('Type your answer')" :value="approvalAnswers[item.id]?.[question.id]?.[0]??''" @input="answer(item.id,question.id,$event)" /><datalist v-if="!question.isSecret&&question.options.length" :id="'choices-'+session.id+'-'+item.id+'-'+question.id"><option v-for="option in question.options" :key="option.label" :value="option.label">{{ option.description }}</option></datalist></template>
           </fieldset>
-          <footer v-if="approvalChoices(item).length" class="chat-approval-actions"><button v-for="choice in [...approvalChoices(item)].reverse()" :key="choice" type="button" :class="choice==='accept'?'allow':choice==='accept_session'?'allow-session':choice==='decline'?'deny':'cancel'" :disabled="isPreview||!!approvalBusy||streamState!=='connected'||(choice==='accept'&&incompleteAnswers(item))" @click="approve(item,choice)">{{ t(choice==='accept'&&item.questions.length?'Submit answers':DECISION_LABEL[choice]) }}<kbd v-if="choice==='accept'&&!mobile" class="chat-approval-key">{{ acceptKey }}</kbd></button></footer><p v-else class="chat-approval-note">{{ t('This native approval needs the original client. No permission was granted automatically.') }}</p>
+          <footer v-if="approvalChoices(item).length" class="chat-approval-actions"><button v-for="choice in [...approvalChoices(item)].reverse()" :key="choice" type="button" :class="choice==='accept'?'allow':choice==='accept_session'?'allow-session':choice==='decline'?'deny':'cancel'" :disabled="isPreview||!!approvalBusy||streamState!=='connected'||(choice==='accept'&&incompleteAnswers(item))" @click="approve(item,choice)">{{ t(choice==='accept'&&item.questions.length?'Submit answers':DECISION_LABEL[choice]) }}<kbd v-if="choice==='accept'&&!mobile" class="chat-approval-key">{{ acceptKey }}</kbd><kbd v-else-if="choice==='decline'&&!mobile" class="chat-approval-key">{{ declineKey }}</kbd></button></footer><p v-else class="chat-approval-note">{{ t('This native approval needs the original client. No permission was granted automatically.') }}</p>
         </template></article>
     </section>
     <form :class="['chat-composer', { 'is-phone': mobile }]" @submit.prevent="send()">

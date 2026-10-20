@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SHORTCUTS, PREFIX_COMMANDS, formatChord, keyBelongsToTarget, matches, platformShortcuts, prefixCommand, prefixKey } from './shortcuts.ts';
+import { CHORDS, SHORTCUTS, PREFIX_COMMANDS, isRemove, isRename, formatChord, keyBelongsToTarget, matches, platformShortcuts, prefixCommand, prefixKey } from './shortcuts.ts';
 
 const key = (key, mods = {}) => ({ key, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
 
@@ -11,7 +11,9 @@ test('a chord means ⌘ on a Mac and Ctrl elsewhere, and is shown that way', () 
   assert.equal(matches(key('k', { ctrlKey: true }), palette, false), true);
   assert.equal(matches(key('K', { ctrlKey: true, shiftKey: true }), palette, false), false, 'an extra Shift is a different chord');
   assert.equal(formatChord(palette, true), '⌘K');
-  assert.equal(formatChord(SHORTCUTS.find(item => item.id === 'new-session').chord, false), 'Ctrl+Shift+O');
+  assert.equal(formatChord(SHORTCUTS.find(item => item.id === 'settings').chord, false), 'Ctrl+,');
+  assert.equal(formatChord(CHORDS.remove, true), '⌘⌫');
+  assert.equal(formatChord(CHORDS.confirm, false), 'Ctrl+Enter');
 });
 
 test('every shortcut is distinct', () => {
@@ -82,4 +84,36 @@ test('escape and unknown keys cancel, composition and browser shortcuts pass thr
   assert.equal(prefixKey(key('Process', { isComposing: true }), true), 'cancel-pass');
   assert.equal(prefixKey(key('w', { metaKey: true }), true), 'cancel-pass');
   assert.equal(prefixKey(key('ArrowRight', { altKey: true, metaKey: true }), false), undefined);
+});
+
+test('the app keeps no chord a browser keeps for itself', () => {
+  // ⌘⇧ letters open bookmarks, profiles, the home page and devtools panes in one browser or another.
+  for (const item of SHORTCUTS) assert.ok(!(item.chord.mod && item.chord.shift), `${item.id} is a mod+Shift chord`);
+});
+
+test('both layers share their keys, and a capital is more of the lower case', () => {
+  const prefix = id => PREFIX_COMMANDS.find(item => item.id === id).keys;
+  assert.deepEqual(prefix('palette'), [':']);
+  assert.deepEqual(prefix('help'), ['?']);
+  assert.deepEqual(prefix('settings'), [',']);
+  assert.deepEqual([prefix('focus-sidebar'), prefix('sidebar')], [['b'], ['B']]);
+  assert.deepEqual([prefix('focus-files'), prefix('files')], [['e'], ['E']]);
+  assert.deepEqual([prefix('choose-session'), prefix('sessions')], [['s'], ['S']]);
+  assert.deepEqual([prefix('choose-view'), prefix('canvas')], [['w'], ['W']]);
+  assert.deepEqual([prefix('new-here'), prefix('new-session')], [['c'], ['C']]);
+});
+
+test('on a page only the keys that go somewhere answer', () => {
+  const pages = PREFIX_COMMANDS.filter(item => item.pages).map(item => item.id);
+  for (const id of ['palette', 'help', 'settings', 'sessions', 'usage', 'system', 'canvas', 'choose-session', 'sidebar']) assert.ok(pages.includes(id), id);
+  for (const id of ['split-horizontal', 'close-pane', 'resize', 'next-tab', 'focus-input']) assert.ok(!pages.includes(id), id);
+});
+
+test('F2 renames and Delete, or ⌘⌫ on a Mac, removes', () => {
+  assert.equal(isRename(key('F2')), true);
+  assert.equal(isRename(key('F2', { shiftKey: true })), false);
+  assert.equal(isRemove(key('Delete'), false), true);
+  assert.equal(isRemove(key('Backspace', { metaKey: true }), true), true);
+  assert.equal(isRemove(key('Backspace'), true), false, 'a plain Backspace is typing');
+  assert.equal(isRemove(key('Backspace', { ctrlKey: true }), false), true);
 });

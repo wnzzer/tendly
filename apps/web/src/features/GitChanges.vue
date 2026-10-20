@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { CHORDS, formatChord, isRemove, matches } from "./shortcuts";
 import type { GitCommitDetail, GitDiff, GitFile } from "@tendly/protocol";
 import { errorMessage } from "./api";
 import { gitGet, gitPost, useGit } from "./git-context";
@@ -45,6 +46,27 @@ async function openDiff(path: string, staged: boolean) {
   finally { if (alive && requestId === diffRevision) diffLoading.value = false; }
 }
 function show(path: string, staged: boolean) { void openDiff(path, staged); git.detailOpen.value = true; }
+/**
+ * The change list's keys: ↑ ↓ Home End move, Enter opens the diff, Space
+ * stages or unstages, Delete (⌘⌫ on a Mac) asks before discarding.
+ */
+function fileKeydown(event: KeyboardEvent, file: GitFile, staged: boolean) {
+  if (event.altKey || event.ctrlKey || (event.metaKey && !isRemove(event))) return;
+  const own = event.currentTarget as HTMLElement;
+  const rows = Array.from(own.closest(".git-changes-list, .dock-content, body")?.querySelectorAll<HTMLElement>(".git-file-open") ?? []);
+  const index = rows.indexOf(own);
+  const move = event.key === "ArrowDown" ? index + 1 : event.key === "ArrowUp" ? index - 1 : event.key === "Home" ? 0 : event.key === "End" ? rows.length - 1 : undefined;
+  if (move !== undefined) { event.preventDefault(); rows[Math.max(0, Math.min(rows.length - 1, move))]?.focus(); return; }
+  if (event.key === " ") {
+    event.preventDefault();
+    if (busy.value) return;
+    // The row moves to the other group; the one after it takes its place under the focus.
+    (rows[index + 1] ?? rows[index - 1])?.focus();
+    void stage([file], staged);
+    return;
+  }
+  if (isRemove(event) && !staged) { event.preventDefault(); discardTarget.value = [file]; }
+}
 /** After every status: keep the file being read if it is still listed, else take the first. */
 function reconcile() {
   const choice = selected.value;
@@ -64,7 +86,9 @@ const stage = (files: GitFile[], unstage: boolean) => files.length ? git.run(() 
  * deleted, not reverted). Only the unstaged group offers it: staged work is
  * never discarded from here.
  */
-const discardTarget = ref<GitFile[]>();
+const discardTarget = ref<GitFile[]>(), discardBar = ref<HTMLElement>();
+// Asking takes the focus, so Enter confirms and Esc keeps the changes.
+watch(discardTarget, async files => { if (!files) return; await nextTick(); discardBar.value?.querySelector<HTMLElement>(".danger")?.focus(); });
 const discardNew = computed(() => (discardTarget.value ?? []).filter(file => file.worktree === "?").length);
 async function discard() {
   const files = discardTarget.value;
@@ -135,14 +159,14 @@ onBeforeUnmount(() => { alive = false; diffRevision++; });
   <div class="git-content git-changes">
     <div class="git-sidebar">
       <form class="commit-form" @submit.prevent="commit()">
-        <textarea v-model="message" data-pane-input :aria-label="t('Commit message')" :placeholder="t(amend ? 'Message for the amended commit…' : 'Commit message…')" rows="2" :disabled="busy" @keydown.ctrl.enter.prevent="commit()" @keydown.meta.enter.prevent="commit()" />
+        <textarea v-model="message" data-pane-input :aria-label="t('Commit message')" :placeholder="t(amend ? 'Message for the amended commit…' : 'Commit message…')" rows="2" :disabled="busy" @keydown="matches($event, CHORDS.confirm) && ($event.preventDefault(), commit())" />
         <label class="git-amend"><input v-model="amend" type="checkbox" :disabled="busy" />{{ t('Amend last commit') }}</label>
         <div class="git-commit-buttons">
-          <button class="primary-button" :disabled="busy || !canCommit"><Icon name="check" :size="14" />{{ busy ? t('Working…') : amend ? t('Amend commit') : t('Commit staged ({count})', { count: stagedFiles.length }) }}</button>
+          <button class="primary-button" :title="formatChord(CHORDS.confirm)" :disabled="busy || !canCommit"><Icon name="check" :size="14" />{{ busy ? t('Working…') : amend ? t('Amend commit') : t('Commit staged ({count})', { count: stagedFiles.length }) }}</button>
           <button type="button" class="primary-button git-commit-more" :aria-label="t('More commit actions')" :disabled="busy" @click="openCommitMenu"><Icon name="chevron" :size="12" /></button>
         </div>
       </form>
-      <div v-if="discardTarget" class="confirmation-bar git-discard-confirm" role="alertdialog"><span>{{ discardTarget.length===1 ? t('Discard changes to {path}? This cannot be undone.', { path: discardTarget[0].path }) : t('Discard changes to {count} files? This cannot be undone.', { count: discardTarget.length }) }}<template v-if="discardNew"> {{ t('{count} new files will be deleted.', { count: discardNew }) }}</template></span><div class="toolbar-buttons"><button type="button" class="small-button danger" :disabled="busy" @click="discard">{{ t(busy ? 'Working…' : 'Discard') }}</button><button type="button" class="small-button" :disabled="busy" @click="discardTarget=undefined">{{ t('Cancel') }}</button></div></div>
+      <div v-if="discardTarget" ref="discardBar" class="confirmation-bar git-discard-confirm" role="alertdialog" @keydown.esc.stop.prevent="discardTarget=undefined"><span>{{ discardTarget.length===1 ? t('Discard changes to {path}? This cannot be undone.', { path: discardTarget[0].path }) : t('Discard changes to {count} files? This cannot be undone.', { count: discardTarget.length }) }}<template v-if="discardNew"> {{ t('{count} new files will be deleted.', { count: discardNew }) }}</template></span><div class="toolbar-buttons"><button type="button" class="small-button danger" :disabled="busy" @click="discard">{{ t(busy ? 'Working…' : 'Discard') }}</button><button type="button" class="small-button" :disabled="busy" @click="discardTarget=undefined">{{ t('Cancel') }}</button></div></div>
       <div class="git-groups">
         <section v-if="conflicted.length" class="git-group git-conflicts">
           <header><strong>{{ t('Merge conflicts') }} <span>{{ conflicted.length }}</span></strong></header>
@@ -154,7 +178,7 @@ onBeforeUnmount(() => { alive = false; diffRevision++; });
         </section>
         <section v-for="group in groups" :key="group.title" class="git-group" @contextmenu="openFileMenu($event, group.staged)">
           <header><strong>{{ t(group.title) }} <span>{{ group.files.length }}</span></strong><span class="git-group-actions"><button v-if="!group.staged" class="text-button danger-text" :disabled="busy || !group.files.length" @click="discardTarget=group.files">{{ t('Discard all') }}</button><button class="text-button" :disabled="busy || !group.files.length" @click="stage(group.files, group.staged)">{{ t(group.staged ? 'Unstage all' : 'Stage all') }}</button></span></header>
-          <div v-for="file in group.files" :key="file.path" :class="['git-file', { selected: selected?.path === file.path && selected.staged === group.staged }]" @contextmenu="openFileMenu($event, group.staged, file)"><button class="git-file-open" :title="file.original_path ? `${file.original_path} → ${file.path}` : file.path" @click="show(file.path, group.staged)"><span :class="['git-file-code', { staged: group.staged }]">{{ group.staged ? file.index : file.worktree }}</span><span>{{ file.path }}</span></button><button v-if="!group.staged" class="icon-button git-discard" :aria-label="t('Discard changes to {path}', { path: file.path })" :title="t('Discard changes')" :disabled="busy" @click="discardTarget=[file]">↺</button><button class="icon-button" :aria-label="t(group.staged ? 'Unstage {path}' : 'Stage {path}', { path: file.path })" :disabled="busy" @click="stage([file], group.staged)">{{ group.staged ? '−' : '+' }}</button></div>
+          <div v-for="file in group.files" :key="file.path" :class="['git-file', { selected: selected?.path === file.path && selected.staged === group.staged }]" @contextmenu="openFileMenu($event, group.staged, file)"><button class="git-file-open" :title="file.original_path ? `${file.original_path} → ${file.path}` : file.path" @click="show(file.path, group.staged)" @keydown="fileKeydown($event, file, group.staged)"><span :class="['git-file-code', { staged: group.staged }]">{{ group.staged ? file.index : file.worktree }}</span><span>{{ file.path }}</span></button><button v-if="!group.staged" class="icon-button git-discard" :aria-label="t('Discard changes to {path}', { path: file.path })" :title="t('Discard changes')" :disabled="busy" @click="discardTarget=[file]">↺</button><button class="icon-button" :aria-label="t(group.staged ? 'Unstage {path}' : 'Stage {path}', { path: file.path })" :disabled="busy" @click="stage([file], group.staged)">{{ group.staged ? '−' : '+' }}</button></div>
           <p v-if="!group.files.length" class="group-empty">{{ t(group.staged ? 'Nothing staged' : 'Working tree clean') }}</p>
         </section>
       </div>
