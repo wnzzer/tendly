@@ -396,6 +396,62 @@ async fn branches_switch_and_worktrees_sit_beside_the_repository() {
 }
 
 #[tokio::test]
+async fn cleanup_finds_branches_merged_squashed_or_rebased_into_the_base() {
+    let repo = TempRepo::new();
+    let commit = |file: &str, text: &str| {
+        fs::write(repo.path.join(file), text).unwrap();
+        repo.git(&["add", file]);
+        repo.git(&["commit", "-m", file]);
+    };
+    commit("a.txt", "a\n");
+    repo.git(&["branch", "-M", "main"]);
+    for (branch, file) in [
+        ("merged", "m.txt"),
+        ("squashed", "s.txt"),
+        ("rebased", "r.txt"),
+        ("open", "o.txt"),
+    ] {
+        repo.git(&["switch", "-c", branch, "main"]);
+        commit(file, branch);
+    }
+    // One commit squashed is the same patch as the commit, which reads as a
+    // rebase; two are only found once folded together.
+    repo.git(&["switch", "squashed"]);
+    commit("s2.txt", "more");
+    repo.git(&["switch", "main"]);
+    repo.git(&["merge", "--no-ff", "-m", "merge", "merged"]);
+    repo.git(&["merge", "--squash", "squashed"]);
+    repo.git(&["commit", "-m", "squash"]);
+    repo.git(&["cherry-pick", "rebased"]);
+    let tree = git_worktree_add(&repo.path, "held", true).await.unwrap();
+
+    let found = git_cleanup(&repo.path).await.unwrap();
+    assert_eq!(found.base.as_deref(), Some("main"));
+    let reason = |name: &str| {
+        found
+            .branches
+            .iter()
+            .find(|b| b.name == name)
+            .map(|b| b.reason)
+    };
+    assert_eq!(reason("merged"), Some("merged"));
+    assert_eq!(reason("squashed"), Some("squashed"));
+    assert_eq!(reason("rebased"), Some("rebased"));
+    // Work that is not on the base, and the base itself, are never offered.
+    assert_eq!(reason("open"), None);
+    assert_eq!(reason("main"), None);
+    let held = found.branches.iter().find(|b| b.name == "held").unwrap();
+    assert_eq!(held.reason, "merged");
+    assert_eq!(
+        held.worktree
+            .as_deref()
+            .map(|p| dunce::canonicalize(p).unwrap()),
+        Some(dunce::canonicalize(&tree).unwrap())
+    );
+    let _ = fs::remove_dir_all(tree.parent().unwrap());
+}
+
+#[tokio::test]
 async fn branches_rename_and_delete_and_worktrees_are_removed_but_never_the_main_one() {
     let repo = TempRepo::new();
     fs::write(repo.path.join("a.txt"), "a\n").unwrap();

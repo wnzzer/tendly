@@ -386,3 +386,178 @@ pub async fn git_commit(root: &Path, message: &str, amend: bool) -> Result<Strin
     }
     Ok(String::from_utf8_lossy(&stdout).trim().to_owned())
 }
+
+/// A local branch that can go, and why: its work already reached the base
+/// branch -- merged as it was, squashed into one commit, or rebased commit
+/// by commit -- or its upstream was deleted with nothing showing it merged.
+#[derive(Debug, Clone, Serialize)]
+pub struct CleanupCandidate {
+    pub name: String,
+    /// "merged", "squashed", "rebased" or "gone".
+    pub reason: &'static str,
+    /// The worktree that has it checked out, if one does.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GitCleanup {
+    /// What "merged" is measured against; None when there is nothing to measure by.
+    pub base: Option<String>,
+    pub branches: Vec<CleanupCandidate>,
+}
+
+/// More than this many branches are not checked; the rest wait for a cleanup.
+const MAX_CLEANUP_BRANCHES: usize = 200;
+
+/// Where merged work lands: the remote's default branch, as a pull request
+/// merges into it, else its main or master, else the local ones, else HEAD.
+async fn cleanup_base(root: &Path) -> Result<Option<String>, IoError> {
+    if let Some(remote) = git_text(
+        root,
+        &["symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"],
+    )
+    .await?
+    .filter(|name| !name.is_empty())
+    {
+        return Ok(Some(remote));
+    }
+    for name in ["origin/main", "origin/master", "main", "master"] {
+        let full = if name.contains('/') {
+            format!("refs/remotes/{name}")
+        } else {
+            format!("refs/heads/{name}")
+        };
+        if git_text(root, &["rev-parse", "--verify", "--quiet", &full])
+            .await?
+            .is_some_and(|hash| !hash.is_empty())
+        {
+            return Ok(Some(name.to_owned()));
+        }
+    }
+    Ok(git_text(root, &["symbolic-ref", "--short", "-q", "HEAD"])
+        .await?
+        .filter(|name| !name.is_empty()))
+}
+
+/// How `branch`'s work reached `base`, if it did. A squash is found as
+/// git-delete-squashed finds it: the branch is folded into one commit on its
+/// merge base -- a dangling object, no ref moves -- and `git cherry` looks
+/// upstream for the same patch, which still matches after later commits.
+pub(crate) async fn merged_into(
+    root: &Path,
+    base: &str,
+    branch: &str,
+) -> Result<Option<&'static str>, IoError> {
+    let head = format!("refs/heads/{branch}");
+    let (_out, _err, ancestor) = run_git(
+        root,
+        vec![
+            "merge-base".into(),
+            "--is-ancestor".into(),
+            head.clone(),
+            base.to_owned(),
+        ],
+        GIT_TIMEOUT,
+    )
+    .await?;
+    if ancestor {
+        return Ok(Some("merged"));
+    }
+    let Some(fork) = git_text(root, &["merge-base", base, &head])
+        .await?
+        .filter(|hash| !hash.is_empty())
+    else {
+        return Ok(None);
+    };
+    let rebased = git_text(root, &["cherry", base, &head])
+        .await?
+        .unwrap_or_default();
+    if !rebased.is_empty() && rebased.lines().all(|line| line.starts_with('-')) {
+        return Ok(Some("rebased"));
+    }
+    let tree = format!("{head}^{{tree}}");
+    let folded = git_text(
+        root,
+        &[
+            "-c",
+            "user.name=Tendly",
+            "-c",
+            "user.email=tendly@localhost",
+            "commit-tree",
+            &tree,
+            "-p",
+            &fork,
+            "-m",
+            "tendly: squash check",
+        ],
+    )
+    .await?
+    .filter(|hash| !hash.is_empty());
+    let Some(folded) = folded else {
+        return Ok(None);
+    };
+    let squashed = git_text(root, &["cherry", base, &folded])
+        .await?
+        .unwrap_or_default();
+    Ok(squashed.starts_with('-').then_some("squashed"))
+}
+
+/// The local branches that can be cleaned up, other than the one checked out
+/// here and the base itself, each with why and the worktree holding it.
+pub async fn git_cleanup(root: &Path) -> Result<GitCleanup, IoError> {
+    use futures_util::stream::{self, StreamExt};
+    let root = dunce::canonicalize(root).map_err(IoError::from)?;
+    git_text(&root, &["rev-parse", "--git-dir"])
+        .await?
+        .ok_or_else(|| IoError::new(400, "Not a Git repository"))?;
+    let base = cleanup_base(&root).await?;
+    let current = git_text(&root, &["symbolic-ref", "--short", "-q", "HEAD"])
+        .await?
+        .filter(|name| !name.is_empty());
+    let listing = git_text(&root, &["worktree", "list", "--porcelain"])
+        .await?
+        .unwrap_or_default();
+    let held: std::collections::HashMap<String, String> = parse_worktrees(&listing)
+        .into_iter()
+        .filter(|tree| !tree.main)
+        .filter_map(|tree| tree.branch.map(|branch| (branch, tree.path)))
+        .collect();
+    let base_branch = base
+        .as_deref()
+        .map(|name| name.strip_prefix("origin/").unwrap_or(name).to_owned());
+    let (local, _remote) = git_refs(&root).await?;
+    let candidates: Vec<GitRef> = local
+        .into_iter()
+        .filter(|entry| {
+            Some(&entry.name) != current.as_ref() && Some(&entry.name) != base_branch.as_ref()
+        })
+        .take(MAX_CLEANUP_BRANCHES)
+        .collect();
+    let checked: Vec<(GitRef, Option<&'static str>)> = stream::iter(candidates)
+        .map(|entry| {
+            let (root, base) = (root.clone(), base.clone());
+            async move {
+                let kind = match base.as_deref() {
+                    Some(base) => merged_into(&root, base, &entry.name).await.ok().flatten(),
+                    None => None,
+                };
+                (entry, kind)
+            }
+        })
+        .buffered(6)
+        .collect()
+        .await;
+    let branches = checked
+        .into_iter()
+        .filter_map(|(entry, kind)| {
+            let reason = kind.or(entry.gone.then_some("gone"))?;
+            Some(CleanupCandidate {
+                worktree: held.get(&entry.name).cloned(),
+                name: entry.name,
+                reason,
+            })
+        })
+        .collect();
+    Ok(GitCleanup { base, branches })
+}

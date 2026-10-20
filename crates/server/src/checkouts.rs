@@ -293,23 +293,18 @@ async fn delete_branch(
     Ok(Json(workspace_io::git_branches(&repo).await?))
 }
 
-/// Remove a worktree. A session running in it refuses the removal; stopped
-/// ones bound to it move back to the workspace directory first, so none is
-/// left pointing at a directory that is gone.
-async fn remove_worktree(
-    State(state): State<AppState>,
-    Path(id): Path<WorkspaceId>,
-    Json(input): Json<RemoveWorktreeInput>,
-) -> Result<Json<workspace_io::GitBranches>> {
-    let _guard = state.operations.lock().await;
-    let repo = root(&state, id).await?;
-    let path = input.path.clone();
-    let bound: Vec<Session> = db(&state, move |s| s.list_sessions(Some(id)))
+/// The sessions bound to a worktree, archived ones included.
+async fn bound_to(state: &AppState, id: WorkspaceId, path: &str) -> Result<Vec<Session>> {
+    let path = path.to_owned();
+    Ok(db(state, move |s| s.list_sessions(Some(id)))
         .await?
         .into_iter()
         .filter(|session| session.checkout_path.as_deref() == Some(path.as_str()))
-        .collect();
-    let running = bound
+        .collect())
+}
+
+fn running(state: &AppState, sessions: &[Session]) -> usize {
+    sessions
         .iter()
         .filter(|session| {
             state.chats.get(session.id).is_some_and(|r| r.running())
@@ -318,7 +313,40 @@ async fn remove_worktree(
                     .get(&session.id.to_string())
                     .is_some_and(|r| r.running())
         })
-        .count();
+        .count()
+}
+
+/// Stopped sessions of a removed worktree go back to the workspace directory,
+/// so none is left pointing at a directory that is gone.
+async fn send_home(
+    state: &AppState,
+    sessions: Vec<Session>,
+    listed: &workspace_io::GitBranches,
+) -> Result<()> {
+    for session in sessions {
+        let sid = session.id;
+        let branch = listed.current.clone();
+        let label = branch.clone().unwrap_or_else(|| "Detached HEAD".into());
+        db(state, move |s| {
+            s.set_session_checkout(sid, None, branch.as_deref(), &label)
+        })
+        .await?;
+        crate::conversations::publish_snapshot(state, sid).await;
+    }
+    Ok(())
+}
+
+/// Remove a worktree. A session running in it refuses the removal; stopped
+/// ones bound to it move back to the workspace directory first.
+async fn remove_worktree(
+    State(state): State<AppState>,
+    Path(id): Path<WorkspaceId>,
+    Json(input): Json<RemoveWorktreeInput>,
+) -> Result<Json<workspace_io::GitBranches>> {
+    let _guard = state.operations.lock().await;
+    let repo = root(&state, id).await?;
+    let bound = bound_to(&state, id, &input.path).await?;
+    let running = running(&state, &bound);
     if running > 0 {
         return Err(ApiError::conflict(format!(
             "{running} session(s) are running in this worktree. End them or move them to another branch first."
@@ -326,17 +354,114 @@ async fn remove_worktree(
     }
     workspace_io::git_worktree_remove(&repo, &input.path, input.force).await?;
     let listed = workspace_io::git_branches(&repo).await?;
-    for session in bound {
-        let sid = session.id;
-        let branch = listed.current.clone();
-        let label = branch.clone().unwrap_or_else(|| "Detached HEAD".into());
-        db(&state, move |s| {
-            s.set_session_checkout(sid, None, branch.as_deref(), &label)
-        })
-        .await?;
-        crate::conversations::publish_snapshot(&state, sid).await;
-    }
+    send_home(&state, bound, &listed).await?;
     Ok(Json(listed))
+}
+
+/// The branches that could be cleaned up, each with why. Read when the
+/// branch menu opens, apart from the branch list, since it runs a few Git
+/// commands per branch.
+async fn cleanup_candidates(
+    State(state): State<AppState>,
+    Path(id): Path<WorkspaceId>,
+) -> Result<Json<workspace_io::GitCleanup>> {
+    let repo = root(&state, id).await?;
+    Ok(Json(workspace_io::git_cleanup(&repo).await?))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CleanupInput {
+    branches: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct CleanupResult {
+    name: String,
+    removed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+}
+
+#[derive(Serialize)]
+struct CleanupOutcome {
+    results: Vec<CleanupResult>,
+    branches: workspace_io::GitBranches,
+}
+
+/// Delete branches whose work is already on the base branch, checked again
+/// here rather than taken on the page's word. A worktree holding one goes
+/// with it only when nothing runs there and nothing is uncommitted; a branch
+/// whose upstream is merely gone is never deleted this way, since its work
+/// was not found upstream.
+async fn cleanup_branches(
+    State(state): State<AppState>,
+    Path(id): Path<WorkspaceId>,
+    Json(input): Json<CleanupInput>,
+) -> Result<Json<CleanupOutcome>> {
+    let _guard = state.operations.lock().await;
+    let repo = root(&state, id).await?;
+    let found = workspace_io::git_cleanup(&repo).await?;
+    let mut names = input.branches;
+    names.sort();
+    names.dedup();
+    let mut results = Vec::new();
+    let mut homeless = Vec::new();
+    for name in names.into_iter().take(200) {
+        let skip = |reason: &str| CleanupResult {
+            name: name.clone(),
+            removed: false,
+            reason: Some(reason.to_owned()),
+        };
+        let Some(candidate) = found
+            .branches
+            .iter()
+            .find(|candidate| candidate.name == name)
+        else {
+            results.push(skip("It is not merged into the base branch."));
+            continue;
+        };
+        if candidate.reason == "gone" {
+            results.push(skip("Its work was not found on the base branch."));
+            continue;
+        }
+        if let Some(path) = &candidate.worktree {
+            let bound = bound_to(&state, id, path).await?;
+            if running(&state, &bound) > 0 {
+                results.push(skip("A session is running in its worktree."));
+                continue;
+            }
+            let dirty =
+                workspace_io::git_text(std::path::Path::new(path), &["status", "--porcelain"])
+                    .await
+                    .ok()
+                    .flatten();
+            if dirty.as_deref().is_none_or(|changes| !changes.is_empty()) {
+                results.push(skip("Its worktree has uncommitted changes."));
+                continue;
+            }
+            if let Err(error) = workspace_io::git_worktree_remove(&repo, path, false).await {
+                results.push(skip(&error.message));
+                continue;
+            }
+            homeless.extend(bound);
+        }
+        // -D, since Git does not count a squash as merged; the check above did.
+        match workspace_io::git_branch_delete(&repo, &name, true).await {
+            Ok(()) => results.push(CleanupResult {
+                name,
+                removed: true,
+                reason: None,
+            }),
+            Err(error) => results.push(skip(&error.message)),
+        }
+    }
+    let listed = workspace_io::git_branches(&repo).await?;
+    send_home(&state, homeless, &listed).await?;
+    Ok(Json(CleanupOutcome {
+        results,
+        branches: listed,
+    }))
 }
 
 pub fn routes() -> Router<AppState> {
@@ -354,5 +479,9 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/api/workspaces/{id}/git/branches/delete",
             post(delete_branch),
+        )
+        .route(
+            "/api/workspaces/{id}/git/branches/cleanup",
+            axum::routing::get(cleanup_candidates).post(cleanup_branches),
         )
 }

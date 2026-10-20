@@ -86,6 +86,10 @@ export interface GitChangedFile { status: string; path: string; original_path?: 
 export interface GitCommitDetail { hash: string; parents: string[]; author: string; email: string; date: number; committer: string; committer_email: string; commit_date: number; refs: string[]; message: string; files: GitChangedFile[]; truncated: boolean; }
 export interface GitRef { name: string; hash: string; subject: string; date: number; upstream?: string; ahead?: number; behind?: number; gone?: boolean; }
 export interface GitWorktree { path: string; branch?: string | null; main: boolean; }
+/** A branch whose work is already on `GitCleanup.base`: merged, squashed or rebased; or one whose upstream is gone and whose work was not found there. */
+export interface GitCleanupCandidate { name: string; reason: 'merged' | 'squashed' | 'rebased' | 'gone'; worktree?: string; }
+export interface GitCleanup { base?: string | null; branches: GitCleanupCandidate[]; }
+export interface GitCleanupOutcome { results: Array<{ name: string; removed: boolean; reason?: string }>; branches: GitBranches; }
 export interface GitBranches { current?: string | null; branches: string[]; worktrees: GitWorktree[]; local?: GitRef[]; remote?: GitRef[]; }
 export interface GitRemote { name: string; url: string; push_url?: string; }
 export interface GitStash { index: number; hash: string; message: string; date: number; untracked: boolean; }

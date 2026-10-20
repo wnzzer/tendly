@@ -301,6 +301,8 @@ const runInfoSessionId = ref<string>();
 const runInfoSession = computed(() => sessions.value.find(session => session.id === runInfoSessionId.value));
 provide(SESSION_ACTIONS, {
   session: id => sessions.value.find(session => session.id === id),
+  all: () => sessions.value,
+  open: session => openSession(session),
   keepBusy: id => keepBusyIds.value.includes(id),
   rename: requestRenameSession,
   environment: id => { environmentSessionId.value = id; },
