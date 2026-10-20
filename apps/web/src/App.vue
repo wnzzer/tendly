@@ -46,7 +46,8 @@ import { useI18n } from "./i18n";
 import { ApiConnectionError, ApiError, errorMessage, json, providerLabel, request, workspacePath } from "./features/api";
 import { AGENT_CLIENTS, DEFAULT_CLIENT, PROVIDER_KINDS } from "./features/clients";
 import { loadPreferences, preferenceFor } from "./features/preferences";
-import { paneDisplayTitle, paneString, paneWorkspace, paneSession, filePane, changesPane, sessionPane, renameSessionPanes, acceptsScopedPane, ephemeralSessionIds, withoutDiscardedPanes } from "./features/pane-context";
+import { placeKey, placeOf, placeUrl } from "./features/checkout-place";
+import { paneDisplayTitle, paneString, paneWorkspace, paneSession, paneCheckout, filePane, changesPane, sessionPane, renameSessionPanes, acceptsScopedPane, ephemeralSessionIds, withoutDiscardedPanes } from "./features/pane-context";
 import { isEphemeralSession } from "./features/session-list";
 import { lastQuickProvider, planQuickSession, rememberQuickProvider } from "./features/quick-session";
 import { backendCapabilities, setBackendCapabilities, type BackendHealth } from "./features/backend-capabilities";
@@ -76,16 +77,24 @@ const workspaceSidebar = ref<InstanceType<typeof WorkspaceSidebar>>();
 const focusedPane = computed(() => flattenPanes(layout.value.root).find(pane => pane.id === selectedPaneId.value));
 const focusedWorkspace = computed(() => focusedPane.value ? paneWorkspace(focusedPane.value, workspaces.value, sessions.value) : undefined);
 const contextWorkspace = computed(() => focusedWorkspace.value ?? selectedWorkspace.value);
+/** The worktree the focused pane looks at, when it is one: the status bar, the drawer and the file panel follow it there. */
+const contextCheckout = computed(() => focusedPane.value && focusedWorkspace.value ? paneCheckout(focusedPane.value, sessions.value) : null);
+const contextPlace = computed(() => contextWorkspace.value ? placeKey(contextWorkspace.value.id, contextCheckout.value) : undefined);
+/** Where a pane looks (`placeKey`), for one bound to a workspace. */
+function panePlace(pane: PaneNode) { const workspace = paneWorkspace(pane, workspaces.value, sessions.value); return workspace ? placeKey(workspace.id, paneCheckout(pane, sessions.value)) : undefined; }
 const selectedSessionId = computed(() => focusedPane.value ? paneString(focusedPane.value, "session_id") : undefined);
 const activeSessions = computed(() => sessions.value.filter(session => ["running", "waiting", "starting"].includes(session.status)));
 const sessionProviders = computed(() => Object.fromEntries(sessions.value.map(session => [session.id, session.provider])));
 const panels = readPanelVisibility(browserStorage(), { sidebar: true, explorer: window.innerWidth > 1100 });
-const explorerWorkspaceId = ref(""), explorerPinned = ref(false), explorerOpen = ref(panels.explorer);
+const explorerWorkspaceId = ref(""), explorerCheckout = ref<string | null>(null), explorerPinned = ref(false), explorerOpen = ref(panels.explorer);
 const sidebarExpanded = ref(panels.sidebar), sidebarRail = ref(sidebarIsRail(window.innerWidth));
 /** A drawer-width viewport ignores the stored collapse without overwriting it. */
 const sidebarCollapsed = computed(() => sidebarRail.value && !sidebarExpanded.value);
 const explorerWorkspace = computed(() => workspaces.value.find(workspace => workspace.id === explorerWorkspaceId.value));
-const activeFilePath = computed(() => focusedPane.value && focusedWorkspace.value?.id === explorerWorkspaceId.value ? paneString(focusedPane.value, "path") : undefined);
+const explorerPlace = computed(() => placeKey(explorerWorkspaceId.value, explorerCheckout.value));
+/** Points the file panel at a place, unless it is pinned to one. */
+function followWithExplorer(id: string, checkout: string | null) { if (!explorerPinned.value) { explorerWorkspaceId.value = id; explorerCheckout.value = checkout; } }
+const activeFilePath = computed(() => focusedPane.value && panePlace(focusedPane.value) === explorerPlace.value ? paneString(focusedPane.value, "path") : undefined);
 const sidebarOpen = ref(false), loading = ref(true), apiOnline = ref(false), error = ref("");
 const connectionError = ref(""), refreshingResources = ref(false);
 const visibleError = computed(() => error.value || connectionError.value);
@@ -125,12 +134,12 @@ const renameSessionId = ref<string>();
 const environmentSession = computed(() => sessions.value.find(session => session.id === environmentSessionId.value));
 const renameSessionTarget = computed(() => sessions.value.find(session => session.id === renameSessionId.value));
 const historyWorkspace = computed(() => workspaces.value.find(workspace => workspace.id === historyWorkspaceId.value));
-const { gitStatuses, fileRefresh, gitRefresh, currentGit, currentGitAvailable, workspaceBranches, tick, gitChanged, refreshGit, filesSaved } = useWorkspaceGit({ contextWorkspace, activeSessions, paused: () => showAuth.value, report });
+const { gitStatuses, fileRefresh, gitRefresh, currentGit, currentGitAvailable, workspaceBranches, tick, gitChanged, refreshGit, filesSaved } = useWorkspaceGit({ contextPlace, activeSessions, paused: () => showAuth.value, report });
 const storage = browserStorage();
 const storageKey = computed(() => canvasStorageKey(window.location.origin, workspaces.value));
 const { canvasReady, layoutStatus, canvasRevision, canvasConflict, localRecovery, cacheLayout, queueLayout, flushLayout, initializeCanvas, resolveCanvasConflict, restoreLocalRecovery, agentCanvas, hasPendingLayout, dispose: disposeCanvas } = useCanvasPersistence({
   layout, selectedPaneId, sessions, storage, storageKey, report,
-  onReady: preferred => { explorerWorkspaceId.value = contextWorkspace.value?.id ?? preferred.id; },
+  onReady: preferred => { explorerWorkspaceId.value = contextWorkspace.value?.id ?? preferred.id; explorerCheckout.value = contextWorkspace.value ? contextCheckout.value : null; },
 });
 const layoutTrouble = computed(() => layoutInTrouble(layoutStatus.value));
 let disposed = false, bootstrapRevision = 0;
@@ -154,7 +163,8 @@ const openPanes = computed(() => flattenPanes(layout.value.root));
 const paneTitle = (pane: PaneNode) => paneDisplayTitle(pane, t);
 function paneDetail(pane: PaneNode) {
   const session = paneSession(pane, sessions.value), workspace = paneWorkspace(pane, workspaces.value, sessions.value);
-  const branch = session?.checkout_branch ?? (workspace ? gitStatuses.value[workspace.id]?.branch : undefined);
+  const place = panePlace(pane);
+  const branch = session?.checkout_branch ?? (place ? gitStatuses.value[place]?.branch : undefined);
   return [session && session.provider !== "terminal" ? providerLabel(session.provider) : undefined, workspace?.name, branch].filter(Boolean).join(" · ");
 }
 const focusedSession = computed(() => focusedPane.value ? paneSession(focusedPane.value, sessions.value) : undefined);
@@ -165,7 +175,7 @@ function agentChanged() { void refreshProfiles(); void refreshResources(); void 
 /** An agent pointed at something (tendly_show), or a notice's Open. */
 async function agentShow(target: ShowTarget) {
   if (target.kind === "file") void openReference(target.workspace_id, { path: target.path, line: target.line ?? undefined, checkout: target.checkout });
-  else if (target.kind === "changes") openChanges(target.workspace_id);
+  else if (target.kind === "changes") openChanges(target.workspace_id, target.checkout ?? null);
   else {
     // A session an agent just started may not be in the list yet.
     let session = sessions.value.find(item => item.id === target.session_id);
@@ -210,21 +220,22 @@ function rememberedWorkspace() { try { return storage?.getItem("tendly:last-work
 function selectWorkspace(id: string) {
   if (!workspaces.value.some(workspace => workspace.id === id)) return;
   selectedWorkspaceId.value = id; rememberWorkspace(id);
-  if (!focusedWorkspace.value && !explorerPinned.value) explorerWorkspaceId.value = id;
+  if (!focusedWorkspace.value) followWithExplorer(id, null);
   void refreshGit(id);
 }
 function selectPane(pane: PaneNode) {
   selectedPaneId.value = pane.id;
   const workspace = paneWorkspace(pane, workspaces.value, sessions.value);
   if (workspace) {
-    if (!explorerPinned.value) explorerWorkspaceId.value = workspace.id;
-    void refreshGit(workspace.id);
+    const checkout = paneCheckout(pane, sessions.value);
+    followWithExplorer(workspace.id, checkout);
+    void refreshGit(placeKey(workspace.id, checkout));
   }
 }
 // Custom balances show in every message box, so read them once the backend says it has them.
 watch(() => backendCapabilities.customBalances, enabled => { if (enabled) void loadBalances(); }, { immediate: true });
 watch(() => backendCapabilities.accounts, enabled => { if (enabled) void loadAccountQuotas(); }, { immediate: true });
-watch(() => contextWorkspace.value?.id, id => { if (id && !explorerPinned.value) explorerWorkspaceId.value = id; });
+watch(contextPlace, place => { if (place) { const { workspaceId, checkout } = placeOf(place); followWithExplorer(workspaceId, checkout); } });
 // A tab keeps the name its session had when it opened. The server renames a
 // session too -- after its first message -- so every change in the list
 // reaches the tabs, not only a rename made here.
@@ -319,9 +330,10 @@ function sessionEnvironmentSaved(session: Session) {
   environmentSessionId.value = undefined;
   // Updating metadata is not an open gesture: never requestOpen or start here.
 }
-function openFile(id: string, file: FileEntry | string) {
+/** `checkout`: the worktree the file is in; without it, the workspace directory. */
+function openFile(id: string, file: FileEntry | string, checkout: string | null = null) {
   if (!workspaces.value.some(workspace => workspace.id === id)) return;
-  canvas.value?.openPane(filePane(id, typeof file === "string" ? file : file.path));
+  canvas.value?.openPane(filePane(id, typeof file === "string" ? file : file.path, checkout));
   if (window.innerWidth <= 1100) explorerOpen.value = false;
 }
 /**
@@ -338,22 +350,24 @@ async function openReference(id: string, reference: { path: string; line?: numbe
   let path: string;
   if (target.kind === "search") {
     try {
-      const found = await request<{ files: { path: string; name: string; kind: string }[] }>(`${workspacePath(id)}/files/search?${new URLSearchParams({ q: target.name, limit: '20' })}`);
+      const found = await request<{ files: { path: string; name: string; kind: string }[] }>(placeUrl(placeKey(id, target.checkout), `/files/search?${new URLSearchParams({ q: target.name, limit: '20' })}`));
       const exact = found.files.filter(hit => hit.kind === 'file' && hit.name === target.name).sort((a, b) => a.path.split('/').length - b.path.split('/').length || a.path.length - b.path.length);
       if (!exact.length) { error.value = t('Could not find {name} in this workspace.', { name: target.name }); return; }
       path = exact[0].path;
     } catch (cause) { report(cause); return; }
   } else path = target.path;
-  if (reference.line) requestJump(target.workspaceId, path, reference.line);
-  openFile(target.workspaceId, path);
+  if (reference.line) requestJump(placeKey(target.workspaceId, target.checkout), path, reference.line);
+  openFile(target.workspaceId, path, target.checkout);
 }
-function openChanges(id = contextWorkspace.value?.id) {
+/** A workspace's Git changes; with no workspace named, those of the place in context, a session's worktree included. */
+function openChanges(id?: string, checkout: string | null = null) {
+  if (!id) { id = contextWorkspace.value?.id; checkout = contextCheckout.value; }
   if (!id || !workspaces.value.some(workspace => workspace.id === id)) return;
-  canvas.value?.openPane(changesPane(id)); sidebarOpen.value = false;
+  canvas.value?.openPane(changesPane(id, checkout)); sidebarOpen.value = false;
 }
-function openFiles(id = selectedWorkspaceId.value) {
+function openFiles(id = selectedWorkspaceId.value, checkout: string | null = null) {
   if (!workspaces.value.some(workspace => workspace.id === id)) return;
-  explorerWorkspaceId.value = id; explorerPinned.value = false; explorerOpen.value = true; sidebarOpen.value = false;
+  explorerWorkspaceId.value = id; explorerCheckout.value = checkout; explorerPinned.value = false; explorerOpen.value = true; sidebarOpen.value = false;
 }
 /**
  * The configured way to start a session: a draft tab on the canvas holding the
@@ -441,13 +455,14 @@ async function refreshProfiles(imported?: EndpointProfile) {
   try { const list = await request<EndpointProfile[]>("/endpoint-profiles"); if (own === profileRefreshRevision) profiles.value = list; }
   catch (cause) { if (own === profileRefreshRevision) report(cause); }
 }
-function trackedWorkspaces() {
-  return new Set([contextWorkspace.value?.id, explorerWorkspace.value?.id, ...flattenPanes(layout.value.root).map(pane => paneWorkspace(pane, workspaces.value, sessions.value)?.id)].filter((id): id is string => !!id));
+/** Every place on screen (`placeKey`): its Git status is polled and its files watched. */
+function trackedPlaces() {
+  return new Set([contextPlace.value, explorerWorkspace.value ? explorerPlace.value : undefined, ...flattenPanes(layout.value.root).map(panePlace)].filter((id): id is string => !!id));
 }
 /** Files changed on the host, pushed for every workspace on screen. The Git poll stays as the fallback. */
 const fileWatch = createFileWatch({
   createSocket: url => new WebSocket(url),
-  url: id => { const url = new URL(`/api${workspacePath(id)}/files/ws`, window.location.href); url.protocol = url.protocol === "https:" ? "wss:" : "ws:"; return url.href; },
+  url: id => { const url = new URL(`/api${placeUrl(id, "/files/ws")}`, window.location.href); url.protocol = url.protocol === "https:" ? "wss:" : "ws:"; return url.href; },
   onChange(id, paths, git) {
     announceFilesChanged(id, paths);
     // A file edited again stays `M` in status, but its diff moved.
@@ -455,7 +470,7 @@ const fileWatch = createFileWatch({
     if (paths?.length !== 0 || git) void refreshGit(id);
   },
 });
-watch(() => showAuth.value ? "" : [...trackedWorkspaces()].sort().join("\n"), ids => fileWatch.sync(ids ? ids.split("\n") : []), { immediate: true });
+watch(() => showAuth.value ? "" : [...trackedPlaces()].sort().join("\n"), ids => fileWatch.sync(ids ? ids.split("\n") : []), { immediate: true });
 let stopPageReturn: (() => void) | undefined;
 async function refreshResources() {
   if (refreshingResources.value || loading.value) return;
@@ -476,7 +491,7 @@ async function refreshResources() {
       if (canvasReady.value) cacheLayout(layout.value, true);
       await initializeCanvas(selectedWorkspace.value);
     }
-    await Promise.all([...trackedWorkspaces()].map(async id => { await refreshGit(id); tick(fileRefresh, id); tick(gitRefresh, id); }));
+    await Promise.all([...trackedPlaces()].map(async id => { await refreshGit(id); tick(fileRefresh, id); tick(gitRefresh, id); }));
     if (layoutStatus.value === "Save failed" && !canvasConflict.value) queueLayout(layout.value);
   } catch (cause) { report(cause); }
   finally { refreshingResources.value = false; }
@@ -722,7 +737,7 @@ async function bootstrap() {
     if (preferred) {
       selectedWorkspaceId.value = preferred.id;
       if (!canvasReady.value) await initializeCanvas(preferred);
-      for (const id of trackedWorkspaces()) void refreshGit(id);
+      for (const id of trackedPlaces()) void refreshGit(id);
     }
   } catch (cause) { apiOnline.value = false; report(cause); }
   finally { if (own === bootstrapRevision) loading.value = false; }
@@ -749,7 +764,7 @@ async function pingHost() {
 onMounted(() => {
   void bootstrap();
   void pingHost();
-  pollTimer = setInterval(() => { if (!document.hidden && !showAuth.value) { void refreshSessions(); void pingHost(); for (const id of trackedWorkspaces()) void refreshGit(id); } }, 5000);
+  pollTimer = setInterval(() => { if (!document.hidden && !showAuth.value) { void refreshSessions(); void pingHost(); for (const id of trackedPlaces()) void refreshGit(id); } }, 5000);
   window.addEventListener("beforeunload", beforeUnload); window.addEventListener("resize", adaptDrawers);
   stopPageReturn = onPageReturn(stale => fileWatch.wake(stale));
 });
@@ -793,7 +808,7 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
         <div v-if="!mobile" class="host-card"><span class="host-symbol"><Icon name="monitor" :size="17"/></span><div class="host-card-text"><strong>{{ t('Runs on this machine') }}</strong><small>{{ platformLabel }}</small></div><span class="host-latency" :class="hostStatus.level" :title="apiOnline ? t('Round-trip to host: {ms}', { ms: hostStatus.text }) : t('Offline')" :aria-label="apiOnline ? t('Round-trip to host: {ms}', { ms: hostStatus.text }) : t('Offline')"><i class="host-dot"/><span>{{ hostStatus.text }}</span></span></div>
       
         <div v-else class="drawer-footer">
-          <div v-if="contextWorkspace" class="drawer-git"><span :title="contextWorkspace.root_path"><Icon name="git" :size="15"/><WorkspaceBranchMenu v-if="currentGitAvailable" :workspace-id="contextWorkspace.id" :branch="currentGit.branch" @switched="branchSwitched(contextWorkspace.id)" @changed="branchSwitched(contextWorkspace.id)" /><template v-else>{{ t('Git unavailable') }}</template></span><button v-if="currentGitAvailable" type="button" @click="openChanges(contextWorkspace.id)">{{ t(currentGit.files.length===1?'{count} change':'{count} changes',{count:currentGit.files.length}) }}</button></div>
+          <div v-if="contextWorkspace" class="drawer-git"><span :title="contextCheckout ?? contextWorkspace.root_path"><Icon name="git" :size="15"/><span v-if="contextCheckout" class="status-worktree" :title="t('Works in worktree {path}', { path: contextCheckout })"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M5 3v7M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm0-7a2 2 0 1 0 0-.01M11 5a2 2 0 1 0 0-.01M11 7c0 2-2 3-6 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>{{ currentGit.branch || t('Detached HEAD') }}</span><WorkspaceBranchMenu v-else-if="currentGitAvailable" :workspace-id="contextWorkspace.id" :branch="currentGit.branch" @switched="branchSwitched(contextWorkspace.id)" @changed="branchSwitched(contextWorkspace.id)" /><template v-else>{{ t('Git unavailable') }}</template></span><button v-if="currentGitAvailable" type="button" @click="openChanges()">{{ t(currentGit.files.length===1?'{count} change':'{count} changes',{count:currentGit.files.length}) }}</button></div>
           <div class="drawer-host"><HostUsage :sessions="sessions" @open="openPage('system')" /><span v-if="layoutTrouble" class="danger-text">{{ t('Layout {status}',{status:t(layoutStatus)}) }}</span><button class="icon-button" type="button" :aria-label="t('Settings')" :title="t('Settings') + ' · ' + hint('settings')" @click="openSettings()"><Icon name="settings" :size="19"/></button></div>
         </div>
       </aside>
@@ -804,7 +819,7 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
         <div v-if="canvasConflict" class="confirmation-bar" role="alert">{{ t('Another page updated the shared canvas. Your current layout is kept locally.') }}<button class="small-button" @click="resolveCanvasConflict(false)">{{ t('Load server layout') }}</button><button class="small-button danger" @click="resolveCanvasConflict(true)">{{ t('Save my current layout instead') }}</button></div>
         <div v-if="localRecovery" class="canvas-compat-notice"><span>{{ t('A local recovery layout is available.') }}</span><button class="text-button" @click="restoreLocalRecovery">{{ t('Restore local layout') }}</button><button class="icon-button" :aria-label="t('Dismiss error')" @click="localRecovery=undefined"><Icon name="close" :size="13"/></button></div>
         <template v-if="workspaces.length">
-          <Canvas v-if="canvasReady" ref="canvas" v-model="layout" :compact="mobile" :selected-pane-id="selectedPaneId" :default-workspace-id="contextWorkspace?.id" :accept-pane="acceptDroppedPane" :confirm-close-pane="confirmClosePane" :ephemeral-session-ids="ephemeralIds" :ephemeral-supported="backendCapabilities.ephemeralSessions" @create-session="createSessionInPane" :workspace-labels="Object.fromEntries(workspaces.map(workspace=>[workspace.id,workspace.name]))" :mixed-workspaces="new Set(flattenPanes(layout.root).map(pane=>paneString(pane,'workspace_id')).filter(Boolean)).size>1" :session-branches="Object.fromEntries(sessions.flatMap(session=>session.checkout_path&&session.checkout_branch?[[session.id,session.checkout_branch]]:[]))" :workspace-branches="workspaceBranches" :session-providers="sessionProviders" @select-pane="selectPane" @open-pane="sessionPaneDropped">
+          <Canvas v-if="canvasReady" ref="canvas" v-model="layout" :compact="mobile" :selected-pane-id="selectedPaneId" :default-workspace-id="contextWorkspace?.id" :accept-pane="acceptDroppedPane" :confirm-close-pane="confirmClosePane" :ephemeral-session-ids="ephemeralIds" :ephemeral-supported="backendCapabilities.ephemeralSessions" @create-session="createSessionInPane" :workspace-labels="Object.fromEntries(workspaces.map(workspace=>[workspace.id,workspace.name]))" :mixed-workspaces="new Set(flattenPanes(layout.root).map(pane=>paneString(pane,'workspace_id')).filter(Boolean)).size>1" :session-branches="Object.fromEntries(sessions.flatMap(session=>session.checkout_path&&session.checkout_branch?[[session.id,session.checkout_branch]]:[]))" :checkout-branches="Object.fromEntries(sessions.flatMap(session=>session.checkout_path&&session.checkout_branch?[[session.checkout_path,session.checkout_branch]]:[]))" :workspace-branches="workspaceBranches" :session-providers="sessionProviders" @select-pane="selectPane" @open-pane="sessionPaneDropped">
             <template #pane="{ pane }"><WorkspacePane :key="pane.id" :pane="pane" :workspaces="workspaces" :sessions="sessions" :profiles="profiles" :git-refresh="gitRefresh" @session-changed="refreshSessions" @new-session="(id,provider)=>newSession(id??selectedWorkspaceId,provider)" @open-session="openSession" @reveal-session="revealSession" @keep-session="keepSessionById" @rename-request="requestRenameSession" @session-environment="environmentSessionId=$event" @structured-session="enableChat" @profiles="openSettings('endpoints')" @git-changed="gitChanged" @open-file="openFile" @open-reference="openReference" @files-saved="filesSaved" @browse="id=>openFiles(id??selectedWorkspaceId)" @draft-created="draftCreated" @close-draft="id=>canvas?.closePane(id)" @leave-terminal="id=>canvas?.closePane(id)"/></template>
           </Canvas>
           <div v-else class="pane-empty"><p>{{ t('Opening workspace…') }}</p></div>
@@ -817,11 +832,12 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
       </main>
       <button v-if="explorerOpen && explorerWorkspace" class="drawer-overlay explorer-overlay" :aria-label="t('Close file explorer')" @click="explorerOpen=false"/>
       <aside v-if="explorerOpen && explorerWorkspace" class="explorer-panel">
-        <div class="explorer-workspace-control"><label><span>{{ t('Explorer workspace') }}</span><select :value="explorerWorkspaceId" :aria-label="t('Explorer workspace')" @change="explorerWorkspaceId=($event.target as HTMLSelectElement).value;explorerPinned=true"><option v-for="workspace in workspaces" :key="workspace.id" :value="workspace.id">{{ workspace.name }}</option></select></label><button class="small-button" :class="{primary:explorerPinned}" :aria-pressed="explorerPinned" :title="t(explorerPinned?'Unpin explorer and follow the focused pane':'Pin explorer to this workspace')" @click="explorerPinned=!explorerPinned;!explorerPinned&&contextWorkspace&&(explorerWorkspaceId=contextWorkspace.id)">{{ t(explorerPinned?'Pinned':'Follow focus') }}</button></div>
-        <FileExplorer ref="explorer" :workspace-id="explorerWorkspace.id" :refresh-token="fileRefresh[explorerWorkspace.id]??0" :selected-path="activeFilePath" @open="openFile(explorerWorkspace.id,$event)" @close="explorerOpen=false"/>
+        <div class="explorer-workspace-control"><label><span>{{ t('Explorer workspace') }}</span><select :value="explorerWorkspaceId" :aria-label="t('Explorer workspace')" @change="explorerWorkspaceId=($event.target as HTMLSelectElement).value;explorerCheckout=null;explorerPinned=true"><option v-for="workspace in workspaces" :key="workspace.id" :value="workspace.id">{{ workspace.name }}</option></select></label><button class="small-button" :class="{primary:explorerPinned}" :aria-pressed="explorerPinned" :title="t(explorerPinned?'Unpin explorer and follow the focused pane':'Pin explorer to this workspace')" @click="explorerPinned=!explorerPinned;!explorerPinned&&contextWorkspace&&followWithExplorer(contextWorkspace.id,contextCheckout)">{{ t(explorerPinned?'Pinned':'Follow focus') }}</button></div>
+        <p v-if="explorerCheckout" class="explorer-checkout" :title="t('Works in worktree {path}', { path: explorerCheckout })"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M5 3v7M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm0-7a2 2 0 1 0 0-.01M11 5a2 2 0 1 0 0-.01M11 7c0 2-2 3-6 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>{{ gitStatuses[explorerPlace]?.branch || explorerCheckout.split(/[\\/]/).pop() }}</span><small>{{ t('Own directory') }}</small></p>
+        <FileExplorer ref="explorer" :workspace-id="explorerWorkspace.id" :checkout="explorerCheckout" :refresh-token="fileRefresh[explorerPlace]??0" :selected-path="activeFilePath" @open="openFile(explorerWorkspace.id,$event,explorerCheckout)" @close="explorerOpen=false"/>
       </aside>
     </div>
-    <footer v-if="!mobile" class="statusbar"><span :title="contextWorkspace?.root_path"><Icon name="git" :size="13"/>{{ contextWorkspace?.name || t('No workspace') }} · <WorkspaceBranchMenu v-if="contextWorkspace&&currentGitAvailable" :workspace-id="contextWorkspace.id" :branch="currentGit.branch" @switched="branchSwitched(contextWorkspace.id)" @changed="branchSwitched(contextWorkspace.id)" /><template v-else>{{ t('Git unavailable') }}</template></span><button v-if="contextWorkspace" @click="openChanges(contextWorkspace.id)">{{ currentGitAvailable?t(currentGit.files.length===1?'{count} change':'{count} changes',{count:currentGit.files.length}):t('Changes') }}</button><button v-if="contextWorkspace&&currentGit.ahead!==undefined" type="button" :class="['git-count',{due:currentGit.ahead}]" :title="t('{count} commits to push · open Changes',{count:currentGit.ahead})" @click="openChanges(contextWorkspace.id)">↑ {{ currentGit.ahead }}</button><button v-if="contextWorkspace&&currentGit.behind!==undefined" type="button" :class="['git-count',{due:currentGit.behind}]" :title="t('{count} commits to pull · open Changes',{count:currentGit.behind})" @click="openChanges(contextWorkspace.id)">↓ {{ currentGit.behind }}</button><span class="flex-spacer"/><span v-if="canvasReady" :class="{'danger-text':layoutTrouble}">{{ t('Layout {status}',{status:t(layoutStatus)}) }}</span><HostUsage :sessions="sessions" @open="openPage('system')" /><span class="status-agent-count"><i :class="['state-dot',activeSessions.length?'running':'stopped']"/>{{ t('{count} active sessions',{count:activeSessions.length}) }}</span></footer>
+    <footer v-if="!mobile" class="statusbar"><span :title="contextCheckout ?? contextWorkspace?.root_path"><Icon name="git" :size="13"/>{{ contextWorkspace?.name || t('No workspace') }} · <span v-if="contextCheckout" class="status-worktree" :title="t('This session works in its own directory, {path}. The workspace directory\'s branch is in the sidebar.', { path: contextCheckout })"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M5 3v7M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm0-7a2 2 0 1 0 0-.01M11 5a2 2 0 1 0 0-.01M11 7c0 2-2 3-6 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>{{ currentGit.branch || t('Detached HEAD') }}</span><WorkspaceBranchMenu v-else-if="contextWorkspace&&currentGitAvailable" :workspace-id="contextWorkspace.id" :branch="currentGit.branch" @switched="branchSwitched(contextWorkspace.id)" @changed="branchSwitched(contextWorkspace.id)" /><template v-else>{{ t('Git unavailable') }}</template></span><button v-if="contextWorkspace" @click="openChanges()">{{ currentGitAvailable?t(currentGit.files.length===1?'{count} change':'{count} changes',{count:currentGit.files.length}):t('Changes') }}</button><button v-if="contextWorkspace&&currentGit.ahead!==undefined" type="button" :class="['git-count',{due:currentGit.ahead}]" :title="t('{count} commits to push · open Changes',{count:currentGit.ahead})" @click="openChanges()">↑ {{ currentGit.ahead }}</button><button v-if="contextWorkspace&&currentGit.behind!==undefined" type="button" :class="['git-count',{due:currentGit.behind}]" :title="t('{count} commits to pull · open Changes',{count:currentGit.behind})" @click="openChanges()">↓ {{ currentGit.behind }}</button><span class="flex-spacer"/><span v-if="canvasReady" :class="{'danger-text':layoutTrouble}">{{ t('Layout {status}',{status:t(layoutStatus)}) }}</span><HostUsage :sessions="sessions" @open="openPage('system')" /><span class="status-agent-count"><i :class="['state-dot',activeSessions.length?'running':'stopped']"/>{{ t('{count} active sessions',{count:activeSessions.length}) }}</span></footer>
   </div>
   <WorkspaceDialog v-if="showWorkspace" :initial-path="workspaceInitialPath" @close="showWorkspace=false;workspaceInitialPath=undefined" @created="workspaceCreated"/>
   <HostFilePreview v-if="hostPreview" :key="hostPreview.path" :path="hostPreview.path" :line="hostPreview.line" @close="hostPreview=undefined" @add-workspace="folder=>{hostPreview=undefined;workspaceInitialPath=folder;showWorkspace=true}"/>
@@ -856,8 +872,8 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
     <button type="button" class="sheet-row" @click="sheetAction(() => newSession(contextWorkspace?.id))"><Icon name="settings" :size="20" /><span class="sheet-row-copy"><strong>{{ t('New session with options…') }}</strong></span></button>
     <template v-if="contextWorkspace">
       <hr class="sheet-divider" />
-      <button type="button" class="sheet-row" @click="sheetAction(() => openFiles(contextWorkspace!.id))"><Icon name="folder" :size="20" /><span class="sheet-row-copy"><strong>{{ t('Files') }}</strong><small>{{ contextWorkspace.name }}</small></span></button>
-      <button type="button" class="sheet-row" @click="sheetAction(() => openChanges(contextWorkspace!.id))"><Icon name="git" :size="20" /><span class="sheet-row-copy"><strong>{{ t('Git Changes') }}</strong><small v-if="currentGitAvailable">{{ t(currentGit.files.length===1?'{count} change':'{count} changes',{count:currentGit.files.length}) }}</small></span></button>
+      <button type="button" class="sheet-row" @click="sheetAction(() => openFiles(contextWorkspace!.id, contextCheckout))"><Icon name="folder" :size="20" /><span class="sheet-row-copy"><strong>{{ t('Files') }}</strong><small>{{ contextWorkspace.name }}</small></span></button>
+      <button type="button" class="sheet-row" @click="sheetAction(() => openChanges())"><Icon name="git" :size="20" /><span class="sheet-row-copy"><strong>{{ t('Git Changes') }}</strong><small v-if="currentGitAvailable">{{ t(currentGit.files.length===1?'{count} change':'{count} changes',{count:currentGit.files.length}) }}</small></span></button>
     </template>
   </BottomSheet>
   <SessionRunInfo v-if="runInfoSession" :session="runInfoSession" @close="runInfoSessionId=undefined"/>
@@ -894,6 +910,12 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
 .language-select{color:var(--ink-soft);border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--sunken);font-size:var(--text-xs);padding:5px 3px 5px 7px;min-height:28px;cursor:pointer}
 .new-session-top{padding:5px 9px;font-size:var(--text-xs);min-height:30px}.top-actions{gap:9px}.main-workspace{padding:10px 12px 0}.canvas-compat-notice>span{flex:1;min-width:0}
 .canvas-compat-notice{display:flex;align-items:center;gap:8px;flex:none;padding:8px 11px;margin-bottom:10px;background:var(--ok-soft);border:1px solid var(--accent-line);border-radius:var(--radius-sm);font-size:var(--text-xs);line-height:17px;color:var(--ink-soft)}.canvas-compat-notice>svg{flex:none}.canvas-compat-notice small{display:block;color:var(--muted);font-size:var(--text-xs)}
+/* A session's own worktree, where the status bar and the file panel follow it: named, not switchable from here. */
+.status-worktree,.explorer-checkout{display:inline-flex;align-items:center;gap:4px;min-width:0;color:var(--accent-ink)}
+.status-worktree{padding:1px 6px}
+.explorer-checkout{flex:none;margin:0;padding:6px 12px;border-bottom:1px solid var(--glass-edge);font-size:var(--text-xs)}
+.explorer-checkout>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.explorer-checkout small{flex:none;margin-left:auto;color:var(--muted);white-space:nowrap}
 .explorer-workspace-control{display:flex;align-items:end;gap:6px;padding:10px;border-bottom:1px solid var(--glass-edge);background:transparent;flex:none}.explorer-workspace-control label{min-width:0;flex:1;font-size:var(--text-xs);color:var(--faint)}.explorer-workspace-control label>span{display:block;margin-bottom:4px}.explorer-workspace-control select{width:100%;font-size:var(--text-xs);padding:5px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);color:var(--ink-soft)}.explorer-workspace-control button{white-space:nowrap;font-size:var(--text-xs)}
 @media(max-width:700px){.canvas-compat-notice{font-size:var(--text-xs)}.canvas-compat-notice small{display:none}.workspace-heading h1{font-size:var(--text-xl)}.workspace-heading .branch-badge{display:none}}
 @media(max-width:380px){.language-select{font-size:var(--text-xs);width:60px;padding-left:4px}}

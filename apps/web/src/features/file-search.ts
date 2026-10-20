@@ -1,4 +1,5 @@
 import { request } from "./api";
+import { placeUrl } from "./checkout-place";
 
 export interface SearchHit { path: string; name: string; kind: "file" | "directory"; score: number; indices: number[] }
 export interface SearchResults { files: SearchHit[]; truncated: boolean; available: boolean; timed_out?: boolean }
@@ -45,7 +46,7 @@ export function createFileSearch(run: (workspace: string, query: string, signal:
 
 async function requestSearch(workspace: string, query: string, signal: AbortSignal): Promise<SearchResults> {
   const params = new URLSearchParams({ q: query, limit: "20" });
-  return await request<SearchResults>(`/workspaces/${workspace}/files/search?${params}`, { signal });
+  return await request<SearchResults>(placeUrl(workspace, `/files/search?${params}`), { signal });
 }
 
 /**

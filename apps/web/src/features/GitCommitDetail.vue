@@ -26,7 +26,7 @@ async function load() {
   const id = ++revision;
   loading.value = true; error.value = "";
   try {
-    const next = await gitGet<GitCommitDetail>(git.workspaceId(), `commit/detail?rev=${encodeURIComponent(props.rev)}${props.stash ? "&stash=true" : ""}`);
+    const next = await gitGet<GitCommitDetail>(git.place(), `commit/detail?rev=${encodeURIComponent(props.rev)}${props.stash ? "&stash=true" : ""}`);
     if (id !== revision) return;
     detail.value = next;
     const keep = file.value && next.files.find(entry => entry.path === file.value!.path && !!entry.untracked === !!file.value!.untracked);
@@ -41,7 +41,7 @@ async function openFile(entry: GitChangedFile) {
   const query = new URLSearchParams({ rev: hash, path: entry.path });
   if (entry.original_path) query.set("original_path", entry.original_path);
   if (entry.untracked) query.set("untracked", "true");
-  try { const result = await gitGet<GitDiff>(git.workspaceId(), `commit/diff?${query}`); if (id === diffRevision) diff.value = result; }
+  try { const result = await gitGet<GitDiff>(git.place(), `commit/diff?${query}`); if (id === diffRevision) diff.value = result; }
   catch (cause) { if (id === diffRevision) diffError.value = errorMessage(cause); }
   finally { if (id === diffRevision) diffLoading.value = false; }
 }

@@ -51,8 +51,11 @@ async fn list_stashes(root: &std::path::Path) -> Result<Vec<Stash>> {
 pub(super) async fn stashes(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
 ) -> Result<Json<Vec<Stash>>> {
-    Ok(Json(list_stashes(&repo(&state, id).await?).await?))
+    Ok(Json(
+        list_stashes(&repo(&state, id, &checkout).await?).await?,
+    ))
 }
 
 #[derive(Deserialize)]
@@ -73,10 +76,11 @@ pub(super) struct StashInput {
 pub(super) async fn stash_push(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<StashInput>,
 ) -> Result<Json<Vec<Stash>>> {
     let _guard = state.operations.lock().await;
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let mut list = args(&["stash", "push"]);
     if input.include_untracked {
         list.push("--include-untracked".into());
@@ -135,10 +139,11 @@ async fn stash_entry(root: &std::path::Path, input: &StashRef) -> Result<String>
 pub(super) async fn stash_apply(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<StashRef>,
 ) -> Result<Json<Outcome>> {
     let _guard = state.operations.lock().await;
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let name = stash_entry(&root, &input).await?;
     let verb = if input.pop { "pop" } else { "apply" };
     match finish(
@@ -158,10 +163,11 @@ pub(super) async fn stash_apply(
 pub(super) async fn stash_drop(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<StashRef>,
 ) -> Result<Json<Vec<Stash>>> {
     let _guard = state.operations.lock().await;
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let name = stash_entry(&root, &input).await?;
     git(&root, args(&["stash", "drop", &name]), GIT_TIMEOUT).await?;
     Ok(Json(list_stashes(&root).await?))

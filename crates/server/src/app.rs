@@ -113,6 +113,53 @@ pub(super) async fn root(state: &AppState, id: WorkspaceId) -> Result<PathBuf> {
     }
     Ok(path)
 }
+/// The checkout of a workspace a request reads or changes. `?checkout=`
+/// names a worktree of its repository, as a session's `checkout_path` does,
+/// and the views of a session working in one send it; without it, the
+/// workspace directory.
+#[derive(Debug, Default, Deserialize)]
+pub(super) struct CheckoutParam {
+    checkout: Option<String>,
+}
+impl<S: Send + Sync> axum::extract::FromRequestParts<S> for CheckoutParam {
+    type Rejection = ApiError;
+    async fn from_request_parts(parts: &mut axum::http::request::Parts, _: &S) -> Result<Self> {
+        Query::<CheckoutParam>::try_from_uri(&parts.uri)
+            .map(|Query(found)| found)
+            .map_err(|_| ApiError::bad("Invalid query"))
+    }
+}
+/// The directory a request works in: the workspace's own, or the worktree it
+/// names, which must be one its repository lists and inside the roots this
+/// server may use -- the same bounds a session's checkout has.
+pub(super) async fn checkout_root(
+    state: &AppState,
+    id: WorkspaceId,
+    checkout: &CheckoutParam,
+) -> Result<PathBuf> {
+    let main = root(state, id).await?;
+    let Some(named) = checkout.checkout.as_deref().filter(|path| !path.is_empty()) else {
+        return Ok(main);
+    };
+    let wanted = crate::paths::canonicalize_async(named)
+        .await
+        .map_err(|_| ApiError::conflict("Worktree directory is unavailable"))?;
+    if wanted == main {
+        return Ok(main);
+    }
+    let listing = workspace_io::git_text(&main, &["worktree", "list", "--porcelain"])
+        .await?
+        .unwrap_or_default();
+    let listed = workspace_io::parse_worktrees(&listing)
+        .into_iter()
+        .any(|tree| !tree.main && dunce::canonicalize(&tree.path).is_ok_and(|path| path == wanted));
+    if !listed || !directories::within_roots(&state.workspace_roots, &wanted) {
+        return Err(ApiError::bad(
+            "Not a worktree of this workspace's repository",
+        ));
+    }
+    Ok(wanted)
+}
 pub(super) fn bounded_name(s: &str) -> Result<String> {
     let s = s.trim();
     if s.is_empty() || s.len() > 200 {

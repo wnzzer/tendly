@@ -1,6 +1,7 @@
 import { inject, type InjectionKey, type Ref } from "vue";
 import type { GitOutcome, GitRemote, GitStatus } from "@tendly/protocol";
-import { json, request, workspacePath } from "./api";
+import { json, request } from "./api";
+import { placeUrl } from "./checkout-place";
 
 export interface PromptField { key: string; label: string; value?: string; placeholder?: string; multiline?: boolean; required?: boolean; hint?: string; }
 export interface PromptCheck { key: string; label: string; value?: boolean; hint?: string; }
@@ -16,7 +17,8 @@ export type PromptAnswer = Record<string, string | boolean>;
  * one place and the status refreshes after -- and the dialog that asks.
  */
 export interface GitContext {
-  workspaceId: () => string;
+  /** The workspace and checkout the pane shows (`placeKey`). */
+  place: () => string;
   status: Ref<GitStatus>;
   remotes: Ref<GitRemote[]>;
   busy: Ref<boolean>;
@@ -38,8 +40,8 @@ export function useGit(): GitContext {
   return context;
 }
 
-/** `/api/workspaces/:id/git/<path>`, GET or POST. */
-export function gitGet<T>(workspaceId: string, path: string) { return request<T>(`${workspacePath(workspaceId)}/git/${path}`); }
-export function gitPost<T = void>(workspaceId: string, path: string, body: unknown = {}) { return request<T>(`${workspacePath(workspaceId)}/git/${path}`, json("POST", body)); }
+/** `/api/workspaces/:id/git/<path>` in a place's checkout, GET or POST. */
+export function gitGet<T>(place: string, path: string) { return request<T>(placeUrl(place, `/git/${path}`)); }
+export function gitPost<T = void>(place: string, path: string, body: unknown = {}) { return request<T>(placeUrl(place, `/git/${path}`), json("POST", body)); }
 export const isOutcome = (value: unknown): value is GitOutcome => !!value && typeof value === "object" && "conflicts" in value;
 export const shortHash = (hash: string) => hash.slice(0, 8);

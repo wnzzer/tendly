@@ -2,7 +2,8 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import type { ComponentPublicInstance } from "vue";
 import type { FileEntry } from "@tendly/protocol";
-import { errorMessage, formatBytes, request, workspacePath } from "./api";
+import { errorMessage, formatBytes, request } from "./api";
+import { placeKey, placeUrl } from "./checkout-place";
 import { isRemove, isRename } from "./shortcuts";
 import { flattenTree, isTreeChild, sortTreeEntries, treeAncestors, treeKeyAction, treeParent } from "./tree-model";
 import type { TreeDirectory, TreeRow } from "./tree-model";
@@ -18,7 +19,9 @@ import { copyText as writeClipboard } from "./clipboard";
 import { useI18n } from "../i18n";
 
 const { t } = useI18n();
-const props = defineProps<{ workspaceId: string; refreshToken?: number; selectedPath?: string }>();
+/** `checkout`: the worktree of the session in focus, when it works in one; without it, the workspace directory. */
+const props = defineProps<{ workspaceId: string; checkout?: string | null; refreshToken?: number; selectedPath?: string }>();
+const place = computed(() => placeKey(props.workspaceId, props.checkout));
 const emit = defineEmits<{ open: [file: FileEntry]; close: [] }>();
 const directories = ref(new Map<string, TreeDirectory>());
 const expanded = ref(new Set<string>());
@@ -86,7 +89,7 @@ async function deleteEntry() {
   const entry = rowMenu.value?.entry; if (!entry) return;
   deleting.value = true;
   try {
-    await request(workspacePath(props.workspaceId) + "/file" + "?path=" + encodeURIComponent(entry.path), { method: "DELETE", headers: { "X-Tendly-Client": "web" } });
+    await request(placeUrl(place.value, "/file?path=" + encodeURIComponent(entry.path)), { method: "DELETE", headers: { "X-Tendly-Client": "web" } });
     closeRowMenu();
     await loadDirectory(treeParent(entry.path) ?? "", true);
   } catch (cause) { error.value = errorMessage(cause); }
@@ -128,7 +131,7 @@ async function createFile() {
   if (nameTaken(directories.value, path)) { error.value = t("{name} already exists in this folder.", { name: draft.name.trim() }); return; }
   draft.busy = true;
   try {
-    const entry = await request<FileEntry>(workspacePath(props.workspaceId) + "/file/create", { method: "POST", body: JSON.stringify(draft.directory ? { path, directory: true } : { path }) });
+    const entry = await request<FileEntry>(placeUrl(place.value, "/file/create"), { method: "POST", body: JSON.stringify(draft.directory ? { path, directory: true } : { path }) });
     creating.value = null;
     await loadDirectory(treeParent(entry.path) ?? "", true);
     await reveal(entry.path);
@@ -157,7 +160,7 @@ async function renameEntry() {
   if (nameTaken(directories.value, to)) { error.value = t("{name} already exists in this folder.", { name: draft.name.trim() }); return; }
   draft.busy = true;
   try {
-    const entry = await request<FileEntry>(workspacePath(props.workspaceId) + "/file/rename", { method: "POST", body: JSON.stringify({ from: draft.entry.path, to }) });
+    const entry = await request<FileEntry>(placeUrl(place.value, "/file/rename"), { method: "POST", body: JSON.stringify({ from: draft.entry.path, to }) });
     renaming.value = null;
     // The row is gone under its old name; the tree follows it to the new one.
     if (selected.value === draft.entry.path) selected.value = entry.path;
@@ -188,7 +191,7 @@ let restorePaths: string[] = [];
  */
 const workspaceResults = ref<SearchResults | undefined>();
 const fileSearch = createFileSearch();
-watch([query, () => props.workspaceId], ([term, workspace]) => {
+watch([query, place], ([term, workspace]) => {
   fileSearch.search(workspace, term, results => { workspaceResults.value = results; });
 });
 onBeforeUnmount(() => fileSearch.cancel());
@@ -225,7 +228,7 @@ function loadDirectory(path: string, force = false): Promise<boolean> {
   const requestGeneration = generation;
   state.loading = true;
   state.error = "";
-  const operation = request<FileEntry[]>(`${workspacePath(props.workspaceId)}/files?path=${encodeURIComponent(path)}`)
+  const operation = request<FileEntry[]>(placeUrl(place.value, `/files?path=${encodeURIComponent(path)}`))
     .then(entries => {
       if (generation !== requestGeneration) return false;
       state.entries = sortTreeEntries(entries.filter(entry => isTreeChild(path, entry.path)));
@@ -374,7 +377,7 @@ async function focusRoot() {
 
 function drag(event: DragEvent, file: FileEntry) {
   if (file.kind !== "file") return;
-  event.dataTransfer?.setData("application/tendly-pane", JSON.stringify(filePane(props.workspaceId, file.path)));
+  event.dataTransfer?.setData("application/tendly-pane", JSON.stringify(filePane(props.workspaceId, file.path, props.checkout)));
   if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
 }
 
@@ -386,7 +389,7 @@ function rememberView(workspaceId: string) {
   });
 }
 
-watch(() => props.workspaceId, (workspaceId, previousId) => {
+watch(place, (workspaceId, previousId) => {
   if (previousId) rememberView(previousId);
   const remembered = readTreeViewState(workspaceId);
   generation++; revealRevision++; pending = new Map();
@@ -403,8 +406,8 @@ watch(() => props.selectedPath, path => { selected.value = path ?? ""; });
  * in place, so the tree neither flickers nor loses its expansion. A listing
  * already in flight may predate the change, so it is repeated after.
  */
-const stopWatching = onFilesChanged((workspaceId, paths) => {
-  if (workspaceId !== props.workspaceId) return;
+const stopWatching = onFilesChanged((changed, paths) => {
+  if (changed !== place.value) return;
   if (refreshing.value) { changedDuringRefresh = true; return; }
   const loaded = [...directories.value].filter(([, state]) => state.loaded).map(([path]) => path);
   for (const path of directoriesToReload(paths, loaded) ?? loaded) {
@@ -412,7 +415,7 @@ const stopWatching = onFilesChanged((workspaceId, paths) => {
     if (running) void running.then(() => loadDirectory(path, true)); else void loadDirectory(path, true);
   }
 });
-onBeforeUnmount(() => { stopWatching(); rememberView(props.workspaceId); generation++; revealRevision++; pressEnd(); });
+onBeforeUnmount(() => { stopWatching(); rememberView(place.value); generation++; revealRevision++; pressEnd(); });
 defineExpose({ reveal });
 </script>
 <template>

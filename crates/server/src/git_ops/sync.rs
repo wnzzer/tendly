@@ -16,9 +16,10 @@ pub(super) struct FetchInput {
 pub(super) async fn fetch(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<FetchInput>,
 ) -> Result<StatusCode> {
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let mut list = args(&["fetch", "--prune", "--tags"]);
     match input
         .remote
@@ -45,10 +46,11 @@ pub(super) struct PullInput {
 pub(super) async fn pull(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<PullInput>,
 ) -> Result<Json<Outcome>> {
     let _guard = state.operations.lock().await;
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let mut list = args(&["pull", "--no-edit"]);
     match input.mode.as_deref() {
         Some("merge") => list.push("--no-rebase".into()),
@@ -94,9 +96,10 @@ pub(super) struct PushInput {
 pub(super) async fn push(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<PushInput>,
 ) -> Result<Json<Outcome>> {
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let remote = match input
         .remote
         .as_deref()

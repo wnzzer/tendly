@@ -4,8 +4,12 @@
 
 use super::*;
 
-pub(super) async fn repo(state: &AppState, id: WorkspaceId) -> Result<PathBuf> {
-    Ok(dunce::canonicalize(root(state, id).await?).map_err(IoError::from)?)
+pub(super) async fn repo(
+    state: &AppState,
+    id: WorkspaceId,
+    checkout: &CheckoutParam,
+) -> Result<PathBuf> {
+    Ok(dunce::canonicalize(checkout_root(state, id, checkout).await?).map_err(IoError::from)?)
 }
 
 pub(super) fn args(list: &[&str]) -> Vec<String> {

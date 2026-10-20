@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, type Ref } from 'vue';
 import type { EndpointProfile, Session, Workspace } from '@tendly/protocol';
-import { assetUrl, errorMessage, json, providerLabel, request, sessionPath, workspacePath } from './api';
+import { assetUrl, errorMessage, inCheckout, json, providerLabel, request, sessionPath, workspacePath } from './api';
+import { placeKey } from './checkout-place';
 import { backendCapabilities } from './backend-capabilities';
 import { agentClient } from './clients';
 import { sessionConnections } from './session-connection';
@@ -162,7 +163,8 @@ watch(viewport, element => {
 }, { immediate: true });
 onBeforeUnmount(() => widthObserver?.disconnect());
 /** Images load from this session's workspace, through the server, and nowhere else. */
-const workspaceImage = (path: string) => assetUrl(props.session.workspace_id, path);
+/** A path the conversation names is the session's: in its worktree, if it works in one. */
+const workspaceImage = (path: string) => assetUrl(props.session.workspace_id, path, props.session.checkout_path);
 const hostImage = (path: string) => `/api/host/raw?${new URLSearchParams({ path })}`;
 /** A file a message points at opens in the file pane; the shell resolves where. */
 const openReference = (reference: { path: string; line?: number }) => emit('openFile', { ...reference, checkout: props.session.checkout_path });
@@ -204,7 +206,7 @@ const mentionSearch = createFileSearch();
 const mentionTarget = computed(() => (mentionsDismissed.value || commandsOpen.value) ? undefined : mentionQuery(draft.value.text, caret.value));
 watch(() => mentionTarget.value?.term, term => {
   if (term === undefined) { mentionSearch.cancel(); mentionHits.value = []; return; }
-  mentionSearch.search(props.session.workspace_id, term, results => { mentionHits.value = results?.files ?? []; });
+  mentionSearch.search(placeKey(props.session.workspace_id, props.session.checkout_path), term, results => { mentionHits.value = results?.files ?? []; });
 });
 const mentionsOpen = computed(() => !!mentionTarget.value && mentionHits.value.length > 0);
 const mentionIndex = ref(0);
@@ -854,7 +856,7 @@ async function uploadFiles(files: File[]) {
       const reason = attachmentError(file, target.attachments?.length ?? 0);
       if (reason) { error.value = t(reason, { count: MAX_ATTACHMENTS_PER_MESSAGE }); break; }
       const saved = await request<Attachment>(
-        `${workspacePath(props.session.workspace_id)}/attachments?name=${encodeURIComponent(file.name)}`,
+        inCheckout(`${workspacePath(props.session.workspace_id)}/attachments?name=${encodeURIComponent(file.name)}`, props.session.checkout_path),
         { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-Tendly-Client': 'web' }, body: file },
       );
       target.attachments = [...(target.attachments ?? []), saved];

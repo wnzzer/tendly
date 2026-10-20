@@ -56,8 +56,9 @@ async fn list_tags(root: &std::path::Path) -> Result<Vec<Tag>> {
 pub(super) async fn tags(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
 ) -> Result<Json<Vec<Tag>>> {
-    Ok(Json(list_tags(&repo(&state, id).await?).await?))
+    Ok(Json(list_tags(&repo(&state, id, &checkout).await?).await?))
 }
 
 #[derive(Deserialize)]
@@ -75,10 +76,11 @@ pub(super) struct TagInput {
 pub(super) async fn create_tag(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<TagInput>,
 ) -> Result<Json<Vec<Tag>>> {
     let _guard = state.operations.lock().await;
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let name = input.name.trim();
     valid_tag(&root, name).await?;
     let hash = valid_rev(&root, input.rev.as_deref().map(str::trim).unwrap_or("HEAD")).await?;
@@ -99,10 +101,11 @@ pub(super) async fn create_tag(
 pub(super) async fn delete_tag(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<TagInput>,
 ) -> Result<Json<Vec<Tag>>> {
     let _guard = state.operations.lock().await;
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let name = input.name.trim();
     valid_tag(&root, name).await?;
     git(&root, args(&["tag", "-d", name]), GIT_TIMEOUT).await?;

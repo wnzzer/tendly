@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, provide, ref, watch } from "vue";
 import type { GitBranches, GitOutcome, GitRemote, GitStash, GitStatus } from "@tendly/protocol";
 import { errorMessage } from "./api";
+import { placeKey } from "./checkout-place";
 import { copyText } from "./clipboard";
 import { GIT_CONTEXT, gitGet, gitPost, isOutcome, type GitContext, type PromptAnswer, type PromptSpec } from "./git-context";
 import { isConflictedFile } from "./git-model";
@@ -23,11 +24,13 @@ import { useI18n } from "../i18n";
  * `run`, so one thing happens at a time and the status always follows.
  */
 const { t } = useI18n();
-const props = defineProps<{ workspaceId: string; refreshToken?: number }>();
+/** `checkout`: the worktree of a session the pane was opened for; without it, the workspace directory. */
+const props = defineProps<{ workspaceId: string; checkout?: string | null; refreshToken?: number }>();
+const place = computed(() => placeKey(props.workspaceId, props.checkout));
 const emit = defineEmits<{ changed: [status: GitStatus]; openFile: [path: string] }>();
 const status = ref<GitStatus>({ branch: null, files: [] });
 const remotes = ref<GitRemote[]>([]);
-const viewState = computed(() => gitViewState(props.workspaceId));
+const viewState = computed(() => gitViewState(place.value));
 const view = computed<GitView>({ get: () => viewState.value.view ?? "changes", set: value => { viewState.value.view = value; detailOpen.value = false; } });
 const loading = ref(false), busy = ref(false), error = ref(""), notice = ref(""), warning = ref("");
 /** Why the status itself could not be read: not a repository, or no Git. The pane then has nothing to act on. */
@@ -42,15 +45,15 @@ async function refresh() {
   const requestId = ++statusRevision;
   loading.value = true; unavailable.value = "";
   try {
-    const next = await gitGet<GitStatus>(props.workspaceId, "status");
+    const next = await gitGet<GitStatus>(place.value, "status");
     if (!alive || requestId !== statusRevision) return;
     status.value = next; emit("changed", next);
   } catch (cause) { if (alive && requestId === statusRevision) { status.value = { branch: null, files: [] }; unavailable.value = errorMessage(cause); } }
   finally { if (alive && requestId === statusRevision) loading.value = false; }
 }
 async function loadRepo() {
-  try { remotes.value = await gitGet<GitRemote[]>(props.workspaceId, "remotes"); } catch { remotes.value = []; }
-  try { stashCount.value = (await gitGet<GitStash[]>(props.workspaceId, "stashes")).length; } catch { stashCount.value = 0; }
+  try { remotes.value = await gitGet<GitRemote[]>(place.value, "remotes"); } catch { remotes.value = []; }
+  try { stashCount.value = (await gitGet<GitStash[]>(place.value, "stashes")).length; } catch { stashCount.value = 0; }
 }
 
 /** Read everything again: after a branch moved elsewhere, or on request. */
@@ -76,14 +79,14 @@ function ask(spec: PromptSpec) { prompt.value?.answer(undefined); return new Pro
 async function copy(text: string) { try { await copyText(text); notice.value = t("Copied"); } catch { error.value = t("Could not copy to the clipboard in this browser."); } }
 function showHistory(path?: string) { viewState.value.historyPath = path; view.value = "history"; }
 
-const context: GitContext = { workspaceId: () => props.workspaceId, status, remotes, busy, revision, detailOpen, run, refresh, ask, openFile: path => emit("openFile", path), showHistory, copy };
+const context: GitContext = { place: () => place.value, status, remotes, busy, revision, detailOpen, run, refresh, ask, openFile: path => emit("openFile", path), showHistory, copy };
 provide(GIT_CONTEXT, context);
 
 // ------------------------------------------------------------------ sync
 const remoteName = computed(() => remotes.value.find(remote => remote.name === "origin")?.name ?? remotes.value[0]?.name);
-const fetchAll = () => run(() => gitPost(props.workspaceId, "fetch", {}), t("Fetched from every remote"));
-const pull = (mode?: string) => run(() => gitPost<GitOutcome>(props.workspaceId, "pull", mode ? { mode } : {}), outcome => outcome.conflicts ? undefined : t("Pulled {upstream}", { upstream: status.value.upstream ?? "" }));
-const push = () => run(() => gitPost<GitOutcome>(props.workspaceId, "push", {}), t("Pushed to {upstream}", { upstream: status.value.upstream ?? "" }));
+const fetchAll = () => run(() => gitPost(place.value, "fetch", {}), t("Fetched from every remote"));
+const pull = (mode?: string) => run(() => gitPost<GitOutcome>(place.value, "pull", mode ? { mode } : {}), outcome => outcome.conflicts ? undefined : t("Pulled {upstream}", { upstream: status.value.upstream ?? "" }));
+const push = () => run(() => gitPost<GitOutcome>(place.value, "push", {}), t("Pushed to {upstream}", { upstream: status.value.upstream ?? "" }));
 async function publish() {
   if (!status.value.branch) return;
   let remote = remoteName.value;
@@ -91,16 +94,16 @@ async function publish() {
     const answer = await ask({ title: t("Publish {branch}", { branch: status.value.branch }), choices: [{ key: "remote", label: t("Remote"), value: remote!, options: remotes.value.map(entry => ({ value: entry.name, label: `${entry.name} · ${entry.url}` })) }], confirm: t("Publish") });
     if (!answer) return; remote = String(answer.remote);
   }
-  await run(() => gitPost(props.workspaceId, "push", { remote, set_upstream: true }), t("Published {branch} to {remote}", { branch: status.value.branch!, remote: remote! }));
+  await run(() => gitPost(place.value, "push", { remote, set_upstream: true }), t("Published {branch} to {remote}", { branch: status.value.branch!, remote: remote! }));
 }
 async function forcePush() {
   const answer = await ask({ title: t("Force push {branch}?", { branch: status.value.branch ?? "" }), description: t("Replaces {upstream} with your branch, dropping commits there that you do not have. It is refused if someone pushed since you last fetched (force-with-lease).", { upstream: status.value.upstream ?? t("the remote branch") }), confirm: t("Force push"), danger: true });
-  if (answer) await run(() => gitPost(props.workspaceId, "push", { force: true }), t("Force-pushed {branch}", { branch: status.value.branch ?? "" }));
+  if (answer) await run(() => gitPost(place.value, "push", { force: true }), t("Force-pushed {branch}", { branch: status.value.branch ?? "" }));
 }
 /** Merge another branch into this one, or rebase this one onto it. */
 async function integrate(kind: "merge" | "rebase") {
   let branches: GitBranches;
-  try { branches = await gitGet<GitBranches>(props.workspaceId, "branches"); } catch (cause) { error.value = errorMessage(cause); return; }
+  try { branches = await gitGet<GitBranches>(place.value, "branches"); } catch (cause) { error.value = errorMessage(cause); return; }
   const names = [...(branches.local ?? []).map(entry => entry.name).filter(name => name !== branches.current), ...(branches.remote ?? []).map(entry => entry.name)];
   if (!names.length) { error.value = t("There is no other branch."); return; }
   const current = branches.current ?? "HEAD";
@@ -109,27 +112,27 @@ async function integrate(kind: "merge" | "rebase") {
     : { title: t("Rebase {branch}", { branch: current }), description: t("Replays the commits of {branch} on top of the branch you choose. Rewrites them: avoid it for commits already pushed and shared.", { branch: current }), choices: [{ key: "rev", label: t("Onto"), value: names[0], options: names.map(name => ({ value: name, label: name })) }], confirm: t("Rebase") });
   if (!answer) return;
   const rev = String(answer.rev);
-  await run(() => gitPost<GitOutcome>(props.workspaceId, kind, kind === "merge" ? { rev, no_ff: !!answer.no_ff, squash: !!answer.squash } : { rev }), outcome => outcome.conflicts ? undefined : t(kind === "merge" ? "Merged {branch}" : "Rebased onto {branch}", { branch: rev }));
+  await run(() => gitPost<GitOutcome>(place.value, kind, kind === "merge" ? { rev, no_ff: !!answer.no_ff, squash: !!answer.squash } : { rev }), outcome => outcome.conflicts ? undefined : t(kind === "merge" ? "Merged {branch}" : "Rebased onto {branch}", { branch: rev }));
 }
 async function stash(paths?: string[]) {
   const answer = await ask({ title: paths?.length ? t("Stash {path}", { path: paths[0] }) : t("Stash changes"), fields: [{ key: "message", label: t("Message"), placeholder: t("What is this work?") }], checks: paths?.length ? [] : [{ key: "include_untracked", label: t("Include new (untracked) files"), value: true }, { key: "keep_index", label: t("Keep staged changes in place too") }], confirm: t("Stash") });
   if (!answer) return;
-  await run(() => gitPost(props.workspaceId, "stashes", { message: String(answer.message ?? ""), include_untracked: paths?.length ? true : !!answer.include_untracked, keep_index: !!answer.keep_index, paths: paths ?? [] }), t("Changes stashed"));
+  await run(() => gitPost(place.value, "stashes", { message: String(answer.message ?? ""), include_untracked: paths?.length ? true : !!answer.include_untracked, keep_index: !!answer.keep_index, paths: paths ?? [] }), t("Changes stashed"));
 }
 const operationLabels: Record<string, string> = { merge: "Merge in progress", rebase: "Rebase in progress", "cherry-pick": "Cherry-pick in progress", revert: "Revert in progress" };
 const operationDone: Record<string, [string, string]> = { merge: ["Merge completed", "Merge aborted"], rebase: ["Rebase completed", "Rebase aborted"], "cherry-pick": ["Cherry-pick completed", "Cherry-pick aborted"], revert: ["Revert completed", "Revert aborted"] };
 function operation(action: "continue" | "abort" | "skip") {
   const [completed, aborted] = operationDone[status.value.operation ?? "merge"];
-  return run(() => gitPost<GitOutcome>(props.workspaceId, "operation", { action }), outcome => outcome.conflicts ? undefined : t(action === "abort" ? aborted : completed));
+  return run(() => gitPost<GitOutcome>(place.value, "operation", { action }), outcome => outcome.conflicts ? undefined : t(action === "abort" ? aborted : completed));
 }
-const init = () => run(() => gitPost(props.workspaceId, "init"), t("Created a Git repository here"));
+const init = () => run(() => gitPost(place.value, "init"), t("Created a Git repository here"));
 
 const moreMenu = ref<{ x: number; y: number }>();
 function openMore(event: MouseEvent) { const box = (event.currentTarget as HTMLElement).getBoundingClientRect(); moreMenu.value = { x: box.right - 240, y: box.bottom + 4 }; }
 function menuAction(work: () => unknown) { moreMenu.value = undefined; void work(); }
 const showRepo = ref(false);
 
-watch(() => props.workspaceId, () => { statusRevision++; busy.value = false; status.value = { branch: null, files: [] }; notice.value = ""; error.value = ""; warning.value = ""; void refresh(); void loadRepo(); }, { immediate: true, flush: "sync" });
+watch(place, () => { statusRevision++; busy.value = false; status.value = { branch: null, files: [] }; notice.value = ""; error.value = ""; warning.value = ""; void refresh(); void loadRepo(); }, { immediate: true, flush: "sync" });
 // Files change often while agents work: the status follows every change,
 // history and stashes only while they are on screen.
 watch(() => props.refreshToken, () => { if (busy.value) return; void refresh(); if (view.value !== "changes") revision.value++; });
@@ -144,7 +147,7 @@ const tabs = computed(() => [
 <template>
   <section :class="['git-pane', { 'is-phone': mobile, 'show-diff': mobile && detailOpen }]">
     <div class="content-toolbar git-toolbar">
-      <span class="git-branch-bar"><WorkspaceBranchMenu :workspace-id="workspaceId" :branch="status.branch" @switched="reload" @changed="reload" /><span v-if="status.upstream" class="git-upstream" :title="t('Tracks {upstream}', { upstream: status.upstream })">{{ status.upstream }}</span></span>
+      <span class="git-branch-bar"><span v-if="checkout" class="git-worktree" :title="t('Works in worktree {path}', { path: checkout })"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M5 3v7M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm0-7a2 2 0 1 0 0-.01M11 5a2 2 0 1 0 0-.01M11 7c0 2-2 3-6 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>{{ status.branch || t('Detached HEAD') }}</span><small>{{ t('Own directory') }}</small></span><WorkspaceBranchMenu v-else :workspace-id="workspaceId" :branch="status.branch" @switched="reload" @changed="reload" /><span v-if="status.upstream" class="git-upstream" :title="t('Tracks {upstream}', { upstream: status.upstream })">{{ status.upstream }}</span></span>
       <span v-if="!unavailable" class="toolbar-buttons git-sync">
         <template v-if="status.upstream">
           <button type="button" :class="['git-sync-button', { due: status.behind }]" :disabled="busy" :title="t('Pull from {upstream}', { upstream: status.upstream })" :aria-label="t('Pull from {upstream}', { upstream: status.upstream })" @click="pull()"><Icon name="download" :size="14" /><span v-if="status.behind">{{ status.behind }}</span></button>
@@ -201,6 +204,9 @@ const tabs = computed(() => [
 <style>
 .git-toolbar{gap:6px}
 .git-branch-bar{display:flex;align-items:center;gap:8px;min-width:0;font-size:var(--text-sm);font-weight:600}
+.git-worktree{display:inline-flex;align-items:center;gap:5px;min-width:0;padding:1px 6px;border-radius:var(--radius-sm);color:var(--accent-ink)}
+.git-worktree>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.git-worktree small{flex:none;font-size:var(--text-xs);font-weight:400;color:var(--muted)}
 .git-upstream{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:var(--text-xs) var(--mono);color:var(--faint)}
 .git-sync{gap:2px}
 .git-sync-button{display:inline-flex;align-items:center;gap:3px;height:28px;min-width:28px;padding:0 7px;border:0;border-radius:var(--radius-sm);background:none;color:var(--muted);font:600 var(--text-xs) var(--mono);cursor:pointer}

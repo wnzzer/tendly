@@ -39,8 +39,11 @@ pub(super) async fn list_remotes(root: &std::path::Path) -> Result<Vec<Remote>> 
 pub(super) async fn remotes(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
 ) -> Result<Json<Vec<Remote>>> {
-    Ok(Json(list_remotes(&repo(&state, id).await?).await?))
+    Ok(Json(
+        list_remotes(&repo(&state, id, &checkout).await?).await?,
+    ))
 }
 
 pub(super) fn valid_remote_name(name: &str) -> Result<()> {
@@ -100,10 +103,11 @@ pub(super) struct RemoteInput {
 pub(super) async fn add_remote(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<RemoteInput>,
 ) -> Result<Json<Vec<Remote>>> {
     let _guard = state.operations.lock().await;
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let (name, url) = (
         input.name.trim(),
         input.url.as_deref().unwrap_or_default().trim(),
@@ -117,10 +121,11 @@ pub(super) async fn add_remote(
 pub(super) async fn edit_remote(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<RemoteInput>,
 ) -> Result<Json<Vec<Remote>>> {
     let _guard = state.operations.lock().await;
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let mut name = known_remote(&root, input.name.trim()).await?;
     if let Some(to) = input.to.as_deref().map(str::trim).filter(|to| *to != name) {
         valid_remote_name(to)?;
@@ -137,10 +142,11 @@ pub(super) async fn edit_remote(
 pub(super) async fn remove_remote(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<RemoteInput>,
 ) -> Result<Json<Vec<Remote>>> {
     let _guard = state.operations.lock().await;
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let name = known_remote(&root, input.name.trim()).await?;
     git(&root, args(&["remote", "remove", &name]), GIT_TIMEOUT).await?;
     Ok(Json(list_remotes(&root).await?))

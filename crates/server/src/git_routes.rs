@@ -14,7 +14,7 @@ pub(super) struct BranchInput {
     branch: String,
     #[serde(default)]
     create: bool,
-    /// End the sessions running in the workspace directory, then switch.
+    /// End the sessions running in the checkout being switched, then switch.
     #[serde(default)]
     stop_sessions: bool,
     /// With `create`: the commit or remote branch the new branch starts at.
@@ -36,45 +36,55 @@ pub(super) struct CommitInput {
 pub(super) async fn git_status(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
 ) -> Result<Json<workspace_io::GitStatus>> {
     Ok(Json(
-        workspace_io::git_status(&root(&state, id).await?).await?,
+        workspace_io::git_status(&checkout_root(&state, id, &checkout).await?).await?,
     ))
 }
 pub(super) async fn git_diff(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Query(q): Query<PathQuery>,
 ) -> Result<Json<workspace_io::GitDiff>> {
     Ok(Json(
-        workspace_io::git_diff(&root(&state, id).await?, q.path.as_deref(), q.staged).await?,
+        workspace_io::git_diff(
+            &checkout_root(&state, id, &checkout).await?,
+            q.path.as_deref(),
+            q.staged,
+        )
+        .await?,
     ))
 }
 pub(super) async fn git_stage(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<GitPaths>,
 ) -> Result<StatusCode> {
     let _guard = state.operations.lock().await;
-    workspace_io::git_stage(&root(&state, id).await?, &input.paths).await?;
+    workspace_io::git_stage(&checkout_root(&state, id, &checkout).await?, &input.paths).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 pub(super) async fn git_unstage(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<GitPaths>,
 ) -> Result<StatusCode> {
     let _guard = state.operations.lock().await;
-    workspace_io::git_unstage(&root(&state, id).await?, &input.paths).await?;
+    workspace_io::git_unstage(&checkout_root(&state, id, &checkout).await?, &input.paths).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 pub(super) async fn git_discard(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<GitPaths>,
 ) -> Result<StatusCode> {
     let _guard = state.operations.lock().await;
-    workspace_io::git_discard(&root(&state, id).await?, &input.paths).await?;
+    workspace_io::git_discard(&checkout_root(&state, id, &checkout).await?, &input.paths).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 pub(super) async fn git_branches(
@@ -86,21 +96,26 @@ pub(super) async fn git_branches(
     Ok(Json(listed))
 }
 /// Switching branches rewrites the files under every session working in this
-/// checkout, so it waits until none of them is running: an agent halfway
-/// through an edit would otherwise find its files replaced underneath it.
+/// checkout -- the workspace directory, or the worktree `?checkout=` names --
+/// so it waits until none of them is running: an agent halfway through an
+/// edit would otherwise find its files replaced underneath it.
 pub(super) async fn git_switch(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<BranchInput>,
 ) -> Result<StatusCode> {
     let _guard = state.operations.lock().await;
+    let main = root(&state, id).await?;
+    let target = checkout_root(&state, id, &checkout).await?;
+    let here = (target != main).then(|| target.to_string_lossy().into_owned());
     let busy = db(&state, move |s| s.list_sessions(Some(id)))
         .await?
         .into_iter()
-        // Only sessions in the workspace directory itself have their files
-        // rewritten; one in its own worktree is untouched by this switch.
+        // Only sessions in this checkout have their files rewritten; one in
+        // another worktree is untouched by this switch.
         .filter(|session| {
-            session.checkout_path.is_none()
+            session.checkout_path == here
                 && matches!(
                     session.status,
                     SessionStatus::Running | SessionStatus::Starting | SessionStatus::Waiting
@@ -110,7 +125,7 @@ pub(super) async fn git_switch(
         .collect::<Vec<_>>();
     if !busy.is_empty() && !input.stop_sessions {
         return Err(ApiError::conflict(format!(
-            "{} session(s) are running in the workspace directory. End them first, or move a session to another branch from its own branch chip instead.",
+            "{} session(s) are running in this checkout. End them first, or move a session to another branch from its own branch chip instead.",
             busy.len()
         )));
     }
@@ -118,7 +133,7 @@ pub(super) async fn git_switch(
         stop_session_locked(&state, session).await?;
     }
     workspace_io::git_switch(
-        &root(&state, id).await?,
+        &target,
         input.branch.trim(),
         input.create,
         input.start_point.as_deref().map(str::trim),
@@ -130,11 +145,12 @@ pub(super) async fn git_switch(
 pub(super) async fn git_commit(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<CommitInput>,
 ) -> Result<Json<Value>> {
     let _guard = state.operations.lock().await;
     Ok(Json(
-        json!({"commit":workspace_io::git_commit(&root(&state,id).await?,&input.message,input.amend).await?}),
+        json!({"commit":workspace_io::git_commit(&checkout_root(&state, id, &checkout).await?,&input.message,input.amend).await?}),
     ))
 }
 

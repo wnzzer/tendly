@@ -4,11 +4,11 @@
  * column may be, and whether leaving the page would lose work.
  */
 
-/** Where a file reference resolves: a path inside one workspace, a read-only host file, or a bare name to look up. */
+/** Where a file reference resolves: a path inside one workspace -- in its directory, or in the worktree `checkout` -- a read-only host file, or a bare name to look up. */
 export type ReferenceTarget =
-  | { kind: "workspace"; workspaceId: string; path: string }
+  | { kind: "workspace"; workspaceId: string; checkout: string | null; path: string }
   | { kind: "host"; path: string }
-  | { kind: "search"; workspaceId: string; name: string };
+  | { kind: "search"; workspaceId: string; checkout: string | null; name: string };
 
 /**
  * A path as a Windows host and a reference can disagree on it: `C:\repo`
@@ -22,11 +22,11 @@ function folded(value: string): string {
 
 /**
  * Where a file a chat message pointed at opens. An absolute path inside the
- * workspace (or the session's own checkout) becomes relative to it; one inside
- * another workspace opens there, in the most specific of them; any other
- * absolute path is shown read-only rather than refused, since the agent named
- * it for a reason. A path with a directory opens as it is, and a bare name is
- * looked up in the workspace.
+ * workspace (or the session's own checkout) becomes relative to it, and opens
+ * in that checkout; one inside another workspace opens there, in the most
+ * specific of them; any other absolute path is shown read-only rather than
+ * refused, since the agent named it for a reason. A relative path or a bare
+ * name is the session's: it opens, or is looked up, in its checkout.
  */
 export function resolveReference(
   reference: { path: string; checkout?: string | null },
@@ -37,13 +37,14 @@ export function resolveReference(
   if (/^([A-Za-z]:)?\//.test(path)) {
     const inside = (root?: string | null) => !!root && folded(path).startsWith(folded(root) + "/");
     const base = [workspace.root_path, reference.checkout].find(inside);
-    if (base) return { kind: "workspace", workspaceId: workspace.id, path: path.slice(folded(base).length + 1) };
+    if (base) return { kind: "workspace", workspaceId: workspace.id, checkout: base === workspace.root_path ? null : base, path: path.slice(folded(base).length + 1) };
     const other = workspaces.filter(item => inside(item.root_path)).sort((a, b) => b.root_path.length - a.root_path.length)[0];
-    if (other) return { kind: "workspace", workspaceId: other.id, path: path.slice(folded(other.root_path).length + 1) };
+    if (other) return { kind: "workspace", workspaceId: other.id, checkout: null, path: path.slice(folded(other.root_path).length + 1) };
     return { kind: "host", path };
   }
-  if (!path.includes("/")) return { kind: "search", workspaceId: workspace.id, name: path };
-  return { kind: "workspace", workspaceId: workspace.id, path };
+  const checkout = reference.checkout ?? null;
+  if (!path.includes("/")) return { kind: "search", workspaceId: workspace.id, checkout, name: path };
+  return { kind: "workspace", workspaceId: workspace.id, checkout, path };
 }
 
 /** The views a phone opens like a pushed page, with Back to where they came from. */

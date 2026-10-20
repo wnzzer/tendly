@@ -34,10 +34,11 @@ pub(super) fn literal_glob(path: &str) -> String {
 pub(super) async fn apply(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<ApplyInput>,
 ) -> Result<StatusCode> {
     let _guard = state.operations.lock().await;
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let path = checked_path(&input.path)?;
     if input.patch.len() > MAX_PATCH || input.patch.matches("diff --git ").count() != 1 {
         return Err(ApiError::bad("A patch for exactly one file is required"));
@@ -64,9 +65,10 @@ pub(super) async fn apply(
 pub(super) async fn init(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
 ) -> Result<StatusCode> {
     let _guard = state.operations.lock().await;
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     if git_text(&root, &["rev-parse", "--is-inside-work-tree"])
         .await?
         .is_some()
@@ -90,10 +92,11 @@ pub(super) struct IgnoreInput {
 pub(super) async fn ignore(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<IgnoreInput>,
 ) -> Result<StatusCode> {
     let _guard = state.operations.lock().await;
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let path = checked_path(input.path.trim_end_matches('/'))?;
     let escaped: String = path
         .chars()

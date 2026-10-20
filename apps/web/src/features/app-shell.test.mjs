@@ -8,25 +8,30 @@ const win = { id: 'win', root_path: 'C:\\Users\\me\\repo' };
 const all = [app, lib, win];
 
 test('a path inside the workspace or its checkout opens relative to it', () => {
-  assert.deepEqual(resolveReference({ path: '/work/app/src/main.ts' }, app, all), { kind: 'workspace', workspaceId: 'app', path: 'src/main.ts' });
-  assert.deepEqual(resolveReference({ path: '/work/app.worktrees/feat/a.ts', checkout: '/work/app.worktrees/feat' }, app, all), { kind: 'workspace', workspaceId: 'app', path: 'a.ts' });
-  assert.deepEqual(resolveReference({ path: './src/a.ts' }, app, all), { kind: 'workspace', workspaceId: 'app', path: 'src/a.ts' });
+  assert.deepEqual(resolveReference({ path: '/work/app/src/main.ts' }, app, all), { kind: 'workspace', workspaceId: 'app', checkout: null, path: 'src/main.ts' });
+  assert.deepEqual(resolveReference({ path: '/work/app.worktrees/feat/a.ts', checkout: '/work/app.worktrees/feat' }, app, all), { kind: 'workspace', workspaceId: 'app', checkout: '/work/app.worktrees/feat', path: 'a.ts' });
+  // A relative path or a bare name from a session in a worktree is that worktree's.
+  assert.deepEqual(resolveReference({ path: 'src/a.ts', checkout: '/work/app.worktrees/feat' }, app, all), { kind: 'workspace', workspaceId: 'app', checkout: '/work/app.worktrees/feat', path: 'src/a.ts' });
+  assert.deepEqual(resolveReference({ path: 'a.ts', checkout: '/work/app.worktrees/feat' }, app, all), { kind: 'search', workspaceId: 'app', checkout: '/work/app.worktrees/feat', name: 'a.ts' });
+  // An absolute path into the workspace directory opens there, even from a worktree session.
+  assert.deepEqual(resolveReference({ path: '/work/app/b.ts', checkout: '/work/app.worktrees/feat' }, app, all), { kind: 'workspace', workspaceId: 'app', checkout: null, path: 'b.ts' });
+  assert.deepEqual(resolveReference({ path: './src/a.ts' }, app, all), { kind: 'workspace', workspaceId: 'app', checkout: null, path: 'src/a.ts' });
 });
 
 test('Windows paths match whatever their slashes and case', () => {
-  assert.deepEqual(resolveReference({ path: 'c:/users/ME/repo/Src/A.ts' }, win, all), { kind: 'workspace', workspaceId: 'win', path: 'Src/A.ts' });
+  assert.deepEqual(resolveReference({ path: 'c:/users/ME/repo/Src/A.ts' }, win, all), { kind: 'workspace', workspaceId: 'win', checkout: null, path: 'Src/A.ts' });
 });
 
 test('a path in another workspace opens there, in the most specific one', () => {
   const elsewhere = { id: 'docs', root_path: '/srv/docs' };
-  assert.deepEqual(resolveReference({ path: '/work/app/vendor/lib/x.rs' }, elsewhere, all), { kind: 'workspace', workspaceId: 'lib', path: 'x.rs' });
-  assert.deepEqual(resolveReference({ path: '/work/app/readme.md' }, elsewhere, all), { kind: 'workspace', workspaceId: 'app', path: 'readme.md' });
+  assert.deepEqual(resolveReference({ path: '/work/app/vendor/lib/x.rs' }, elsewhere, all), { kind: 'workspace', workspaceId: 'lib', checkout: null, path: 'x.rs' });
+  assert.deepEqual(resolveReference({ path: '/work/app/readme.md' }, elsewhere, all), { kind: 'workspace', workspaceId: 'app', checkout: null, path: 'readme.md' });
 });
 
 test('a path in no workspace is shown read-only, and a bare name is looked up', () => {
   assert.deepEqual(resolveReference({ path: '/etc/hosts' }, app, all), { kind: 'host', path: '/etc/hosts' });
   assert.deepEqual(resolveReference({ path: '/work/apple/x' }, app, all), { kind: 'host', path: '/work/apple/x' }, 'a root is a whole directory, not a prefix');
-  assert.deepEqual(resolveReference({ path: 'main.ts' }, app, all), { kind: 'search', workspaceId: 'app', name: 'main.ts' });
+  assert.deepEqual(resolveReference({ path: 'main.ts' }, app, all), { kind: 'search', workspaceId: 'app', checkout: null, name: 'main.ts' });
 });
 
 test('Back on a phone goes to the latest other pane still open, from a pushed view only', () => {

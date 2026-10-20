@@ -20,7 +20,7 @@ interface Row { label: string; value: string }
 interface AgentRequest { id: string; who: Who; title: string; values: Record<string, string>; rows: Row[]; notes: string[]; key: { label: string; optional: boolean } | null }
 interface Notice { id: string; who: Who; message: string; values: Record<string, string>; undoable: boolean; undone?: boolean; open?: { session_id: string } | null }
 /** Where an agent pointed the person: a file and line, a diff, a session. */
-export type ShowTarget = { kind: "file"; workspace_id: string; path: string; line?: number | null; checkout?: string | null } | { kind: "changes"; workspace_id: string } | { kind: "session"; session_id: string };
+export type ShowTarget = { kind: "file"; workspace_id: string; path: string; line?: number | null; checkout?: string | null } | { kind: "changes"; workspace_id: string; checkout?: string | null } | { kind: "session"; session_id: string };
 
 const props = defineProps<{ enabled: boolean }>();
 const emit = defineEmits<{ changed: []; show: [target: ShowTarget]; canvas: [revision: number] }>();

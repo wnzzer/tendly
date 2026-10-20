@@ -74,9 +74,10 @@ pub(super) fn parse_log(raw: &str) -> Vec<Commit> {
 pub(super) async fn log(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Query(q): Query<LogQuery>,
 ) -> Result<Json<Log>> {
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let limit = q.limit.unwrap_or(100).clamp(1, MAX_LOG);
     let mut list = args(&[
         "log",
@@ -240,9 +241,10 @@ async fn changed_files(
 pub(super) async fn commit_detail(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Query(q): Query<CommitQuery>,
 ) -> Result<Json<CommitDetail>> {
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let hash = valid_rev(&root, q.rev.trim()).await?;
     let raw = git(
         &root,
@@ -306,9 +308,10 @@ pub(super) async fn commit_detail(
 pub(super) async fn commit_diff(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Query(q): Query<CommitQuery>,
 ) -> Result<Json<GitDiff>> {
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let hash = valid_rev(&root, q.rev.trim()).await?;
     let path = checked_path(q.path.as_deref().unwrap_or_default())?;
     let parents: Vec<String> = git_text(&root, &["rev-list", "--parents", "-n", "1", &hash])

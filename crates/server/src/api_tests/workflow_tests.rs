@@ -129,6 +129,56 @@ async fn workspace_file_git_layout_workflow() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
+    // Views of a session in that worktree read and change it, not the
+    // workspace directory; a directory that is not one of its worktrees is
+    // refused.
+    let at = |path: &str| {
+        let sep = if path.contains('?') { '&' } else { '?' };
+        format!(
+            "{base}/{path}{sep}checkout={}",
+            url::form_urlencoded::byte_serialize(tree_path.as_bytes()).collect::<String>()
+        )
+    };
+    let (status, _) = call(
+        f.app(),
+        "PUT",
+        &at("file?path=tree-only.txt"),
+        json!({"content":"tree\n"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        std::path::Path::new(&tree_path)
+            .join("tree-only.txt")
+            .exists()
+    );
+    assert!(!f.path.join("repo/tree-only.txt").exists());
+    let (_, tree_status) = call(f.app(), "GET", &at("git/status"), Value::Null).await;
+    assert_eq!(tree_status["branch"], "feature/tree");
+    assert_eq!(tree_status["files"][0]["path"], "tree-only.txt");
+    let (_, home_status) = call(f.app(), "GET", &format!("{base}/git/status"), Value::Null).await;
+    assert!(home_status["files"].as_array().unwrap().is_empty());
+    let (_, listed) = call(f.app(), "GET", &at("files"), Value::Null).await;
+    assert!(
+        listed
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["path"] == "tree-only.txt")
+    );
+    let outside = std::env::temp_dir().to_string_lossy().into_owned();
+    let (status, _) = call(
+        f.app(),
+        "GET",
+        &format!(
+            "{base}/git/status?checkout={}",
+            url::form_urlencoded::byte_serialize(outside.as_bytes()).collect::<String>()
+        ),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    std::fs::remove_file(std::path::Path::new(&tree_path).join("tree-only.txt")).unwrap();
 
     // A session moves to that checkout on its own; the workspace is untouched.
     let (_, session) = call(

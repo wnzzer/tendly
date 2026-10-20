@@ -7,7 +7,7 @@
 //!
 //! When Codex is absent the endpoint reports that plainly and the client keeps
 //! filtering the entries it has already loaded, which is what it did before.
-use crate::{ApiError, AppState, Result, root};
+use crate::{ApiError, AppState, CheckoutParam, Result, checkout_root};
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Duration};
 use tendly_domain::WorkspaceId;
@@ -66,6 +66,7 @@ fn search_home(state: &AppState) -> PathBuf {
 pub async fn search(
     state: &AppState,
     workspace: WorkspaceId,
+    checkout: &CheckoutParam,
     query: &str,
     limit: u32,
 ) -> Result<SearchResults> {
@@ -76,7 +77,7 @@ pub async fn search(
             ..Default::default()
         });
     }
-    let cwd = root(state, workspace).await?;
+    let cwd = checkout_root(state, workspace, checkout).await?;
     let home = search_home(state);
     tokio::fs::create_dir_all(&home).await.map_err(|error| {
         ApiError::internal(std::io::Error::other(format!(

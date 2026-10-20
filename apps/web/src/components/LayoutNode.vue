@@ -19,7 +19,7 @@ import { sessionStatuses } from "../features/attention";
 import { DEFAULT_CLIENT, PROVIDER_KINDS, providerLabel } from "../features/clients";
 const { t } = useI18n();
 
-const props = defineProps<{ node: LayoutNode; selected?: string | null; maximized?: string | null; locatedPaneId?: string | null; workspaceLabels?: Record<string, string>; mixedWorkspaces?: boolean; workspaceBranches?: Record<string, string>; sessionBranches?: Record<string, string>; sessionProviders?: Record<string, ProviderKind>; ephemeralSessionIds?: string[]; ephemeralSupported?: boolean }>();
+const props = defineProps<{ node: LayoutNode; selected?: string | null; maximized?: string | null; locatedPaneId?: string | null; workspaceLabels?: Record<string, string>; mixedWorkspaces?: boolean; workspaceBranches?: Record<string, string>; sessionBranches?: Record<string, string>; checkoutBranches?: Record<string, string>; sessionProviders?: Record<string, ProviderKind>; ephemeralSessionIds?: string[]; ephemeralSupported?: boolean }>();
 defineSlots<{ pane(props: { pane: PaneNode }): unknown }>();
 const emit = defineEmits<{
   select: [pane: PaneNode, groupId?: string];
@@ -129,9 +129,12 @@ function tabStatus(pane: PaneNode) {
   return status === "waiting" || status === "running" || status === "starting" ? status : undefined;
 }
 const titleFor = (pane: PaneNode) => paneDisplayTitle(pane, t);
-/** A branch only when the session has one of its own -- a worktree. One in
- * the workspace directory shares the branch the status bar already names. */
+/** A branch only when the view has one of its own -- a session's worktree,
+ * or a file or Git pane opened in one. One in the workspace directory shares
+ * the branch the status bar already names. */
 function branchFor(pane: PaneNode) {
+  const checkout = pane.metadata?.checkout;
+  if (typeof checkout === "string" && checkout) return props.checkoutBranches?.[checkout] ?? checkout.split(/[\\/]/).pop();
   if (pane.kind !== "agent_chat" && pane.kind !== "terminal") return undefined;
   const session = pane.metadata?.session_id;
   return typeof session === "string" ? props.sessionBranches?.[session] : undefined;
@@ -244,13 +247,13 @@ onBeforeUnmount(() => { cleanupResize?.(); window.removeEventListener('resize', 
 <template>
   <div v-if="node.type === 'split'" ref="splitElement" class="dock-split" :class="'is-' + node.direction" :style="splitStyle" :data-split-id="node.id">
     <div class="dock-child">
-      <LayoutNode :node="node.first" :selected="selected" :maximized="maximized" :located-pane-id="locatedPaneId" :workspace-labels="workspaceLabels" :mixed-workspaces="mixedWorkspaces" :workspace-branches="workspaceBranches" :session-branches="sessionBranches" :session-providers="sessionProviders" :ephemeral-session-ids="ephemeralSessionIds" :ephemeral-supported="ephemeralSupported" @select="forwardSelect" @split="forwardSplit" @resize="forwardResize" @resizing="emit('resizing', $event)" @close="emit('close', $event)" @maximize="emit('maximize', $event)" @drop-pane="forwardDrop" @add-pane="forwardAdd" @create-session="forwardCreate">
+      <LayoutNode :node="node.first" :selected="selected" :maximized="maximized" :located-pane-id="locatedPaneId" :workspace-labels="workspaceLabels" :mixed-workspaces="mixedWorkspaces" :workspace-branches="workspaceBranches" :session-branches="sessionBranches" :checkout-branches="checkoutBranches" :session-providers="sessionProviders" :ephemeral-session-ids="ephemeralSessionIds" :ephemeral-supported="ephemeralSupported" @select="forwardSelect" @split="forwardSplit" @resize="forwardResize" @resizing="emit('resizing', $event)" @close="emit('close', $event)" @maximize="emit('maximize', $event)" @drop-pane="forwardDrop" @add-pane="forwardAdd" @create-session="forwardCreate">
         <template #pane="scope"><slot name="pane" :pane="scope.pane" /></template>
       </LayoutNode>
     </div>
     <div class="dock-separator" role="separator" tabindex="0" :aria-label="t(node.direction === 'horizontal' ? 'Resize columns' : 'Resize rows')" :aria-orientation="node.direction === 'horizontal' ? 'vertical' : 'horizontal'" :aria-valuenow="Math.round(node.ratio * 100)" :aria-valuemin="5" :aria-valuemax="95" :title="t('Drag to resize · double-click for 1:1 · arrow keys for precision')" @pointerdown="beginResize" @keydown="keyboardResize" @dblclick="emit('resize', node.id, 0.5, true)" />
     <div class="dock-child">
-      <LayoutNode :node="node.second" :selected="selected" :maximized="maximized" :located-pane-id="locatedPaneId" :workspace-labels="workspaceLabels" :mixed-workspaces="mixedWorkspaces" :workspace-branches="workspaceBranches" :session-branches="sessionBranches" :session-providers="sessionProviders" :ephemeral-session-ids="ephemeralSessionIds" :ephemeral-supported="ephemeralSupported" @select="forwardSelect" @split="forwardSplit" @resize="forwardResize" @resizing="emit('resizing', $event)" @close="emit('close', $event)" @maximize="emit('maximize', $event)" @drop-pane="forwardDrop" @add-pane="forwardAdd" @create-session="forwardCreate">
+      <LayoutNode :node="node.second" :selected="selected" :maximized="maximized" :located-pane-id="locatedPaneId" :workspace-labels="workspaceLabels" :mixed-workspaces="mixedWorkspaces" :workspace-branches="workspaceBranches" :session-branches="sessionBranches" :checkout-branches="checkoutBranches" :session-providers="sessionProviders" :ephemeral-session-ids="ephemeralSessionIds" :ephemeral-supported="ephemeralSupported" @select="forwardSelect" @split="forwardSplit" @resize="forwardResize" @resizing="emit('resizing', $event)" @close="emit('close', $event)" @maximize="emit('maximize', $event)" @drop-pane="forwardDrop" @add-pane="forwardAdd" @create-session="forwardCreate">
         <template #pane="scope"><slot name="pane" :pane="scope.pane" /></template>
       </LayoutNode>
     </div>

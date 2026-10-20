@@ -18,10 +18,11 @@ pub(super) struct MergeInput {
 pub(super) async fn merge(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<MergeInput>,
 ) -> Result<Json<Outcome>> {
     let _guard = state.operations.lock().await;
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let rev = input.rev.trim();
     valid_rev(&root, rev).await?;
     let mut list = args(&["merge", "--no-edit"]);
@@ -47,10 +48,11 @@ pub(super) struct RevInput {
 pub(super) async fn rebase(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<RevInput>,
 ) -> Result<Json<Outcome>> {
     let _guard = state.operations.lock().await;
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let rev = input.rev.trim();
     valid_rev(&root, rev).await?;
     finish(&root, args(&["rebase", rev]), COMMIT_TIMEOUT).await
@@ -68,10 +70,11 @@ async fn parent_count(root: &std::path::Path, hash: &str) -> Result<usize> {
 pub(super) async fn cherry_pick(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<RevInput>,
 ) -> Result<Json<Outcome>> {
     let _guard = state.operations.lock().await;
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let hash = valid_rev(&root, input.rev.trim()).await?;
     let mut list = args(&["cherry-pick"]);
     // A merge is picked as its change against the branch it was merged into.
@@ -85,10 +88,11 @@ pub(super) async fn cherry_pick(
 pub(super) async fn revert(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<RevInput>,
 ) -> Result<Json<Outcome>> {
     let _guard = state.operations.lock().await;
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let hash = valid_rev(&root, input.rev.trim()).await?;
     let mut list = args(&["revert", "--no-edit"]);
     if parent_count(&root, &hash).await? > 1 {
@@ -103,10 +107,11 @@ pub(super) async fn revert(
 pub(super) async fn reset(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<RevInput>,
 ) -> Result<StatusCode> {
     let _guard = state.operations.lock().await;
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let hash = valid_rev(&root, input.rev.trim()).await?;
     let mode = match input.mode.as_deref().unwrap_or("mixed") {
         "soft" => "--soft",
@@ -129,10 +134,11 @@ pub(super) struct OperationInput {
 pub(super) async fn operation(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<OperationInput>,
 ) -> Result<Json<Outcome>> {
     let _guard = state.operations.lock().await;
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let current = git_operation(&root)
         .await
         .ok_or_else(|| ApiError::conflict("Nothing is in progress"))?;
@@ -169,10 +175,11 @@ pub(super) struct ResolveInput {
 pub(super) async fn resolve(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<ResolveInput>,
 ) -> Result<StatusCode> {
     let _guard = state.operations.lock().await;
-    let root = repo(&state, id).await?;
+    let root = repo(&state, id, &checkout).await?;
     let path = checked_path(&input.path)?;
     let side = match input.side.as_str() {
         "ours" => "--ours",

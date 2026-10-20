@@ -35,6 +35,8 @@ const props = withDefaults(defineProps<{
   mixedWorkspaces?: boolean;
   workspaceBranches?: Record<string, string>;
   sessionBranches?: Record<string, string>;
+  /** A worktree's branch by its path, for file and Git panes opened in one. */
+  checkoutBranches?: Record<string, string>;
   sessionProviders?: Record<string, ProviderKind>;
   ephemeralSessionIds?: string[];
   ephemeralSupported?: boolean;
@@ -411,7 +413,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
     <div v-else ref="stage" class="dock-canvas-stage">
-      <LayoutNode :node="visible" :selected="selected" :maximized="maximized" :located-pane-id="locatedPaneId" :workspace-labels="workspaceLabels" :mixed-workspaces="mixedWorkspaces" :workspace-branches="workspaceBranches" :session-branches="sessionBranches" :session-providers="sessionProviders" :ephemeral-session-ids="ephemeralSessionIds" :ephemeral-supported="ephemeralSupported" @select="selectPane" @split="split" @resize="resize" @resizing="resizing = $event" @close="close" @maximize="maximize" @drop-pane="dropFromPointer" @add-pane="add" @create-session="(id,provider,ephemeral)=>emit('create-session',id,provider,ephemeral)">
+      <LayoutNode :node="visible" :selected="selected" :maximized="maximized" :located-pane-id="locatedPaneId" :workspace-labels="workspaceLabels" :mixed-workspaces="mixedWorkspaces" :workspace-branches="workspaceBranches" :session-branches="sessionBranches" :checkout-branches="checkoutBranches" :session-providers="sessionProviders" :ephemeral-session-ids="ephemeralSessionIds" :ephemeral-supported="ephemeralSupported" @select="selectPane" @split="split" @resize="resize" @resizing="resizing = $event" @close="close" @maximize="maximize" @drop-pane="dropFromPointer" @add-pane="add" @create-session="(id,provider,ephemeral)=>emit('create-session',id,provider,ephemeral)">
         <template #pane="scope"><slot name="pane" :pane="scope.pane" /></template>
       </LayoutNode>
     </div>

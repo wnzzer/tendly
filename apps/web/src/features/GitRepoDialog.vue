@@ -25,16 +25,16 @@ async function act<T>(work: () => Promise<T>, done?: string) {
   catch (cause) { error.value = errorMessage(cause); }
   finally { busy.value = false; }
 }
-async function loadTags() { try { tags.value = await gitGet<GitTag[]>(git.workspaceId(), "tags"); } catch (cause) { error.value = errorMessage(cause); } }
-const addRemote = () => act(async () => { git.remotes.value = await gitPost<GitRemote[]>(git.workspaceId(), "remotes", { name: adding.value.name.trim(), url: adding.value.url.trim() }); adding.value = { name: "", url: "" }; }, t("Remote added"));
-const saveRemote = () => act(async () => { const edit = editing.value!; git.remotes.value = await gitPost<GitRemote[]>(git.workspaceId(), "remotes/edit", { name: edit.name, to: edit.to.trim(), url: edit.url.trim() }); editing.value = undefined; }, t("Remote saved"));
-const fetchRemote = (name: string) => act(() => gitPost(git.workspaceId(), "fetch", { remote: name }), t("Fetched {remote}", { remote: name }));
-const pushTag = (name: string) => act(() => gitPost(git.workspaceId(), "push", { tag: name }), t("Pushed tag {tag}", { tag: name }));
+async function loadTags() { try { tags.value = await gitGet<GitTag[]>(git.place(), "tags"); } catch (cause) { error.value = errorMessage(cause); } }
+const addRemote = () => act(async () => { git.remotes.value = await gitPost<GitRemote[]>(git.place(), "remotes", { name: adding.value.name.trim(), url: adding.value.url.trim() }); adding.value = { name: "", url: "" }; }, t("Remote added"));
+const saveRemote = () => act(async () => { const edit = editing.value!; git.remotes.value = await gitPost<GitRemote[]>(git.place(), "remotes/edit", { name: edit.name, to: edit.to.trim(), url: edit.url.trim() }); editing.value = undefined; }, t("Remote saved"));
+const fetchRemote = (name: string) => act(() => gitPost(git.place(), "fetch", { remote: name }), t("Fetched {remote}", { remote: name }));
+const pushTag = (name: string) => act(() => gitPost(git.place(), "push", { tag: name }), t("Pushed tag {tag}", { tag: name }));
 async function confirm() {
   const target = confirming.value; if (!target) return;
-  if (target.kind === "remote") await act(async () => { git.remotes.value = await gitPost<GitRemote[]>(git.workspaceId(), "remotes/remove", { name: target.name }); }, t("Removed remote {remote}", { remote: target.name }));
-  else if (target.kind === "tag") await act(async () => { tags.value = await gitPost<GitTag[]>(git.workspaceId(), "tags/delete", { name: target.name }); }, t("Deleted tag {tag}", { tag: target.name }));
-  else await act(() => gitPost(git.workspaceId(), "push", { tag: target.name, delete: true }), t("Deleted tag {tag} from the remote", { tag: target.name }));
+  if (target.kind === "remote") await act(async () => { git.remotes.value = await gitPost<GitRemote[]>(git.place(), "remotes/remove", { name: target.name }); }, t("Removed remote {remote}", { remote: target.name }));
+  else if (target.kind === "tag") await act(async () => { tags.value = await gitPost<GitTag[]>(git.place(), "tags/delete", { name: target.name }); }, t("Deleted tag {tag}", { tag: target.name }));
+  else await act(() => gitPost(git.place(), "push", { tag: target.name, delete: true }), t("Deleted tag {tag} from the remote", { tag: target.name }));
   confirming.value = undefined;
 }
 onMounted(loadTags);

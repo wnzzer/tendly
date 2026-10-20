@@ -8,7 +8,7 @@
 //! fetch and push only move refs, so they leave it free while the network is
 //! slow.
 use crate::{
-    ApiError, AppState, Result, root,
+    ApiError, AppState, CheckoutParam, Result, checkout_root,
     workspace_io::{
         self, COMMIT_TIMEOUT, GIT_TIMEOUT, GitDiff, IoError, git_error, git_operation, git_text,
         is_protected_path, run_git, safe_relative, valid_branch, valid_rev,

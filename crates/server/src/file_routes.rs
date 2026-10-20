@@ -38,12 +38,14 @@ pub(super) struct FileRename {
 pub(super) async fn search_files(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Query(q): Query<file_search::SearchQuery>,
 ) -> Result<Json<file_search::SearchResults>> {
     Ok(Json(
         file_search::search(
             &state,
             id,
+            &checkout,
             q.q.as_deref().unwrap_or(""),
             q.limit.unwrap_or(20),
         )
@@ -53,20 +55,26 @@ pub(super) async fn search_files(
 pub(super) async fn list_files(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Query(q): Query<PathQuery>,
 ) -> Result<Json<Vec<workspace_io::FileEntry>>> {
     Ok(Json(
-        workspace_io::list_files(&root(&state, id).await?, q.path.as_deref().unwrap_or("")).await?,
+        workspace_io::list_files(
+            &checkout_root(&state, id, &checkout).await?,
+            q.path.as_deref().unwrap_or(""),
+        )
+        .await?,
     ))
 }
 pub(super) async fn read_file(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Query(q): Query<PathQuery>,
 ) -> Result<Json<workspace_io::TextFile>> {
     Ok(Json(
         workspace_io::read_file(
-            &root(&state, id).await?,
+            &checkout_root(&state, id, &checkout).await?,
             q.path
                 .as_deref()
                 .ok_or_else(|| ApiError::bad("Path required"))?,
@@ -77,13 +85,14 @@ pub(super) async fn read_file(
 pub(super) async fn write_file(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Query(q): Query<PathQuery>,
     Json(input): Json<FileWrite>,
 ) -> Result<Json<workspace_io::TextFile>> {
     let _guard = state.operations.lock().await;
     Ok(Json(
         workspace_io::write_file(
-            &root(&state, id).await?,
+            &checkout_root(&state, id, &checkout).await?,
             q.path
                 .as_deref()
                 .ok_or_else(|| ApiError::bad("Path required"))?,
@@ -98,10 +107,11 @@ pub(super) async fn write_file(
 pub(super) async fn create_file(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<FileCreate>,
 ) -> Result<(StatusCode, Json<workspace_io::FileEntry>)> {
     let _guard = state.operations.lock().await;
-    let root = root(&state, id).await?;
+    let root = checkout_root(&state, id, &checkout).await?;
     let entry = if input.directory {
         workspace_io::create_directory(&root, &input.path).await?
     } else {
@@ -114,11 +124,17 @@ pub(super) async fn create_file(
 pub(super) async fn rename_file(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Json(input): Json<FileRename>,
 ) -> Result<Json<workspace_io::FileEntry>> {
     let _guard = state.operations.lock().await;
     Ok(Json(
-        workspace_io::rename_entry(&root(&state, id).await?, &input.from, &input.to).await?,
+        workspace_io::rename_entry(
+            &checkout_root(&state, id, &checkout).await?,
+            &input.from,
+            &input.to,
+        )
+        .await?,
     ))
 }
 /// Delete a file or directory a workspace owns. Destructive and not undoable,
@@ -126,11 +142,12 @@ pub(super) async fn rename_file(
 pub(super) async fn delete_file(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Query(q): Query<PathQuery>,
 ) -> Result<StatusCode> {
     let _guard = state.operations.lock().await;
     workspace_io::delete_entry(
-        &root(&state, id).await?,
+        &checkout_root(&state, id, &checkout).await?,
         q.path
             .as_deref()
             .ok_or_else(|| ApiError::bad("Path required"))?,
@@ -141,10 +158,11 @@ pub(super) async fn delete_file(
 pub(super) async fn read_asset(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Query(q): Query<PathQuery>,
     request: Request,
 ) -> Result<Response> {
-    let root = root(&state, id).await?;
+    let root = checkout_root(&state, id, &checkout).await?;
     let target = workspace_io::asset_path(
         &root,
         q.path

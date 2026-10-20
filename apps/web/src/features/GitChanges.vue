@@ -21,7 +21,7 @@ const { t } = useI18n();
 const git = useGit();
 const emit = defineEmits<{ stash: [paths?: string[]] }>();
 const status = git.status, busy = git.busy;
-const viewState = computed(() => gitViewState(git.workspaceId()));
+const viewState = computed(() => gitViewState(git.place()));
 const selected = computed({ get: () => viewState.value.selected, set: value => { viewState.value.selected = value; } });
 const message = computed({ get: () => viewState.value.message, set: value => { viewState.value.message = value; } });
 const amend = computed({ get: () => !!viewState.value.amend, set: value => { viewState.value.amend = value; } });
@@ -40,7 +40,7 @@ async function openDiff(path: string, staged: boolean) {
   const requestId = ++diffRevision;
   diffLoading.value = !keepVisible; diffError.value = ""; if (!keepVisible) diff.value = undefined;
   try {
-    const result = await gitGet<GitDiff>(git.workspaceId(), `diff?path=${encodeURIComponent(path)}&staged=${staged}`);
+    const result = await gitGet<GitDiff>(git.place(), `diff?path=${encodeURIComponent(path)}&staged=${staged}`);
     if (alive && requestId === diffRevision && JSON.stringify(diff.value) !== JSON.stringify(result)) diff.value = result;
   } catch (cause) { if (alive && requestId === diffRevision) diffError.value = errorMessage(cause); }
   finally { if (alive && requestId === diffRevision) diffLoading.value = false; }
@@ -79,7 +79,7 @@ function reconcile() {
 }
 watch(status, reconcile, { immediate: true });
 
-const stage = (files: GitFile[], unstage: boolean) => files.length ? git.run(() => gitPost(git.workspaceId(), unstage ? "unstage" : "stage", { paths: pathsForGitFiles(files) })) : undefined;
+const stage = (files: GitFile[], unstage: boolean) => files.length ? git.run(() => gitPost(git.place(), unstage ? "unstage" : "stage", { paths: pathsForGitFiles(files) })) : undefined;
 /**
  * Throwing away working-tree changes cannot be undone, so it always asks
  * first, naming how many files and whether any of them are new (new files are
@@ -93,9 +93,9 @@ const discardNew = computed(() => (discardTarget.value ?? []).filter(file => fil
 async function discard() {
   const files = discardTarget.value;
   if (!files?.length) return;
-  await git.run(async () => { await gitPost(git.workspaceId(), "discard", { paths: files.map(file => file.path) }); discardTarget.value = undefined; });
+  await git.run(async () => { await gitPost(git.place(), "discard", { paths: files.map(file => file.path) }); discardTarget.value = undefined; });
 }
-const resolve = (file: GitFile, side: "ours" | "theirs") => git.run(() => gitPost(git.workspaceId(), "resolve", { path: file.path, side }));
+const resolve = (file: GitFile, side: "ours" | "theirs") => git.run(() => gitPost(git.place(), "resolve", { path: file.path, side }));
 
 /** One hunk of the diff on screen, applied to the index or the working tree. */
 async function hunk(action: string, index: number) {
@@ -106,7 +106,7 @@ async function hunk(action: string, index: number) {
     const answer = await git.ask({ title: t("Discard this hunk?"), description: t("The lines it changed in {path} go back to what is staged. This cannot be undone.", { path: choice.path }), confirm: t("Discard"), danger: true });
     if (!answer) return;
   }
-  await git.run(() => gitPost(git.workspaceId(), "apply", { path: choice.path, patch, cached: action !== "discard", reverse: action !== "stage" }));
+  await git.run(() => gitPost(git.place(), "apply", { path: choice.path, patch, cached: action !== "discard", reverse: action !== "stage" }));
 }
 const hunkActions = computed(() => {
   const choice = selected.value, file = choice && status.value.files.find(entry => entry.path === choice.path);
@@ -120,10 +120,10 @@ async function commit(then?: "push", stageFirst: GitFile[] = []) {
   if (busy.value || !message.value.trim() || conflicted.value.length || (!stageFirst.length && !canCommit.value)) return;
   const draft = viewState.value, sent = message.value, amending = amend.value;
   await git.run(async () => {
-    if (stageFirst.length) await gitPost(git.workspaceId(), "stage", { paths: pathsForGitFiles(stageFirst) });
-    const done = await gitPost<{ commit: string }>(git.workspaceId(), "commit", { message: sent.trim(), amend: amending });
+    if (stageFirst.length) await gitPost(git.place(), "stage", { paths: pathsForGitFiles(stageFirst) });
+    const done = await gitPost<{ commit: string }>(git.place(), "commit", { message: sent.trim(), amend: amending });
     if (draft.message === sent) { draft.message = ""; draft.amend = false; }
-    if (then === "push") await gitPost(git.workspaceId(), "push", status.value.upstream ? {} : { set_upstream: true });
+    if (then === "push") await gitPost(git.place(), "push", status.value.upstream ? {} : { set_upstream: true });
     return done;
   }, done => t(then === "push" ? "Committed {hash} and pushed · {message}" : "Committed {hash} · {message}", { hash: done.commit.slice(0, 10), message: sent.split("\n")[0] }));
 }
@@ -132,15 +132,15 @@ const commitAll = () => commit(undefined, changedFiles.value);
 /** Amending starts from the last commit's message, unless one is being written. */
 watch(amend, async on => {
   if (!on || message.value.trim()) return;
-  try { const head = await gitGet<GitCommitDetail>(git.workspaceId(), "commit/detail?rev=HEAD"); if (amend.value && !message.value.trim()) message.value = head.message; } catch { /* No commit yet: nothing to amend from. */ }
+  try { const head = await gitGet<GitCommitDetail>(git.place(), "commit/detail?rev=HEAD"); if (amend.value && !message.value.trim()) message.value = head.message; } catch { /* No commit yet: nothing to amend from. */ }
 });
 async function undoCommit() {
   let head: GitCommitDetail;
-  try { head = await gitGet<GitCommitDetail>(git.workspaceId(), "commit/detail?rev=HEAD"); } catch (cause) { await git.run(() => Promise.reject(cause)); return; }
+  try { head = await gitGet<GitCommitDetail>(git.place(), "commit/detail?rev=HEAD"); } catch (cause) { await git.run(() => Promise.reject(cause)); return; }
   if (!head.parents.length) { await git.run(() => Promise.reject(new Error(t("The first commit has nothing before it to go back to.")))); return; }
   const answer = await git.ask({ title: t("Undo the last commit?"), description: t("{subject} is taken off the branch. Its changes stay, staged, and its message returns to the message box.", { subject: head.message.split("\n")[0] }), confirm: t("Undo commit") });
   if (!answer) return;
-  await git.run(async () => { await gitPost(git.workspaceId(), "reset", { rev: head.parents[0], mode: "soft" }); if (!message.value.trim()) message.value = head.message; }, t("Undid {hash}. Its changes are staged.", { hash: head.hash.slice(0, 10) }));
+  await git.run(async () => { await gitPost(git.place(), "reset", { rev: head.parents[0], mode: "soft" }); if (!message.value.trim()) message.value = head.message; }, t("Undid {hash}. Its changes are staged.", { hash: head.hash.slice(0, 10) }));
 }
 
 const commitMenu = ref<{ x: number; y: number }>();
@@ -150,7 +150,7 @@ const fileMenu = ref<{ x: number; y: number; staged: boolean; conflict?: boolean
 function openFileMenu(event: MouseEvent, staged: boolean, file?: GitFile, conflict = false) { event.preventDefault(); event.stopPropagation(); fileMenu.value = { x: event.clientX, y: event.clientY, staged, file, conflict }; }
 /** The action reads the menu's file as it starts, so the menu closes after. */
 function menuAction(run: () => unknown) { void run(); fileMenu.value = undefined; commitMenu.value = undefined; }
-const ignore = (file: GitFile) => git.run(() => gitPost(git.workspaceId(), "ignore", { path: file.path }), t("Added {path} to .gitignore", { path: file.path }));
+const ignore = (file: GitFile) => git.run(() => gitPost(git.place(), "ignore", { path: file.path }), t("Added {path} to .gitignore", { path: file.path }));
 const conflictCode = (file: GitFile) => file.index + file.worktree;
 onBeforeUnmount(() => { alive = false; diffRevision++; });
 </script>

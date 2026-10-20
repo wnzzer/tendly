@@ -42,13 +42,21 @@ export function findSessionPaneId(root: LayoutNode, sessionId: string): string |
   }
   return findSessionPaneId(root.first, sessionId) ?? findSessionPaneId(root.second, sessionId);
 }
-export function filePane(workspaceId: string, path: string): PaneNode {
-  return { type: "pane", id: `file-${encodeURIComponent(workspaceId)}:${encodeURIComponent(path)}`,
+/** A worktree's views are their own panes: the same path in another checkout is another file. */
+const inTree = (checkout?: string | null) => checkout ? `@${encodeURIComponent(checkout)}` : "";
+export function filePane(workspaceId: string, path: string, checkout?: string | null): PaneNode {
+  return { type: "pane", id: `file-${encodeURIComponent(workspaceId)}${inTree(checkout)}:${encodeURIComponent(path)}`,
     kind: /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif|mp4|webm|mov|m4v|ogv|mp3|wav|ogg|m4a|flac|pdf)$/i.test(path) ? "file_preview" : "editor",
-    title: path.split("/").pop(), metadata: { workspace_id: workspaceId, path } };
+    title: path.split("/").pop(), metadata: { workspace_id: workspaceId, path, ...(checkout ? { checkout } : {}) } };
 }
-export function changesPane(workspaceId: string): PaneNode {
-  return { type: "pane", id: `changes-${encodeURIComponent(workspaceId)}`, kind: "git_diff", title: "Changes", metadata: { workspace_id: workspaceId } };
+export function changesPane(workspaceId: string, checkout?: string | null): PaneNode {
+  return { type: "pane", id: `changes-${encodeURIComponent(workspaceId)}${inTree(checkout)}`, kind: "git_diff", title: "Changes", metadata: { workspace_id: workspaceId, ...(checkout ? { checkout } : {}) } };
+}
+/** The checkout a pane looks at: its session's worktree, or the one a file or Git pane was opened in; `null` for the workspace directory. */
+export function paneCheckout(pane: PaneNode, sessions: Session[]): string | null {
+  const session = paneSession(pane, sessions);
+  if (session) return session.checkout_path ?? null;
+  return paneString(pane, "checkout") ?? null;
 }
 export function paneSession(pane: PaneNode, sessions: Session[]): Session | undefined {
   if (pane.kind !== "agent_chat" && pane.kind !== "terminal") return undefined;

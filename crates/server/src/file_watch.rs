@@ -1,7 +1,7 @@
 //! Live workspace changes. One recursive watcher per workspace, shared by every
 //! view of it and dropped with the last one, pushes which paths changed so the
 //! tree and open files follow edits an agent (or anything else) makes on disk.
-use crate::{AppState, Result, root};
+use crate::{AppState, CheckoutParam, Result, checkout_root};
 use axum::{
     Router,
     extract::{
@@ -41,7 +41,8 @@ const NOISY: &[&str] = &[
 
 #[derive(Clone, Default)]
 pub struct FileWatches {
-    watches: Arc<Mutex<HashMap<WorkspaceId, Weak<WorkspaceWatch>>>>,
+    /// Keyed by the directory watched: a workspace's, or a worktree of it.
+    watches: Arc<Mutex<HashMap<PathBuf, Weak<WorkspaceWatch>>>>,
 }
 /// Alive while any socket holds it; dropping it stops the watcher, which
 /// closes the batching task behind it.
@@ -53,11 +54,10 @@ impl FileWatches {
     /// Blocking: on Linux a recursive watch walks the whole tree.
     fn subscribe(
         &self,
-        id: WorkspaceId,
         root: PathBuf,
     ) -> notify::Result<(Arc<WorkspaceWatch>, broadcast::Receiver<Value>)> {
         let mut watches = self.watches.lock().expect("file watches");
-        if let Some(watch) = watches.get(&id).and_then(Weak::upgrade) {
+        if let Some(watch) = watches.get(&root).and_then(Weak::upgrade) {
             let changes = watch.changes.subscribe();
             return Ok((watch, changes));
         }
@@ -67,13 +67,13 @@ impl FileWatches {
         })?;
         watcher.watch(&root, RecursiveMode::Recursive)?;
         let (changes, receiver) = broadcast::channel(64);
-        tokio::spawn(batch(root, events, changes.clone()));
+        tokio::spawn(batch(root.clone(), events, changes.clone()));
         let watch = Arc::new(WorkspaceWatch {
             _watcher: watcher,
             changes,
         });
         watches.retain(|_, watch| watch.strong_count() > 0);
-        watches.insert(id, Arc::downgrade(&watch));
+        watches.insert(root, Arc::downgrade(&watch));
         Ok((watch, receiver))
     }
 }
@@ -85,9 +85,10 @@ pub fn routes() -> Router<AppState> {
 async fn socket(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     upgrade: WebSocketUpgrade,
 ) -> Result<Response> {
-    let root = root(&state, id).await?;
+    let root = checkout_root(&state, id, &checkout).await?;
     Ok(upgrade
         .max_message_size(1024)
         .on_upgrade(move |socket| stream(state, id, root, socket)))
@@ -96,7 +97,7 @@ async fn socket(
 async fn stream(state: AppState, id: WorkspaceId, root: PathBuf, socket: WebSocket) {
     let (mut sender, mut receiver) = socket.split();
     let watches = state.watches.clone();
-    let subscribed = tokio::task::spawn_blocking(move || watches.subscribe(id, root)).await;
+    let subscribed = tokio::task::spawn_blocking(move || watches.subscribe(root)).await;
     let (_watch, mut changes) = match subscribed {
         Ok(Ok(subscription)) => subscription,
         failure => {

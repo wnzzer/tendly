@@ -91,28 +91,28 @@ pub(super) async fn import_native_history(
 #[serde(deny_unknown_fields)]
 pub(super) struct AttachmentQuery {
     name: String,
+    /// Read by `CheckoutParam`; named here so it is not an unknown field.
+    #[serde(default, rename = "checkout")]
+    _checkout: Option<String>,
 }
 
-/// Store an upload inside the workspace so a session can read it with its own
-/// tools. This keeps attachments working for every client and file type, rather
-/// than depending on one provider's inline-content protocol.
+/// Store an upload inside the directory the session works in -- its worktree,
+/// if it has one -- so it can read it with its own tools. This keeps
+/// attachments working for every client and file type, rather than depending
+/// on one provider's inline-content protocol.
 pub(super) async fn upload_attachment(
     State(state): State<AppState>,
     Path(id): Path<WorkspaceId>,
+    checkout: CheckoutParam,
     Query(query): Query<AttachmentQuery>,
     body: axum::body::Bytes,
 ) -> Result<Json<workspace_io::Attachment>> {
     if query.name.trim().is_empty() || query.name.len() > 400 {
         return Err(ApiError::bad("Attachment needs a file name"));
     }
-    let workspace = workspace(&state, id).await?;
+    let root = checkout_root(&state, id, &checkout).await?;
     Ok(Json(
-        workspace_io::write_attachment(
-            std::path::Path::new(&workspace.root_path),
-            &query.name,
-            &body,
-        )
-        .await?,
+        workspace_io::write_attachment(&root, &query.name, &body).await?,
     ))
 }
 /// A file pasted or dropped into a session's terminal: stored in the directory

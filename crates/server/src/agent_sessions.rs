@@ -365,7 +365,7 @@ pub async fn show(state: &AppState, caller: Caller, arguments: &Value) -> Result
         let line = arguments.get("line").and_then(Value::as_u64);
         json!({ "kind": "file", "workspace_id": me.workspace_id, "path": file, "line": line, "checkout": me.checkout_path })
     } else if arguments.get("changes").and_then(Value::as_bool) == Some(true) {
-        json!({ "kind": "changes", "workspace_id": me.workspace_id })
+        json!({ "kind": "changes", "workspace_id": me.workspace_id, "checkout": me.checkout_path })
     } else if text(arguments, "session_id").is_some() {
         let id = session_id(arguments)?;
         if id != me.id {

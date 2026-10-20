@@ -17,7 +17,7 @@ const { t } = useI18n();
 const git = useGit();
 const mobile = useMobile();
 const emit = defineEmits<{ stash: []; count: [count: number] }>();
-const viewState = computed(() => gitViewState(git.workspaceId()));
+const viewState = computed(() => gitViewState(git.place()));
 const selected = computed({ get: () => viewState.value.stash, set: value => { viewState.value.stash = value; } });
 const stashes = ref<GitStash[]>([]), loading = ref(false), error = ref("");
 const current = computed(() => stashes.value.find(stash => stash.hash === selected.value));
@@ -27,7 +27,7 @@ async function load() {
   const id = ++revision;
   loading.value = true; error.value = "";
   try {
-    const list = await gitGet<GitStash[]>(git.workspaceId(), "stashes");
+    const list = await gitGet<GitStash[]>(git.place(), "stashes");
     if (id !== revision) return;
     stashes.value = list; emit("count", list.length);
     if (!list.some(stash => stash.hash === selected.value)) selected.value = mobile.value ? undefined : list[0]?.hash;
@@ -39,11 +39,11 @@ watch(() => git.revision.value, load, { immediate: true });
 const label = (stash: GitStash) => stash.message.replace(/^(On|WIP on) [^:]+: /, "") || `stash@{${stash.index}}`;
 const branchOf = (stash: GitStash) => stash.message.match(/^(?:On|WIP on) ([^:]+):/)?.[1];
 async function apply(stash: GitStash, pop: boolean) {
-  await git.run(() => gitPost<GitOutcome>(git.workspaceId(), "stashes/apply", { index: stash.index, hash: stash.hash, pop }), outcome => outcome.conflicts ? undefined : t(pop ? "Popped {stash}" : "Applied {stash}", { stash: label(stash) }));
+  await git.run(() => gitPost<GitOutcome>(git.place(), "stashes/apply", { index: stash.index, hash: stash.hash, pop }), outcome => outcome.conflicts ? undefined : t(pop ? "Popped {stash}" : "Applied {stash}", { stash: label(stash) }));
 }
 async function drop(stash: GitStash) {
   const answer = await git.ask({ title: t("Drop this stash?"), description: t("{stash} and the changes in it are deleted. This cannot be undone.", { stash: label(stash) }), confirm: t("Drop"), danger: true });
-  if (answer) await git.run(() => gitPost(git.workspaceId(), "stashes/drop", { index: stash.index, hash: stash.hash }), t("Dropped {stash}", { stash: label(stash) }));
+  if (answer) await git.run(() => gitPost(git.place(), "stashes/drop", { index: stash.index, hash: stash.hash }), t("Dropped {stash}", { stash: label(stash) }));
 }
 const menu = ref<{ x: number; y: number; stash: GitStash }>();
 function act(work: (stash: GitStash) => unknown) { const stash = menu.value?.stash; menu.value = undefined; if (stash) void work(stash); }

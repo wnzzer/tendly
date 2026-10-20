@@ -2,7 +2,8 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { CHORDS, formatChord, matches } from "./shortcuts";
 import type { TextFile } from "@tendly/protocol";
-import { ApiError, assetUrl, errorMessage, json, request, workspacePath } from "./api";
+import { ApiError, assetUrl, errorMessage, json, request } from "./api";
+import { placeKey, placeUrl } from "./checkout-place";
 import { fileDraft } from "./file-drafts";
 import { caretBand, EDITOR_TOP, LINE_HEIGHT, lineOfOffset, modeChoices, parseMarkdownMode, visibleMode, type MarkdownMode } from "./file-view";
 import { lineRange, pendingJump, takeJump } from "./file-jumps";
@@ -17,17 +18,19 @@ import { mediaKind, type MediaKind } from "./media-kind";
 import { useI18n } from "../i18n";
 const { t } = useI18n();
 /** The workspace's name, shown ahead of the path: the pane has no bar of its own for it. */
-const props = defineProps<{ workspaceId: string; path?: string; workspaceName?: string }>();
+/** `checkout`: the worktree a session works in, when the file was opened from there; without it, the workspace directory. */
+const props = defineProps<{ workspaceId: string; checkout?: string | null; path?: string; workspaceName?: string }>();
+const place = computed(() => placeKey(props.workspaceId, props.checkout));
 const emit = defineEmits<{ saved: []; browse: [] }>();
 const loading = ref(false), saving = ref(false), error = ref(""), success = ref("");
 const conflict = ref(false), confirmReload = ref(false), mediaFailed = ref(false);
 /** The host said this "text" file is not text: shown as a download instead. */
 const binary = ref(false);
-const draft = computed(() => fileDraft(props.workspaceId, props.path ?? ""));
+const draft = computed(() => fileDraft(place.value, props.path ?? ""));
 const dirty = computed(() => draft.value.loaded && draft.value.content !== draft.value.original);
 const kind = computed<MediaKind>(() => binary.value ? "binary" : mediaKind(props.path ?? ""));
 const mediaVersion = ref(0);
-const url = computed(() => props.path ? assetUrl(props.workspaceId, props.path) + (mediaVersion.value ? `&v=${mediaVersion.value}` : "") : "");
+const url = computed(() => props.path ? assetUrl(props.workspaceId, props.path, props.checkout) + (mediaVersion.value ? `&v=${mediaVersion.value}` : "") : "");
 /**
  * Syntax highlighting, drawn behind the editor rather than replacing it.
  *
@@ -305,11 +308,11 @@ function editorKey(event: KeyboardEvent) {
  * line is selected, which is also its highlight, and scrolled to a third of
  * the way down. Rendered Markdown has no lines, so its source is shown.
  */
-watch(() => [draft.value.loaded, editor.value, pendingJump(props.workspaceId, props.path ?? '')?.at] as const, async ([loaded]) => {
-  if (!loaded || !props.path || !pendingJump(props.workspaceId, props.path)) return;
+watch(() => [draft.value.loaded, editor.value, pendingJump(place.value, props.path ?? '')?.at] as const, async ([loaded]) => {
+  if (!loaded || !props.path || !pendingJump(place.value, props.path)) return;
   if (!showEditor.value) { mode.value = canSplit.value ? "split" : "source"; await nextTick(); }
   const input = editor.value; if (!input) return;
-  const line = takeJump(props.workspaceId, props.path); if (!line) return;
+  const line = takeJump(place.value, props.path); if (!line) return;
   const [start, end] = lineRange(draft.value.content, line);
   input.focus({ preventScroll: true });
   input.setSelectionRange(start, end);
@@ -327,7 +330,7 @@ async function read() {
   const requestId = ++revision, target = draft.value;
   loading.value = true; error.value = ""; success.value = ""; confirmReload.value = false;
   try {
-    const file = await request<TextFile>(`${workspacePath(props.workspaceId)}/file?path=${encodeURIComponent(props.path)}`);
+    const file = await request<TextFile>(placeUrl(place.value, `/file?path=${encodeURIComponent(props.path)}`));
     if (requestId !== revision) return;
     Object.assign(target, { content: file.content, original: file.content, version: file.version, loaded: true });
     conflict.value = false;
@@ -341,10 +344,10 @@ async function read() {
 async function save() {
   if (!props.path || !dirty.value || saving.value) return;
   const target = draft.value, sentContent = target.content;
-  const own = revision, workspaceId = props.workspaceId, path = props.path;
+  const own = revision, at = place.value, path = props.path;
   saving.value = true; error.value = ""; success.value = "";
   try {
-    const file = await request<TextFile>(`${workspacePath(workspaceId)}/file?path=${encodeURIComponent(path)}`, json("PUT", { content: sentContent, expected_version: target.version }));
+    const file = await request<TextFile>(placeUrl(at, `/file?path=${encodeURIComponent(path)}`), json("PUT", { content: sentContent, expected_version: target.version }));
     target.original = sentContent; target.version = file.version;
     if (own === revision) { conflict.value = false; success.value = "Saved to host"; emit("saved"); }
   } catch (cause) { if (own === revision) { conflict.value = cause instanceof ApiError && cause.status === 409; error.value = conflict.value ? "This file changed on the host. Your draft is kept. Copy your draft, or reload the host version before saving." : errorMessage(cause); } }
@@ -360,7 +363,7 @@ async function hostChanged() {
   if (!props.path || !draft.value.loaded || saving.value || loading.value) return;
   const own = revision, target = draft.value;
   try {
-    const file = await request<TextFile>(`${workspacePath(props.workspaceId)}/file?path=${encodeURIComponent(props.path)}`);
+    const file = await request<TextFile>(placeUrl(place.value, `/file?path=${encodeURIComponent(props.path)}`));
     if (own !== revision || saving.value || file.version === target.version) return;
     if (target.content !== target.original) { conflict.value = true; error.value = "This file changed on the host. Your draft is kept. Copy your draft, or reload the host version before saving."; return; }
     const input = editor.value, at = input && { start: input.selectionStart, end: input.selectionEnd, top: input.scrollTop, left: input.scrollLeft };
@@ -374,12 +377,12 @@ async function hostChanged() {
 // A pane is unmounted while another tab or pane is in front of it, and the
 // cached draft outlives it, so a file shown again re-checks the host below:
 // changes made while it was away were announced to nobody.
-const stopWatching = onFilesChanged((workspaceId, paths) => {
-  if (workspaceId !== props.workspaceId || !props.path || !touchesFile(paths, props.path)) return;
+const stopWatching = onFilesChanged((changed, paths) => {
+  if (changed !== place.value || !props.path || !touchesFile(paths, props.path)) return;
   if (kind.value === "text") void hostChanged();
   else { mediaVersion.value++; mediaFailed.value = false; }
 });
-watch([() => props.workspaceId, () => props.path], () => { revision++; saving.value = false; error.value = ""; success.value = ""; mediaFailed.value = false; binary.value = false; loading.value = false; conflict.value = false; confirmReload.value = false; if (!draft.value.loaded) void read(); else if (kind.value === "text") void hostChanged(); else mediaVersion.value++; }, { immediate: true, flush: "sync" });
+watch([place, () => props.path], () => { revision++; saving.value = false; error.value = ""; success.value = ""; mediaFailed.value = false; binary.value = false; loading.value = false; conflict.value = false; confirmReload.value = false; if (!draft.value.loaded) void read(); else if (kind.value === "text") void hostChanged(); else mediaVersion.value++; }, { immediate: true, flush: "sync" });
 document.addEventListener("selectionchange", trackCaret);
 watch([() => draft.value.content, wrapped, showEditor, editor], measureRows, { flush: "post" });
 // A band or column drawn anew starts where the text already is.
@@ -402,7 +405,7 @@ onBeforeUnmount(() => { revision++; document.removeEventListener("selectionchang
         <textarea ref="editor" data-pane-input v-model="draft.content" :class="['code-editor', { 'is-overlaid': highlighted !== undefined, 'is-composing': composing }]" :aria-label="t('Edit {path}', { path })" spellcheck="false" autocapitalize="off" autocomplete="off" @input="success = ''" @scroll="editorScrolled" @keydown="editorKey" @compositionstart="composing = true" @compositionend="composing = false" @focus="trackCaret" @blur="caretLine = -1" />
         <div v-if="showNumbers" class="code-numbers" aria-hidden="true"><div ref="numbersTrack"><template v-if="!wrapped">{{ plainNumbers }}<span v-if="caretLine >= 0" class="is-current" :style="{ top: TOP + caretLine * LINE + 'px' }">{{ caretLine + 1 }}</span></template><template v-else><span v-for="(top, index) in rows.tops" :key="index" :class="{ 'is-current': index === caretLine }" :style="{ top: top + 'px' }">{{ index + 1 }}</span></template></div></div>
       </div>
-      <div v-if="showPreview" ref="preview" class="markdown-preview" :title="view === 'preview' ? t('Double-click a passage to edit it') : undefined" @scroll="previewScrolled" @dblclick="editAt"><MarkdownContent :text="draft.content" :image-url="(p: string) => assetUrl(workspaceId, p)" :base="path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''" source-lines html /></div>
+      <div v-if="showPreview" ref="preview" class="markdown-preview" :title="view === 'preview' ? t('Double-click a passage to edit it') : undefined" @scroll="previewScrolled" @dblclick="editAt"><MarkdownContent :text="draft.content" :image-url="(p: string) => assetUrl(workspaceId, p, checkout)" :base="path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''" source-lines html /></div>
     </div>
     <MediaPreview v-else-if="kind !== 'text'" :url="url" :kind="kind" :name="path?.split('/').pop() ?? ''" />
     <div class="content-footer"><span>{{ kind === 'converted' ? t('image preview') : kind === 'binary' ? t('No preview') : kind !== 'text' ? t(`${kind} preview`) : isMarkdown && view === 'preview' ? t('Rendered markdown') : oversize ? t('Plain text · too large to highlight') : language ? language : t('Plain text editor') }}</span><span v-if="kind === 'text' && draft.loaded">{{ t('{count} lines · {status}', { count: lineCount, status: t(dirty ? 'Unsaved draft' : 'In sync at last read') }) }}</span></div>

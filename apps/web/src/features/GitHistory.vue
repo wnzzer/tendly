@@ -20,7 +20,7 @@ import { useI18n } from "../i18n";
 const { t } = useI18n();
 const git = useGit();
 const mobile = useMobile();
-const viewState = computed(() => gitViewState(git.workspaceId()));
+const viewState = computed(() => gitViewState(git.place()));
 const all = computed({ get: () => !!viewState.value.historyAll, set: value => { viewState.value.historyAll = value; } });
 const path = computed({ get: () => viewState.value.historyPath, set: value => { viewState.value.historyPath = value; } });
 const selected = computed({ get: () => viewState.value.commit, set: value => { viewState.value.commit = value; } });
@@ -35,7 +35,7 @@ async function load(append = false) {
   if (all.value) params.set("all", "true");
   if (path.value) params.set("path", path.value);
   try {
-    const log = await gitGet<GitLog>(git.workspaceId(), `log?${params}`);
+    const log = await gitGet<GitLog>(git.place(), `log?${params}`);
     if (id !== revision) return;
     commits.value = append ? [...commits.value, ...log.commits] : log.commits;
     more.value = log.more;
@@ -70,28 +70,28 @@ const subject = (commit: GitCommit) => commit.subject.length > 60 ? commit.subje
 
 async function checkout(commit: GitCommit) {
   const answer = await git.ask({ title: t("Check out {hash}?", { hash: shortHash(commit.hash) }), description: t("The workspace directory moves to this commit on no branch (detached HEAD). Commits made there belong to no branch until you create one."), confirm: t("Check out") });
-  if (answer) await git.run(() => gitPost(git.workspaceId(), "switch", { branch: commit.hash, detach: true }), t("Checked out {hash}", { hash: shortHash(commit.hash) }));
+  if (answer) await git.run(() => gitPost(git.place(), "switch", { branch: commit.hash, detach: true }), t("Checked out {hash}", { hash: shortHash(commit.hash) }));
 }
 async function branchHere(commit: GitCommit) {
   const answer = await git.ask({ title: t("Create a branch at {hash}", { hash: shortHash(commit.hash) }), description: subject(commit), fields: [{ key: "name", label: t("Branch name"), required: true, placeholder: "feature/…" }], confirm: t("Create and switch") });
   const name = String(answer?.name ?? "").trim();
-  if (name) await git.run(() => gitPost(git.workspaceId(), "switch", { branch: name, create: true, start_point: commit.hash }), t("Switched to new branch {branch}", { branch: name }));
+  if (name) await git.run(() => gitPost(git.place(), "switch", { branch: name, create: true, start_point: commit.hash }), t("Switched to new branch {branch}", { branch: name }));
 }
 async function tagHere(commit: GitCommit) {
   const answer = await git.ask({ title: t("Tag {hash}", { hash: shortHash(commit.hash) }), description: subject(commit), fields: [{ key: "name", label: t("Tag name"), required: true, placeholder: "v1.0.0" }, { key: "message", label: t("Message"), multiline: true, hint: t("With a message the tag is annotated; without one it is a lightweight tag.") }], checks: git.remotes.value.length ? [{ key: "push", label: t("Push the tag to {remote}", { remote: git.remotes.value.find(remote => remote.name === "origin")?.name ?? git.remotes.value[0].name }) }] : [], confirm: t("Create tag") });
   const name = String(answer?.name ?? "").trim();
   if (!name) return;
   await git.run(async () => {
-    await gitPost(git.workspaceId(), "tags", { name, rev: commit.hash, message: String(answer!.message ?? "") || undefined });
-    if (answer!.push) await gitPost(git.workspaceId(), "push", { tag: name });
+    await gitPost(git.place(), "tags", { name, rev: commit.hash, message: String(answer!.message ?? "") || undefined });
+    if (answer!.push) await gitPost(git.place(), "push", { tag: name });
   }, t("Tagged {hash} as {tag}", { hash: shortHash(commit.hash), tag: name }));
 }
 async function cherryPick(commit: GitCommit) {
-  await git.run(() => gitPost<GitOutcome>(git.workspaceId(), "cherry-pick", { rev: commit.hash }), outcome => conflictNote(outcome, t("Cherry-picked {hash}", { hash: shortHash(commit.hash) })));
+  await git.run(() => gitPost<GitOutcome>(git.place(), "cherry-pick", { rev: commit.hash }), outcome => conflictNote(outcome, t("Cherry-picked {hash}", { hash: shortHash(commit.hash) })));
 }
 async function revert(commit: GitCommit) {
   const answer = await git.ask({ title: t("Revert {hash}?", { hash: shortHash(commit.hash) }), description: t("A new commit on the current branch undoes what {subject} changed. History is kept.", { subject: subject(commit) }), confirm: t("Revert") });
-  if (answer) await git.run(() => gitPost<GitOutcome>(git.workspaceId(), "revert", { rev: commit.hash }), outcome => conflictNote(outcome, t("Reverted {hash}", { hash: shortHash(commit.hash) })));
+  if (answer) await git.run(() => gitPost<GitOutcome>(git.place(), "revert", { rev: commit.hash }), outcome => conflictNote(outcome, t("Reverted {hash}", { hash: shortHash(commit.hash) })));
 }
 async function reset(commit: GitCommit) {
   const branch = git.status.value.branch ?? "HEAD";
@@ -105,7 +105,7 @@ async function reset(commit: GitCommit) {
     ] }],
     confirm: t("Reset"), danger: true,
   });
-  if (answer) await git.run(() => gitPost(git.workspaceId(), "reset", { rev: commit.hash, mode: answer.mode }), t("{branch} is now at {hash}", { branch, hash: shortHash(commit.hash) }));
+  if (answer) await git.run(() => gitPost(git.place(), "reset", { rev: commit.hash, mode: answer.mode }), t("{branch} is now at {hash}", { branch, hash: shortHash(commit.hash) }));
 }
 </script>
 
