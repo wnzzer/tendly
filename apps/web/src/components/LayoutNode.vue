@@ -105,12 +105,11 @@ const splitStyle = computed(() => props.node.type === "split" ? splitGrid(props.
  * Views that are meaningful while still empty, offered by "+". A session pane
  * is not one of them: an agent tab bound to no session is a dead placeholder,
  * and "+" consistently means "new session" — created through the entries above
- * these.
+ * these. An empty file editor or preview is not one either: opening a file
+ * gives it a pane of its own, so an empty one only ever waited for a drop.
  */
 const paneTypes: { kind: LeafPaneKind; title: string }[] = [
   { kind: "git_diff", title: "Git Changes" },
-  { kind: "editor", title: "File editor" },
-  { kind: "file_preview", title: "File preview" },
 ];
 const newSessionKinds: { provider: ProviderKind; title: string; values?: Record<string, string> }[] = PROVIDER_KINDS.map(provider =>
   provider === "terminal" ? { provider, title: "New terminal" } : { provider, title: "New {provider} session", values: { provider: providerLabel(provider) } });

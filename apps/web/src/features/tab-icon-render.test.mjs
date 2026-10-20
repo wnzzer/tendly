@@ -84,7 +84,9 @@ test('file, preview and terminal tabs plus add menus use colored native SVG inst
   ['text', 'image', 'video', 'terminal'].forEach((type, index) => assertColor(rendered[index], type));
   const menu = html.match(/<div class="dock-menu-items"[^>]*>[\s\S]*?<\/div>/)?.[0];
   // New sessions are one row (the kind made last) with the rest in its submenu, which renders on hover.
-  assert.ok(menu);[DEFAULT_CLIENT, 'git', 'text', 'image'].forEach(type => assertColor(menu, type));
+  assert.ok(menu);[DEFAULT_CLIENT, 'git'].forEach(type => assertColor(menu, type));
+  // Opening a file gives it a pane of its own, so an empty one is not offered.
+  assert.ok(!menu.includes('data-tab-icon="text"') && !menu.includes('data-tab-icon="image"'));
   assert.ok(menu.includes('aria-haspopup="menu"'), 'the new-session row offers every kind beside it');
   assert.ok(!html.includes('>±</span>'));assert.ok(!html.includes('>◈</span>'));assert.ok(!html.includes('>▧</span>'));
 });
