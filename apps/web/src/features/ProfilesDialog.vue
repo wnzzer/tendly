@@ -384,7 +384,7 @@ onBeforeUnmount(()=>{discoveryRevision++;});
 
 <template>
   <ModalDialog :title="t('Endpoint profiles')" wide :closable="!busy" :embedded="embedded" @close="requestLeave(() => emit('close'))">
-    <div class="profiles-layout">
+    <div class="profiles-frame"><div class="profiles-layout">
       <section class="profiles-list">
         <button class="secondary-button" :disabled="busy" @click="requestLeave(() => edit())"><Icon name="plus" :size="14" />{{ t('New profile') }}</button>
         <template v-for="p in profiles" :key="p.id">
@@ -409,7 +409,7 @@ onBeforeUnmount(()=>{discoveryRevision++;});
         <form v-if="formVisible" :class="['form-stack','profile-form',{embedded}]" @submit.prevent="save">
           <h3>{{ editing ? t('Edit profile') : t('Create profile') }}</h3>
           <section class="profile-group">
-            <h4>{{ t('Connection') }}</h4>
+            <header class="profile-group-head"><span class="profile-group-mark"><Icon name="globe" :size="16" /></span><div><h4>{{ t('Connection') }}</h4><small>{{ t('Where requests go and how the key travels') }}</small></div></header>
             <div class="form-columns">
               <label>{{ t('Name') }}<input v-model="form.name" required :disabled="busy" :placeholder="t('Personal {client}', { client: providerLabel(form.provider) })" maxlength="120" /></label>
               <label>{{ t('Provider') }}<select v-model="form.provider" :disabled="!!editing||busy"><option v-for="id in AGENT_CLIENTS" :key="id" :value="id">{{ clientLabel(id) }}</option></select></label>
@@ -444,7 +444,7 @@ onBeforeUnmount(()=>{discoveryRevision++;});
           </section>
           <template v-if="!editingNative">
             <section class="profile-group">
-              <header class="profile-group-head"><h4>{{ t('Models') }}</h4><button type="button" class="small-button" :disabled="discovering||!backendCapabilities.models||!secretValid||!!aliases.error" :title="!backendCapabilities.models?t('Backend upgrade required'):t('Reads the endpoint\'s model list. No model is run.')" @click="discover"><Icon name="refresh" :size="14" />{{ discovering?t('Loading models…'):t('Load models from endpoint') }}</button></header>
+              <header class="profile-group-head"><span class="profile-group-mark"><Icon name="spark" :size="16" /></span><div><h4>{{ t('Models') }}</h4><small>{{ t('What sessions on this profile can pick') }}</small></div><button type="button" class="small-button" :disabled="discovering||!backendCapabilities.models||!secretValid||!!aliases.error" :title="!backendCapabilities.models?t('Backend upgrade required'):t('Reads the endpoint\'s model list. No model is run.')" @click="discover"><Icon name="refresh" :size="14" />{{ discovering?t('Loading models…'):t('Load models from endpoint') }}</button></header>
               <div v-if="modelError" class="inline-error" role="alert">{{ modelError }}<p>{{ t('You can still enter a model ID or alias manually.') }}</p></div>
               <label>{{ t('Default model') }}<ModelPicker v-model="form.model" :models="choices" :placeholder="t('Choose a model or enter an ID')" /></label>
               <p v-if="form.model && resolved !== form.model" class="model-effective">{{ t('Effective model') }}: <code>{{ resolved }}</code></p>
@@ -453,7 +453,7 @@ onBeforeUnmount(()=>{discoveryRevision++;});
               <ModelSelection ref="modelSelection" v-if="models?.models.length || chosenModels.length" v-model:selected="chosenModels" :catalog="models?.models ?? []" :window-text="windowText" :placeholder="windowPlaceholder" :probe="backendCapabilities.modelProbe ? probeModels : undefined" :plan="probePlan" @window="setWindow" @look="lookPublished" />
             </section>
             <section class="profile-group">
-              <h4>{{ t('Behavior') }}</h4>
+              <header class="profile-group-head"><span class="profile-group-mark"><Icon name="shield" :size="16" /></span><div><h4>{{ t('Behavior') }}</h4><small>{{ t('How deep it thinks and what it may do unasked') }}</small></div></header>
               <div class="form-columns">
                 <label v-if="effortOptions.length"><span class="field-head">{{ t('Thinking depth') }}<span class="field-tip" tabindex="0" role="img" :title="t('Actual effort support depends on the endpoint and model.')" :aria-label="t('Actual effort support depends on the endpoint and model.')"><Icon name="info" :size="13" /></span></span><select v-model="form.effort"><option value="">{{ t('Automatic · provider default') }}</option><option v-for="effort in effortOptions" :key="effort" :value="effort">{{ effortLabel(effort) }}</option></select></label>
                 <label>{{ t('Permission intent') }}<select v-model="form.permission_mode"><option value="native">{{ t('Native · provider defaults') }}</option><template v-if="client.approvals"><option value="interactive">{{ t('Interactive · conservative native prompts') }}</option><option value="trusted">{{ t('Trusted · native file-edit trust') }}</option></template><option v-if="client.profilePlan" value="plan">{{ t('Plan · review before edits') }}</option><option value="blocked">{{ t('Blocked · do not start') }}</option></select></label>
@@ -462,7 +462,7 @@ onBeforeUnmount(()=>{discoveryRevision++;});
             </section>
           </template>
           <details class="profile-advanced" :open="advancedOpen" @toggle="advancedOpen=($event.target as HTMLDetailsElement).open">
-            <summary><Icon name="settings" :size="14" />{{ t('Advanced') }}<small>{{ advancedCount ? t('{count} set', { count: advancedCount }) : editingNative ? t('Environment') : t('Proxy, model aliases, context window and environment') }}</small></summary>
+            <summary class="profile-group-head"><span class="profile-group-mark"><Icon name="settings" :size="16" /></span><div><h4>{{ t('Advanced') }}</h4><small>{{ advancedCount ? t('{count} set', { count: advancedCount }) : editingNative ? t('Environment') : t('Proxy, model aliases, context window and environment') }}</small></div></summary>
             <div class="profile-advanced-body">
               <template v-if="!editingNative">
                 <label><span class="field-head">{{ t('Proxy URL') }}<span class="field-tip" tabindex="0" role="img" :title="proxyHelp" :aria-label="proxyHelp"><Icon name="info" :size="13" /></span></span><input v-model="form.proxy_url" type="url" placeholder="http://127.0.0.1:7890" autocomplete="off" /></label>
@@ -496,7 +496,7 @@ onBeforeUnmount(()=>{discoveryRevision++;});
         <div v-else class="pane-empty"><p>{{ t('Select a profile to edit, or create one for a different account or endpoint.') }}</p></div>
         <EndpointBalanceEditor v-if="backendCapabilities.customBalances && formVisible && editing && !editingNative" :key="editing" ref="balanceEditor" :profile-id="editing" :disabled="busy" />
       </div>
-    </div>
+    </div></div>
     <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :label="t('Actions for {profile}', { profile: menu.profile.name })" @close="menu = undefined">
       <button role="menuitem" @click="startRename(menu!.profile)"><Icon name="edit" :size="14" />{{ t('Rename') }}</button>
       <button v-if="!menu.profile.native_config" role="menuitem" @click="duplicate(menu!.profile)"><Icon name="clipboard" :size="14" />{{ t('Duplicate as new profile') }}</button>
@@ -511,7 +511,7 @@ onBeforeUnmount(()=>{discoveryRevision++;});
 .model-slots{display:flex;flex-direction:column;gap:6px}
 .model-slots>.field-head{font-size:var(--text-sm);font-weight:550;color:var(--ink-soft)}
 .model-slots>.form-help{margin:0}
-.model-slot{display:grid;grid-template-columns:64px minmax(0,190px) minmax(0,1fr);align-items:center;gap:8px}
+.model-slot{display:grid;grid-template-columns:64px minmax(0,240px) minmax(0,1fr);align-items:center;gap:8px}
 .model-slot>span{font-size:var(--text-sm);font-weight:550;color:var(--ink)}
 .model-slot code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-xs);color:var(--muted)}
 @media(max-width:520px){.model-slot{grid-template-columns:56px minmax(0,1fr)}.model-slot>:last-child{grid-column:1/-1}}
@@ -521,15 +521,21 @@ onBeforeUnmount(()=>{discoveryRevision++;});
 .model-effective {margin:-4px 0 0;color:var(--accent-ink);font-size:var(--text-sm);}.form-help {overflow-wrap:anywhere;}
 /* Three groups, each under a quiet heading; what is rarely changed folds
    away under Advanced, and the actions stay in reach however long it gets. */
-.profile-form{gap:22px}
-.profile-form>h3{font-size:var(--text-lg);font-weight:600}
-.profile-group{display:flex;flex-direction:column;gap:14px;padding-top:20px;border-top:1px solid var(--border)}
-.profile-group:first-of-type{padding-top:0;border-top:0}
+/* Each group is a card, as each client is on the clients page: a mark, a
+   title with one line on what it holds, then its fields. */
+.profile-form{gap:12px}
+.profile-form>h3{margin-bottom:4px;font-size:var(--text-lg);font-weight:600}
+.profile-group,.profile-advanced{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface)}
+.profile-group{display:flex;flex-direction:column;gap:14px;padding:14px 16px 16px}
+.profile-group,.profile-advanced{container:card/inline-size}
 .endpoint-row{display:flex;flex-direction:column}
-.profile-group h4{margin-bottom:-4px;font-size:var(--text-md);font-weight:600;line-height:20px;color:var(--ink)}
-.profile-group-head h4{margin-bottom:0}
-.profile-group-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:-4px}
 .profile-group .form-help{margin-top:-8px}
+.profile-group-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px 11px;margin-bottom:2px}
+.profile-group-head>div{flex:1 1 160px;min-width:0}
+.profile-group-head>button{margin-left:auto}
+.profile-group-head h4{margin:0;font-size:var(--text-md);font-weight:600;line-height:20px;color:var(--ink)}
+.profile-group-head small{display:block;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-xs);font-weight:400;color:var(--muted)}
+.profile-group-mark{display:grid;place-items:center;width:32px;height:32px;flex-shrink:0;border-radius:var(--radius-md);background:var(--teal-soft);color:var(--teal)}
 /* Labels sit one step below the group headings, and every secondary action
    is the same quiet link; a destructive one turns red only on approach. */
 .profile-form label{font-weight:500}
@@ -546,13 +552,11 @@ onBeforeUnmount(()=>{discoveryRevision++;});
 .field-tip:hover,.field-tip:focus-visible{color:var(--ink-soft);outline:0}
 .api-badge{padding:0 7px;border:1px solid var(--border);border-radius:var(--radius-full);background:var(--sunken);font-size:var(--text-xs);font-weight:500;line-height:18px;color:var(--muted);white-space:nowrap;cursor:help}
 .endpoint-columns{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
-.profile-advanced{border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface)}
-.profile-advanced>summary{display:flex;align-items:center;gap:8px;padding:10px 12px;font-size:var(--text-sm);font-weight:550;color:var(--ink-soft);cursor:pointer;list-style:none}
+.profile-advanced>summary{margin:0;padding:14px 16px;cursor:pointer;list-style:none}
 .profile-advanced>summary::-webkit-details-marker{display:none}
-.profile-advanced>summary::after{content:"";margin-left:auto;width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform var(--duration-fast)}
+.profile-advanced>summary::after{content:"";flex-shrink:0;margin:0 4px;width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform var(--duration-fast)}
 .profile-advanced[open]>summary::after{transform:rotate(45deg)}
-.profile-advanced>summary>small{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-xs);font-weight:400;color:var(--muted)}
-.profile-advanced-body{display:flex;flex-direction:column;gap:12px;padding:4px 12px 12px}
+.profile-advanced-body{display:flex;flex-direction:column;gap:14px;padding:2px 16px 16px}
 /* Stuck over the scroller's bottom padding too, so nothing shows below it. */
 .profile-actions{--under:22px;position:sticky;bottom:calc(-1 * var(--under));z-index:2;margin:0;padding:12px 0;border-top:1px solid var(--border);background:color-mix(in srgb,var(--surface) 95%,transparent);backdrop-filter:blur(10px)}
 .profile-form.embedded .profile-actions{--under:var(--space-6);background:color-mix(in srgb,var(--bg) 95%,transparent)}
@@ -592,6 +596,18 @@ onBeforeUnmount(()=>{discoveryRevision++;});
 .form-stack input,.form-stack select{font-weight:400}
 .form-stack :deep(.model-picker-input>input){width:auto;flex:1 1 0;min-width:0;font-weight:400;font-family:var(--mono);font-size:var(--text-sm);color:var(--ink);background:var(--surface);border-color:var(--border);border-radius:var(--radius-md)}
 .form-stack :deep(.model-picker-input>input::placeholder){font-family:var(--font-ui)}
+/* The settings page beside a sidebar and a file panel can be narrower than
+   the window suggests, so the layout follows the room it has. */
+.profiles-frame{container:profiles/inline-size}
+@container profiles (max-width:700px){
+  .profiles-layout{grid-template-columns:minmax(0,1fr)}
+  .profiles-list{position:static;border-right:0;padding-right:0;border-bottom:1px solid var(--border);padding-bottom:10px}
+}
+@container card (max-width:460px){
+  .form-columns,.endpoint-columns{grid-template-columns:minmax(0,1fr)}
+  .model-slot{grid-template-columns:56px minmax(0,1fr)}
+  .model-slot>:last-child{grid-column:1/-1}
+}
 @media(max-width:760px){
   .profiles-layout{grid-template-columns:minmax(0,1fr)}
   .profiles-list{position:static;border-right:0;padding-right:0;border-bottom:1px solid var(--border);padding-bottom:10px}
