@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { moveInList } from "./list-keys";
 import { computed, ref, watch } from "vue";
 import type { GitCommit, GitLog, GitOutcome } from "@tendly/protocol";
 import { errorMessage } from "./api";
@@ -118,7 +119,7 @@ async function reset(commit: GitCommit) {
       <div v-if="path" class="git-path-filter"><Icon name="file" :size="12" /><span class="truncate" :title="path">{{ path }}</span><button type="button" class="icon-button" :aria-label="t('Show all files')" @click="path = undefined"><Icon name="close" :size="12" /></button></div>
       <div v-if="error" class="inline-error" role="alert">{{ error }}</div>
       <div class="git-log" role="list">
-        <div v-for="{ commit, row } in visible" :key="commit.hash" role="listitem" :class="['git-log-row', { selected: selected === commit.hash }]" @click="choose(commit)" @contextmenu="openMenu($event, commit)">
+        <div v-for="({ commit, row }, index) in visible" :key="commit.hash" role="listitem" :tabindex="selected === commit.hash || (!selected && index === 0) ? 0 : -1" :class="['git-log-row', { selected: selected === commit.hash }]" @click="choose(commit)" @keydown="moveInList($event, ($event.currentTarget as HTMLElement).parentElement, '.git-log-row') || (($event.key === 'Enter' || $event.key === ' ') && ($event.preventDefault(), choose(commit)))" @contextmenu="openMenu($event, commit)">
           <svg class="git-graph" :width="x(lanes - 1) + 7" :height="HEIGHT" aria-hidden="true">
             <path v-for="lane in row.lanes.filter(lane => !row.into.includes(lane))" :key="'p' + lane" :d="curve(x(lane), 0, x(lane), HEIGHT)" :stroke="color(lane)" />
             <path v-for="lane in row.into" :key="'i' + lane" :d="curve(x(lane), 0, x(row.column), MID)" :stroke="color(lane)" />

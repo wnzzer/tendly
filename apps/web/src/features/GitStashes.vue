@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { moveInList } from "./list-keys";
 import { computed, ref, watch } from "vue";
 import type { GitOutcome, GitStash } from "@tendly/protocol";
 import { errorMessage } from "./api";
@@ -55,7 +56,7 @@ function choose(stash: GitStash) { selected.value = stash.hash; git.detailOpen.v
       <div class="git-list-tools"><button type="button" class="small-button" :disabled="git.busy.value || !git.status.value.files.length" @click="emit('stash')"><Icon name="archive" :size="13" />{{ t('Stash changes…') }}</button></div>
       <div v-if="error" class="inline-error" role="alert">{{ error }}</div>
       <div class="git-log" role="list">
-        <div v-for="stash in stashes" :key="stash.hash" role="listitem" :class="['git-stash-row', { selected: selected === stash.hash }]" @click="choose(stash)" @contextmenu.prevent="menu = { x: $event.clientX, y: $event.clientY, stash }">
+        <div v-for="(stash, index) in stashes" :key="stash.hash" role="listitem" :tabindex="selected === stash.hash || (!selected && index === 0) ? 0 : -1" :class="['git-stash-row', { selected: selected === stash.hash }]" @click="choose(stash)" @keydown="moveInList($event, ($event.currentTarget as HTMLElement).parentElement, '.git-stash-row') || (($event.key === 'Enter' || $event.key === ' ') && ($event.preventDefault(), choose(stash)))" @contextmenu.prevent="menu = { x: $event.clientX, y: $event.clientY, stash }">
           <span class="git-stash-text"><strong :title="stash.message">{{ label(stash) }}</strong><small>{{ branchOf(stash) ? branchOf(stash) + ' · ' : '' }}{{ relativeTime(stash.date, t) }}<template v-if="stash.untracked"> · {{ t('with untracked files') }}</template></small></span>
           <span class="git-stash-actions"><button type="button" class="icon-button" :title="t('Apply · keep the stash')" :aria-label="t('Apply {stash}', { stash: label(stash) })" :disabled="git.busy.value" @click.stop="apply(stash, false)"><Icon name="download" :size="13" /></button></span>
         </div>

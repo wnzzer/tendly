@@ -10,7 +10,7 @@ import { onPageReturn } from "../features/page-return";
 import { arrowSequence, ctrlSequence, ENTER_SEQUENCE, ESCAPE_SEQUENCE, isTap, repeatArrow, selectionPresses, shiftSequence, tabSequence, type ArrowKey } from "../features/terminal-keys";
 import { terminalDark as dark } from "../features/theme";
 import { terminalEngine } from "../features/terminal-engine";
-import { findCount, isTerminalFind, terminalFindChord } from "../features/terminal-search";
+import { findCount, isTerminalFind, terminalClipboardKey, terminalFindChord } from "../features/terminal-search";
 import { formatChord } from "../features/shortcuts";
 import { filesFrom, useTerminalUploads } from "../features/terminal-uploads";
 import { showToast } from "../features/toasts";
@@ -327,7 +327,16 @@ function stepSearch(direction: 1 | -1) {
 }
 /** Taken before the terminal sees it, which would otherwise hand the key to the shell. */
 function terminalKeydown(event: KeyboardEvent) {
-  if (!view?.search || event.isComposing || !isTerminalFind(event)) return;
+  if (event.isComposing) return;
+  const clipboard = terminalClipboardKey(event);
+  if (clipboard) {
+    event.preventDefault(); event.stopPropagation();
+    if (clipboard === "paste") { void pressPaste(); return; }
+    const text = window.getSelection()?.toString();
+    if (text) void navigator.clipboard?.writeText(text).catch(() => undefined);
+    return;
+  }
+  if (!view?.search || !isTerminalFind(event)) return;
   event.preventDefault();
   event.stopPropagation();
   openSearch();

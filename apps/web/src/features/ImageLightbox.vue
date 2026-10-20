@@ -1,13 +1,17 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from 'vue';
+import { onBeforeUnmount, onMounted, watch } from 'vue';
 import { closeLightbox, lightbox } from './image-lightbox';
 import { useI18n } from '../i18n';
 
 /** Any image clicked in a message or a rendered file, at full size. */
 const { t } = useI18n();
-const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape' && lightbox.value) { event.preventDefault(); closeLightbox(); } };
-onMounted(() => window.addEventListener('keydown', onKey));
-onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
+/** Esc closes the picture and nothing else: taken first, so the conversation
+ * under it does not read it as interrupting the reply. Focus goes back where it was. */
+let returnTo: HTMLElement | null = null;
+watch(lightbox, (shown, was) => { if (shown && !was) returnTo = document.activeElement as HTMLElement | null; else if (!shown && was) { returnTo?.focus?.({ preventScroll: true }); returnTo = null; } });
+const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape' && lightbox.value) { event.preventDefault(); event.stopPropagation(); closeLightbox(); } };
+onMounted(() => window.addEventListener('keydown', onKey, true));
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 </script>
 
 <template>

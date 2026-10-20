@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { CHORDS, isRemove, isRename, matches } from './shortcuts';
+import { moveInList } from './list-keys';
 import type { ProviderKind, Session, Workspace } from '@tendly/protocol';
 import { providerLabel } from './api';
 import { PROVIDER_KINDS } from './clients';
@@ -66,7 +68,7 @@ const toDelete = computed(() => checked.value.filter(session => isSessionArchive
 const allChecked = computed(() => visibleIds.value.length > 0 && visibleIds.value.every(id => checkedSet.value.has(id)));
 watch(visibleIds, ids => { const visible = new Set(ids); checkedIds.value = checkedIds.value.filter(id => visible.has(id)); });
 watch(checkedIds, () => { confirmBulkDelete.value = false; });
-function check(session: Session, event: MouseEvent) {
+function check(session: Session, event: { shiftKey: boolean }) {
   checkedIds.value = selectRange(visibleIds.value, checkedIds.value, session.id, event.shiftKey ? lastChecked : undefined);
   lastChecked = session.id;
 }
@@ -85,6 +87,38 @@ function openMenu(session: Session, event: MouseEvent) {
 }
 /** Close the menu, then act on the session it was opened for. */
 function act(run: (session: Session) => void) { const current = menu.value; menu.value = undefined; if (current) run(current.session); }
+/**
+ * The list's keys, on a session's title: ↑ ↓ Home End move, Shift+↑ ↓ select
+ * a range, Space ticks it, Enter opens it, F2 renames, Delete (⌘⌫ on a Mac)
+ * archives it -- or, for one already archived, asks to delete it.
+ */
+function rowKeydown(event: KeyboardEvent, session: Session) {
+  const own = event.currentTarget as HTMLElement, table = own.closest('.sessions-table') ?? document;
+  if (moveInList(event, table, '.sessions-title')) return;
+  if (event.shiftKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+    event.preventDefault();
+    const ids = visibleIds.value, next = ids[ids.indexOf(session.id) + (event.key === 'ArrowDown' ? 1 : -1)];
+    if (!next) return;
+    if (!checkedSet.value.has(session.id)) check(session, { shiftKey: false });
+    checkedIds.value = selectRange(ids, checkedIds.value, next, lastChecked ?? session.id);
+    table.querySelectorAll<HTMLElement>('.sessions-title')[ids.indexOf(next)]?.focus();
+    return;
+  }
+  if (event.key === ' ') { event.preventDefault(); check(session, event); return; }
+  if (isRename(event)) { event.preventDefault(); emit('renameRequest', session.id); return; }
+  if (!isRemove(event)) return;
+  event.preventDefault();
+  if (isSessionArchived(session) || isEphemeralSession(session)) { const box = own.getBoundingClientRect(); menu.value = { session, x: box.left + 24, y: box.bottom + 4, confirmDelete: true }; return; }
+  if (props.archiveSupported && !busy(session.id)) emit('archiveSession', session, true);
+}
+/** Find, here, is this page's search. */
+const searchInput = ref<HTMLInputElement>();
+function pageKeydown(event: KeyboardEvent) {
+  if (!matches(event, CHORDS.find) || document.querySelector('[aria-modal="true"]')) return;
+  event.preventDefault(); searchInput.value?.focus(); searchInput.value?.select();
+}
+onMounted(() => document.addEventListener('keydown', pageKeydown));
+onBeforeUnmount(() => document.removeEventListener('keydown', pageKeydown));
 const busy = (id: string) => props.archiveBusyIds.includes(id) || props.deleteBusyIds.includes(id) || props.keepBusyIds.includes(id);
 
 function relative(at?: string | null) {
@@ -104,7 +138,7 @@ function relative(at?: string | null) {
     <template #actions><button class="secondary-button" :disabled="sessionsLoading" @click="emit('refreshSessions')"><Icon name="refresh" :size="14" />{{ t('Refresh') }}</button></template>
     <div class="sessions-page">
       <div class="sessions-toolbar">
-        <label class="sessions-search"><Icon name="search" :size="15" /><input v-model="query" type="search" :aria-label="t('Search all sessions')" :placeholder="t('Find a session…')" /></label>
+        <label class="sessions-search"><Icon name="search" :size="15" /><input ref="searchInput" v-model="query" type="search" :aria-label="t('Search all sessions')" @keydown.down.prevent="($event.currentTarget as HTMLElement).closest('.sessions-page, body')?.querySelector<HTMLElement>('.sessions-title')?.focus()" :placeholder="t('Find a session…')" /></label>
         <div class="sessions-segments" role="group" :aria-label="t('Filter sessions by archive state')">
           <button v-for="entry in (['current', 'archived', 'all'] as const)" :key="entry" type="button" :class="{ selected: archive === entry }" :aria-pressed="archive === entry" @click="archive = entry">{{ t(entry === 'current' ? 'Current sessions' : entry === 'archived' ? 'Archived sessions' : 'All sessions') }}</button>
         </div>
@@ -140,7 +174,7 @@ function relative(at?: string | null) {
         </div>
         <div v-for="entry in filtered" :key="entry.session.id" role="row" :class="['sessions-row', { checked: checkedSet.has(entry.session.id), current: entry.session.id === selectedSessionId, highlight: entry.session.id === highlightId, busy: busy(entry.session.id) }]" @contextmenu.prevent="openMenu(entry.session, $event)">
           <span role="cell"><input type="checkbox" :checked="checkedSet.has(entry.session.id)" :aria-label="t('Select {session}', { session: entry.session.title })" @click="check(entry.session, $event)" /></span>
-          <button role="cell" type="button" class="sessions-title" @click="emit('openSession', entry.session)">
+          <button role="cell" type="button" class="sessions-title" @click="emit('openSession', entry.session)" @keydown="rowKeydown($event, entry.session)">
             <ProviderIcon :provider="entry.session.provider" :size="15" />
             <span><strong>{{ entry.session.title }}</strong><small>{{ entry.session.provider === 'terminal' ? t('Terminal') : providerLabel(entry.session.provider) }}<template v-if="isEphemeralSession(entry.session)"> · {{ t('Temporary') }}</template><template v-if="isSessionArchived(entry.session)"> · {{ t('Archived') }}</template></small><small v-if="entry.session.preview" class="session-row-preview">{{ entry.session.preview }}</small></span>
           </button>

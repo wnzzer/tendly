@@ -390,7 +390,7 @@ onBeforeUnmount(()=>{discoveryRevision++;});
         <template v-for="p in profiles" :key="p.id">
           <div v-if="renamingId===p.id" class="profile-card selected profile-renaming">
             <span :class="['provider-mark',p.provider]"><ProviderIcon :provider="p.provider" /></span>
-            <input ref="renameInput" v-model="renameText" maxlength="120" :aria-label="t('Profile name')" @keydown.enter.prevent="commitRename" @keydown.esc.prevent="renamingId=undefined" @blur="commitRename" />
+            <input ref="renameInput" v-model="renameText" maxlength="120" :aria-label="t('Profile name')" @keydown.enter.prevent="commitRename" @keydown.esc.prevent.stop="renamingId=undefined" @blur="commitRename" />
           </div>
           <button v-else :class="['profile-card',{selected:editing===p.id&&formVisible}]" :disabled="busy" @click="requestLeave(() => edit(p))" @contextmenu="openMenu($event, p)">
             <span :class="['provider-mark',p.provider]"><ProviderIcon :provider="p.provider" /></span>

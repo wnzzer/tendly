@@ -2,6 +2,7 @@
 import { computed, nextTick, ref } from "vue";
 import type { Session } from "@tendly/protocol";
 import { useI18n } from "../i18n";
+import { isRemove, isRename } from "./shortcuts";
 import { providerLabel } from "./api";
 import { isEphemeralSession, isSessionArchived } from "./session-list";
 import { workspaceSessionPane } from "./workspace-groups";
@@ -127,6 +128,40 @@ function openRow() {
   emit("open", props.session);
 }
 function archiveFromRow() { closeSwipe(); archiveSession(); }
+/**
+ * The list's keys: ↑ ↓ Home End move between sessions, F2 renames, Delete
+ * (⌘⌫ on a Mac) archives -- or, for one already archived, asks to delete it
+ * -- and Space ticks it while choosing several.
+ */
+function rowKeydown(event: KeyboardEvent) {
+  const rows = Array.from((event.currentTarget as HTMLElement).closest(".workspace-sidebar")?.querySelectorAll<HTMLElement>("[data-sidebar-row-focus]") ?? []);
+  const index = rows.indexOf(event.currentTarget as HTMLElement);
+  const move = event.key === "ArrowDown" ? index + 1 : event.key === "ArrowUp" ? index - 1 : event.key === "Home" ? 0 : event.key === "End" ? rows.length - 1 : undefined;
+  if (move !== undefined && !event.altKey && !event.metaKey && !event.ctrlKey && !(props.selectable && event.shiftKey)) {
+    event.preventDefault();
+    rows[Math.max(0, Math.min(rows.length - 1, move))]?.focus();
+    return;
+  }
+  // Choosing several, Shift+↑ ↓ extends the choice as Shift+click does.
+  if (props.selectable && event.shiftKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+    event.preventDefault();
+    const next = rows[index + (event.key === "ArrowDown" ? 1 : -1)];
+    if (!next) return;
+    if (!props.checked) emit("check", props.session, false);
+    next.focus();
+    next.closest(".sidebar-session-row")?.querySelector<HTMLInputElement>("input[type=checkbox]")?.dispatchEvent(new MouseEvent("click", { shiftKey: true, bubbles: true, cancelable: true }));
+    return;
+  }
+  if (isRename(event)) { event.preventDefault(); beginRename(); return; }
+  if (event.key === " " && props.selectable) { event.preventDefault(); emit("check", props.session, event.shiftKey); return; }
+  if (!isRemove(event)) return;
+  event.preventDefault();
+  if (deletable.value && isSessionArchived(props.session)) { menuOpen.value = true; confirmDelete.value = true; return; }
+  if (!props.archiveSupported || props.archiveBusy || isSessionArchived(props.session)) return;
+  // The row leaves the list, so the next one takes the focus.
+  (rows[index + 1] ?? rows[index - 1])?.focus();
+  archiveFromRow();
+}
 function deleteSession() {
   if (!deletable.value || props.deleteBusy) return;
   emit("delete", props.session); confirmDelete.value = false; void closeMenu(true);
@@ -142,12 +177,15 @@ function beginRename() {
   renaming.value = true;
   void nextTick(() => { renameInput.value?.focus(); renameInput.value?.select(); });
 }
-function cancelRename() { renaming.value = false; titleDraft.value = props.session.title; }
+const rowButton = ref<HTMLButtonElement>();
+/** Either way out of the name goes back to the row, where F2 came from. */
+function cancelRename() { renaming.value = false; titleDraft.value = props.session.title; void nextTick(() => rowButton.value?.focus()); }
 function submitRename() {
   const title = titleDraft.value.trim();
   if (!title) { renameInput.value?.focus(); return; }
   renaming.value = false;
   emit("rename", props.session, title);
+  void nextTick(() => rowButton.value?.focus());
 }
 </script>
 
@@ -156,7 +194,7 @@ function submitRename() {
     <button v-if="archiveSupported" type="button" class="session-swipe-action" :tabindex="revealed ? 0 : -1" :aria-hidden="!revealed" :disabled="archiveBusy" @click="archiveFromRow"><Icon :name="isSessionArchived(session) ? 'restore' : 'archive'" :size="17" />{{ t(isSessionArchived(session) ? 'Restore' : 'Archive') }}</button>
     <div class="sidebar-session-main" :class="{ 'is-swiping': swiping }" :style="swipe ? { transform: `translateX(${swipe}px)` } : undefined" @touchstart.passive="touchStart" @touchmove.passive="touchMove" @touchend="touchEnd" @touchcancel="touchEnd">
       <label v-if="selectable" class="sidebar-session-check" :title="t('Select session')" @click.stop><input type="checkbox" :checked="checked" :aria-label="t('Select {session}', { session: session.title })" @click.prevent="emit('check', session, $event.shiftKey)" /></label>
-      <button class="workspace-session" :class="{ active: selected }" :aria-current="selected ? 'true' : undefined" :title="`${session.title}\n${workspaceName ? `${workspaceName} · ` : ''}${providerLabel(session.provider)} · ${t(session.status)}`" draggable="true" @dragstart="dragSession" @click="openRow">
+      <button ref="rowButton" class="workspace-session" data-sidebar-row-focus :class="{ active: selected }" @keydown="rowKeydown" :aria-current="selected ? 'true' : undefined" :title="`${session.title}\n${workspaceName ? `${workspaceName} · ` : ''}${providerLabel(session.provider)} · ${t(session.status)}`" draggable="true" @dragstart="dragSession" @click="openRow">
         <span :class="['workspace-session-provider', session.provider]"><ProviderIcon :provider="session.provider" :size="14" /></span>
         <span class="workspace-session-text"><strong class="workspace-session-title">{{ session.title }}</strong><small v-if="session.preview" class="workspace-session-preview">{{ session.preview }}</small></span>
         <small class="workspace-session-meta"><Icon v-if="isSessionArchived(session)" name="archive" :size="11" :aria-label="t('Archived session')" /><span v-if="isEphemeralSession(session)" class="session-temporary-badge">{{ t('Temporary') }}</span><span v-if="session.status === 'waiting'" class="session-waiting-badge">{{ t('Needs you') }}</span><span v-else-if="session.status !== 'stopped'" :class="['state-dot', session.status]" :title="t(session.status)" :aria-label="t(session.status)" /><span class="workspace-session-when">{{ workspaceName || lastActive }}</span></small>

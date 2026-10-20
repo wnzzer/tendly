@@ -7,9 +7,11 @@ import "./features/theme";
 import "./features/appearance";
 import App from "./App.vue";
 import { installMenuDismissal } from "./features/dismiss-menus";
+import { installRovingKeys } from "./features/roving-keys";
 import { installContextMenuPolicy } from "./features/native-context-menu";
 import { router } from "./router";
 
 installMenuDismissal();
+installRovingKeys();
 installContextMenuPolicy();
 void linkSignIn.then(() => createApp(App).use(router).mount("#root"));

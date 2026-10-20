@@ -23,7 +23,10 @@ const back = t(backLabel(typeof previous === "string" && router ? router.resolve
 function onKey(event: KeyboardEvent) {
   if (event.key !== "Escape" || event.defaultPrevented) return;
   if (document.querySelector(".modal-backdrop, .bottom-sheet-backdrop, details[open]")) return;
-  event.preventDefault(); emit("back");
+  event.preventDefault();
+  // From a field, Esc only leaves it; the next one goes back.
+  if (event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable='true']")) { page.value?.focus({ preventScroll: true }); return; }
+  emit("back");
 }
 onMounted(() => { document.addEventListener("keydown", onKey); page.value?.focus({ preventScroll: true }); });
 onBeforeUnmount(() => document.removeEventListener("keydown", onKey));

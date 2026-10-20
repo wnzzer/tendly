@@ -8,6 +8,7 @@ import { paneDisplayTitle } from "../features/pane-context";
 import { useI18n } from "../i18n";
 import TabIcon from "../features/TabIcon.vue";
 import { shortcutHint } from "../features/palette-items";
+import { isRemove } from "../features/shortcuts";
 import Icon from "../features/Icon.vue";
 import ContextMenu from "../features/ContextMenu.vue";
 import MenuFlyout from "../features/MenuFlyout.vue";
@@ -142,6 +143,8 @@ function qualifiedTitle(pane: PaneNode) { const workspace = workspaceFor(pane); 
 function tabLabel(pane: PaneNode) { return isEphemeral(pane) ? t('{title} · temporary window', { title: qualifiedTitle(pane) }) : qualifiedTitle(pane); }
 function select(pane: PaneNode) { emit("select", pane, props.node.type === "stack" ? props.node.collapsedFrom : undefined); }
 function tabKey(event: KeyboardEvent, pane: PaneNode) {
+  // Delete closes the tab, as it removes a row anywhere else; the session lives on.
+  if (isRemove(event)) { event.preventDefault(); emit("close", pane.id); return; }
   if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
   event.preventDefault();
   const nextIndex = keyedTab(event.key, tabs.value.findIndex((item) => item.id === pane.id), tabs.value.length);

@@ -11,6 +11,18 @@ export function terminalFindChord(mac = isMac): Chord {
   return mac ? { key: "f", mod: true } : { key: "f", mod: true, shift: true };
 }
 
+/**
+ * Copying and pasting off a Mac, where Ctrl+C and Ctrl+V are the shell's:
+ * Ctrl+Shift+C and V, as other terminals take them, or Ctrl+Insert and
+ * Shift+Insert. On a Mac ⌘C and ⌘V already do it.
+ */
+export function terminalClipboardKey(event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">, mac = isMac): "copy" | "paste" | undefined {
+  if (mac || event.altKey || event.metaKey) return undefined;
+  if (matches(event, { key: "c", mod: true, shift: true }, false) || (event.key === "Insert" && event.ctrlKey && !event.shiftKey)) return "copy";
+  if (matches(event, { key: "v", mod: true, shift: true }, false) || (event.key === "Insert" && event.shiftKey && !event.ctrlKey)) return "paste";
+  return undefined;
+}
+
 export function isTerminalFind(event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">, mac = isMac): boolean {
   return matches(event, terminalFindChord(mac), mac);
 }

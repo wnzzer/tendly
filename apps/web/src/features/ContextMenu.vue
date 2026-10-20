@@ -10,7 +10,7 @@
  * menu in the app is this one, so they share keys, look and, on a phone, the
  * bottom sheet they become (styles.css), titled by `label`.
  */
-import { computed, nextTick, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 
 const props = withDefaults(defineProps<{ x: number; y: number; label: string; width?: number }>(), { width: 200 });
 const emit = defineEmits<{ close: [] }>();
@@ -31,6 +31,12 @@ function move(event: KeyboardEvent) {
   list[(index + (event.key === "ArrowDown" ? 1 : -1) + list.length) % list.length]?.focus();
 }
 onMounted(async () => { await nextTick(); height.value = menu.value?.offsetHeight ?? 0; items()[0]?.focus({ preventScroll: true }); });
+/** Closing hands the focus back to whatever had it, unless an item sent it elsewhere. */
+const returnTo = typeof document === "undefined" ? null : document.activeElement as HTMLElement | null;
+onBeforeUnmount(() => {
+  const now = document.activeElement;
+  if (!now || now === document.body || menu.value?.contains(now)) void nextTick(() => { if (returnTo?.isConnected) returnTo.focus({ preventScroll: true }); });
+});
 </script>
 
 <template>

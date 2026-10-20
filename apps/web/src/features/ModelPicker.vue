@@ -28,7 +28,8 @@ function sync(value: string) { query.value = value; activeIndex.value = 0; emit(
 function choose(entry: ModelEntry) { sync(entry.id); open.value = false; }
 function onOutside(event: PointerEvent) { if (root.value && !root.value.contains(event.target as Node)) open.value = false; }
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') { open.value = false; return; }
+  // Closing the list is this Esc's whole job; the dialog around it stays.
+  if (event.key === 'Escape') { if (open.value) { event.preventDefault(); event.stopPropagation(); open.value = false; } return; }
   if (event.key === 'ArrowDown') {
     event.preventDefault();
     if (!open.value) { open.value = true; activeIndex.value = 0; }

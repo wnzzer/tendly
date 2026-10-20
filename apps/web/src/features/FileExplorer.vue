@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import type { ComponentPublicInstance } from "vue";
 import type { FileEntry } from "@tendly/protocol";
 import { errorMessage, formatBytes, request, workspacePath } from "./api";
+import { isRemove, isRename } from "./shortcuts";
 import { flattenTree, isTreeChild, sortTreeEntries, treeAncestors, treeKeyAction, treeParent } from "./tree-model";
 import type { TreeDirectory, TreeRow } from "./tree-model";
 import { readTreeViewState, saveTreeViewState } from "./tree-state";
@@ -144,12 +145,14 @@ async function startRename(entry: FileEntry) {
   const stem = entry.name.lastIndexOf(".");
   renameInput?.setSelectionRange(0, stem > 0 ? stem : entry.name.length);
 }
+/** Leaving the name as it was goes back to its row, where F2 came from. */
+function cancelRename() { const path = renaming.value?.entry.path; renaming.value = null; if (path) void focusRow(path); }
 async function renameEntry() {
   const draft = renaming.value;
   if (!draft || draft.busy) return;
   const to = renamedPath(draft.entry.path, draft.name);
   if (!to) return;
-  if (to === draft.entry.path) { renaming.value = null; return; }
+  if (to === draft.entry.path) { cancelRename(); return; }
   const parent = treeParent(draft.entry.path) ?? "";
   if (nameTaken(directories.value, to)) { error.value = t("{name} already exists in this folder.", { name: draft.name.trim() }); return; }
   draft.busy = true;
@@ -162,6 +165,7 @@ async function renameEntry() {
     // there: its children were listed under a path that no longer exists.
     if (expanded.value.delete(draft.entry.path)) { expanded.value.add(entry.path); await loadDirectory(entry.path, true); }
     await loadDirectory(parent, true);
+    void focusRow(entry.path);
     await reveal(entry.path);
   } catch (cause) { error.value = errorMessage(cause); draft.busy = false; }
 }
@@ -275,6 +279,15 @@ function open(file: FileEntry) {
 }
 
 async function navigate(event: KeyboardEvent, row: TreeRow) {
+  // F2 renames the row; Delete (⌘⌫ on a Mac) asks, under the row, before deleting it.
+  if (isRename(event) || isRemove(event)) {
+    event.preventDefault(); event.stopPropagation();
+    if (isRename(event)) { void startRename(row.entry); return; }
+    const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    rowMenu.value = { entry: row.entry, x: box.left + 24, y: box.bottom };
+    confirmDelete.value = true;
+    return;
+  }
   const action = treeKeyAction(event.key, event.altKey || event.ctrlKey || event.metaKey, rows.value, row);
   if (action === "ignore") return;
   event.preventDefault(); event.stopPropagation();
@@ -414,7 +427,7 @@ defineExpose({ reveal });
       <button type="submit" class="text-button" :disabled="!creating.name.trim() || creating.busy">{{ t(creating.busy ? 'Creating…' : 'Create') }}</button>
       <button type="button" class="text-button" @click="creating = null">{{ t('Cancel') }}</button>
     </form>
-    <div class="file-search"><Icon name="search" :size="14" /><input v-model="query" data-explorer-filter :aria-label="t('Filter loaded files')" @keydown.down.prevent="($event.currentTarget as HTMLElement).closest('.file-explorer')?.querySelector<HTMLElement>('.tree-row')?.focus()" :placeholder="t('Filter loaded files…')" /><button v-if="query" class="icon-button clear-filter" :aria-label="t('Clear file filter')" @click="query = ''"><Icon name="close" :size="12" /></button></div>
+    <div class="file-search"><Icon name="search" :size="14" /><input v-model="query" data-explorer-filter @keydown.esc="query && ($event.stopPropagation(), query = '')" :aria-label="t('Filter loaded files')" @keydown.down.prevent="($event.currentTarget as HTMLElement).closest('.file-explorer')?.querySelector<HTMLElement>('.tree-row')?.focus()" :placeholder="t('Filter loaded files…')" /><button v-if="query" class="icon-button clear-filter" :aria-label="t('Clear file filter')" @click="query = ''"><Icon name="close" :size="12" /></button></div>
     <p v-if="query" class="tree-filter-note">{{ t('Only loaded folders are searched.') }}</p>
     <p v-if="revealFailure" class="inline-error" role="alert">{{ t('Could not locate {path} in the workspace.', { path: revealFailure }) }}</p>
     <p v-if="error" class="inline-error" role="alert">{{ error }}<button class="text-button" @click="error = ''">{{ t('Dismiss') }}</button></p>
@@ -432,9 +445,9 @@ defineExpose({ reveal });
       <template v-for="row in rows" :key="row.entry.path">
         <form v-if="renaming?.entry.path === row.entry.path" class="file-row tree-rename" :style="{ '--tree-depth': row.depth }" @submit.prevent="renameEntry">
           <i class="tree-disclosure" /><Icon :name="row.entry.kind === 'directory' ? 'folder' : 'file'" :size="15" />
-          <input :ref="element => renameInput = element as HTMLInputElement" v-model="renaming.name" :aria-label="t('Rename {name}', { name: row.entry.name })" :disabled="renaming.busy" spellcheck="false" @keydown.esc.prevent.stop="renaming = null" @keydown.stop />
+          <input :ref="element => renameInput = element as HTMLInputElement" v-model="renaming.name" :aria-label="t('Rename {name}', { name: row.entry.name })" :disabled="renaming.busy" spellcheck="false" @keydown.esc.prevent.stop="cancelRename" @keydown.stop />
           <button type="submit" class="text-button" :disabled="!renaming.name.trim() || renaming.busy">{{ t(renaming.busy ? 'Renaming…' : 'Rename') }}</button>
-          <button type="button" class="text-button" @click="renaming = null">{{ t('Cancel') }}</button>
+          <button type="button" class="text-button" @click="cancelRename">{{ t('Cancel') }}</button>
         </form>
         <button v-else :ref="element => setRowRef(row.entry.path, element)" class="file-row tree-row" :class="{ 'is-selected': selected === row.entry.path, 'is-directory': row.entry.kind === 'directory' }" role="treeitem" :aria-level="row.depth + 1" :aria-posinset="row.position" :aria-setsize="row.siblings" :aria-expanded="row.entry.kind === 'directory' ? row.expanded : undefined" :aria-selected="selected === row.entry.path" :aria-label="row.entry.name" :aria-description="row.entry.path" :aria-busy="row.entry.kind === 'directory' ? directories.get(row.entry.path)?.loading : undefined" :tabindex="tabPath === row.entry.path ? 0 : -1" :style="{ '--tree-depth': row.depth }" :title="row.entry.path" :draggable="row.entry.kind === 'file'" @contextmenu="openRowMenu($event, row.entry)" @pointerdown="pressStart($event, row.entry)" @pointermove="pressMove" @pointerup="pressEnd" @pointercancel="pressEnd" @dragstart="drag($event, row.entry)" @click="open(row.entry)" @focus="focusedPath = row.entry.path" @keydown="navigate($event, row)">
           <i class="tree-disclosure" :class="{ expanded: row.expanded }"><Icon v-if="row.entry.kind === 'directory'" name="chevron" :size="11" /></i><Icon :name="row.entry.kind === 'directory' ? 'folder' : 'file'" :size="15" /><span>{{ row.entry.name }}</span><small v-if="row.entry.kind === 'symlink'" :title="t('Symbolic link')">↗</small><small v-else-if="row.entry.kind !== 'directory'">{{ formatBytes(row.entry.size) }}</small>
