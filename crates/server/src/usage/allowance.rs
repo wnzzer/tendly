@@ -26,6 +26,7 @@ pub struct Allowance {
     pub window_start: i64,
     /// None when the window has run out and the next has not begun.
     pub resets_at: Option<i64>,
+    /// Logged in the window, and only since the plan last changed.
     pub used_tokens: u64,
     pub used_cost: f64,
     pub estimated_total_tokens: Option<u64>,
@@ -79,6 +80,59 @@ pub(super) const LEARNED_WINDOWS: usize = 4;
 
 fn capacities_path(state_dir: &Path) -> PathBuf {
     state_dir.join("allowance-capacity.json")
+}
+
+/// The plan each account was last read on, and since when.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(super) struct PlanSeen {
+    tier: String,
+    since: i64,
+}
+
+type Plans = HashMap<String, PlanSeen>;
+
+fn plans_path(state_dir: &Path) -> PathBuf {
+    state_dir.join("allowance-plans.json")
+}
+
+/// When the account's current plan began, as far as this host can tell. Use
+/// from before a change of plan does not count against the new plan's
+/// percentage, so a window's logs are only counted from the change on: what
+/// that misses only makes the size a lower bound, as every reading is. A plan
+/// read for the first time is taken as long held, unless the account has
+/// learned sizes only under other plans -- it changed before this was kept.
+pub(super) fn plan_since(
+    plans: &mut Plans,
+    learned: &Capacities,
+    account: &str,
+    tier: &str,
+    read_at: i64,
+) -> i64 {
+    if let Some(seen) = plans.get_mut(account) {
+        if seen.tier != tier {
+            *seen = PlanSeen {
+                tier: tier.to_owned(),
+                since: read_at,
+            };
+        }
+        return seen.since;
+    }
+    let prefix = format!("{account}/");
+    let mut tiers = learned
+        .keys()
+        .filter_map(|key| key.strip_prefix(&prefix)?.split_once('/'))
+        .map(|(_, tier)| tier)
+        .filter(|tier| !tier.is_empty());
+    let changed = tiers.clone().next().is_some() && tiers.all(|seen| seen != tier);
+    let since = if changed { read_at } else { 0 };
+    plans.insert(
+        account.to_owned(),
+        PlanSeen {
+            tier: tier.to_owned(),
+            since,
+        },
+    );
+    since
 }
 
 /// The window size a reading proves, if it is one to trust. Below a tenth
@@ -165,6 +219,7 @@ pub(super) async fn allowance(State(state): State<AppState>) -> Result<Json<Vec<
     let prices = load_prices(&state.state_dir);
     let now = Utc::now().timestamp();
     let path = capacities_path(&state.state_dir);
+    let plans_path = plans_path(&state.state_dir);
     let rows = tokio::task::spawn_blocking(move || {
         // One request at a time reads, updates and writes the learned sizes.
         static LEARNING: Mutex<()> = Mutex::new(());
@@ -176,6 +231,11 @@ pub(super) async fn allowance(State(state): State<AppState>) -> Result<Json<Vec<
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
         let before = learned.clone();
+        let mut plans: Plans = std::fs::read(&plans_path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default();
+        let plans_before = plans.clone();
         let mut rows = Vec::new();
         for account in accounts {
             let provider = account.provider;
@@ -205,6 +265,21 @@ pub(super) async fn allowance(State(state): State<AppState>) -> Result<Json<Vec<
             };
             let limits = &limits;
             let calls = collect(&[(PathBuf::from(&account.storage_path), None)]);
+            let plan = logged_plan.or_else(|| account.plan.clone());
+            let tier = if provider == ProviderKind::ClaudeCode {
+                account.quota_tier.as_deref()
+            } else {
+                plan.as_deref()
+            };
+            let plan_since = tier.map_or(0, |tier| {
+                plan_since(
+                    &mut plans,
+                    &learned,
+                    &account.id.to_string(),
+                    tier,
+                    observed_at.or(checked_at).unwrap_or(now),
+                )
+            });
             for (window, limit) in [
                 ("primary", &limits.primary),
                 ("secondary", &limits.secondary),
@@ -235,19 +310,13 @@ pub(super) async fn allowance(State(state): State<AppState>) -> Result<Json<Vec<
                     )
                 };
                 let (mut tokens, mut cost) = (0u64, 0f64);
-                for call in calls
-                    .iter()
-                    .filter(|call| call.provider == provider && call.at >= start)
+                for call in calls.iter().filter(|call| {
+                    call.provider == provider && call.at >= start.max(plan_since)
+                })
                 {
                     tokens += call.tokens.total();
                     cost += prices.cost(call).unwrap_or(0.0);
                 }
-                let plan = logged_plan.clone().or_else(|| account.plan.clone());
-                let tier = if provider == ProviderKind::ClaudeCode {
-                    account.quota_tier.as_deref()
-                } else {
-                    plan.as_deref()
-                };
                 let history = learned
                     .entry(format!("{}/{window}/{}", account.id, tier.unwrap_or("")))
                     .or_default();
@@ -271,7 +340,7 @@ pub(super) async fn allowance(State(state): State<AppState>) -> Result<Json<Vec<
                     account_id: account.id.to_string(),
                     account: account.name.clone(),
                     provider,
-                    plan,
+                    plan: plan.clone(),
                     window,
                     window_minutes: minutes,
                     used_percent,
@@ -293,6 +362,11 @@ pub(super) async fn allowance(State(state): State<AppState>) -> Result<Json<Vec<
             && let Ok(bytes) = serde_json::to_vec(&learned)
         {
             let _ = std::fs::write(&path, bytes);
+        }
+        if plans != plans_before
+            && let Ok(bytes) = serde_json::to_vec(&plans)
+        {
+            let _ = std::fs::write(&plans_path, bytes);
         }
         rows
     })

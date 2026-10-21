@@ -318,6 +318,26 @@ fn what_is_left_is_the_unused_share_of_the_largest_window_seen() {
 }
 
 #[test]
+fn a_window_counts_only_what_was_used_since_the_plan_changed() {
+    let mut learned: HashMap<String, Vec<Learned>> = HashMap::new();
+    let mut plans = HashMap::new();
+    // Read for the first time with nothing learned: held all along.
+    assert_eq!(plan_since(&mut plans, &learned, "a", "pro", 100), 0);
+    assert_eq!(plan_since(&mut plans, &learned, "a", "pro", 200), 0);
+    // An upgrade starts the count at the reading that saw it, and keeps it.
+    assert_eq!(plan_since(&mut plans, &learned, "a", "max", 300), 300);
+    assert_eq!(plan_since(&mut plans, &learned, "a", "max", 400), 300);
+    // An account first read after a change: sizes learned only under another plan.
+    learned.insert("b/secondary/pro".into(), Vec::new());
+    learned.insert("b/primary/".into(), Vec::new());
+    assert_eq!(plan_since(&mut plans, &learned, "b", "max", 500), 500);
+    // One already learned under this plan has held it.
+    learned.insert("c/primary/pro".into(), Vec::new());
+    learned.insert("c/primary/max".into(), Vec::new());
+    assert_eq!(plan_since(&mut plans, &learned, "c", "max", 600), 0);
+}
+
+#[test]
 fn prices_exist_only_for_published_models() {
     let prices = Prices::default();
     let listed = |model: &str| {
