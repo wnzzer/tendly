@@ -13,7 +13,9 @@ mod bridge;
 mod canvas;
 mod chat_adapter;
 #[cfg(test)]
-mod chat_parity_tests;
+mod chat_client_tests;
+#[cfg(test)]
+mod chat_fixture;
 mod checkouts;
 mod claude_chat;
 mod cli;
@@ -283,8 +285,8 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
         store,
         runtime: RuntimeManager::new(),
         native_bridge: installation::native_bridge(&state_dir),
-        chat_bridge: bridge::script(&state_dir, "TENDLY_CHAT_BRIDGE", "chat.mjs"),
-        chat_in_process: None,
+        #[cfg(test)]
+        chat_fixture: None,
         chats: conversations::ChatManager::default(),
         watches: file_watch::FileWatches::default(),
         accounts: accounts::AccountManager::new(),

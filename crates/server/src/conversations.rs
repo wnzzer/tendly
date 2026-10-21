@@ -8,7 +8,7 @@
 //! conversation (appending, pages, snapshots and search), `supervisor.rs`
 //! starting a client and supervising it, `events.rs` what a client may report
 //! and what each event changes, and `socket.rs` the stream a view follows.
-use crate::chat_adapter::{BridgeAdapter, ChatCommand, ChatInit, ClientAdapter, dispatch};
+use crate::chat_adapter::{ChatCommand, ChatInit, ClientAdapter, dispatch};
 use crate::{ApiError, AppState, Result, db, providers, session_record};
 use axum::{
     Json, Router,

@@ -521,3 +521,48 @@ async fn steering_is_validated_like_a_message() {
         );
     }
 }
+
+#[tokio::test]
+async fn creating_a_cross_client_handoff_persists_the_source_history() {
+    let f = Fixture::new("127.0.0.1:8787".parse().unwrap(), None);
+    let workspace = register(&f).await;
+    let path = format!("/api/workspaces/{workspace}/sessions");
+    let (_, source) = call(
+        f.app(),
+        "POST",
+        &path,
+        json!({"title":"CC","provider":"claude_code","interaction_mode":"structured"}),
+    )
+    .await;
+    let source_id = source["id"].as_str().unwrap().parse().unwrap();
+    f.state
+        .store
+        .append_conversation_event(
+            source_id,
+            json!({"type":"message","id":"u","role":"user","text":"Keep the retry fix"}),
+        )
+        .unwrap();
+    let (status, target) = call(f.app(), "POST", &path, json!({"title":"Codex","provider":"codex","interaction_mode":"structured","handoff_source_id":source_id})).await;
+    assert_eq!(status, StatusCode::CREATED, "{target}");
+    let target_id = target["id"].as_str().unwrap().parse().unwrap();
+    assert!(
+        f.state
+            .store
+            .carried_transcript(target_id, 65536)
+            .unwrap()
+            .unwrap()
+            .contains("Keep the retry fix")
+    );
+    assert_eq!(
+        f.state.store.carried_transcript(source_id, 65536).unwrap(),
+        None
+    );
+    let (status, _) = call(
+        f.app(),
+        "POST",
+        &path,
+        json!({"title":"Invalid","provider":"codex","handoff_source_id":source_id}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

@@ -1,18 +1,11 @@
-//! Codex, driven from this process: `codex app-server` over JSON-RPC, with no
-//! Node bridge in between.
-//!
-//! This is `packages/native-bridge/chat-codex.mjs` (with the parts of
-//! `chat-common.mjs` and `chat.mjs` it relies on) in Rust, and it produces the
-//! same events: the same fields, the same clipping and redaction, the same
-//! error wording. Behaviour that differs from the bridge is a bug here.
+//! Codex app-server over JSON-RPC on the shared Rust conversation core.
 //!
 //! One task owns the conversation. Everything that can happen to it -- a
 //! command from the server, a message or a reply from Codex, a request timing
 //! out, an approval expiring, Codex exiting -- arrives on one channel and is
 //! handled to the end before the next. A request to Codex records what should
 //! follow its answer (a [`Then`]) instead of awaiting it, so no state is held
-//! across a wait. The bridge's checks that a reply still belongs to the turn
-//! that asked (`this.active === active`) are kept, as turn indexes.
+//! across a wait. Turn indexes ensure replies belong to the active turn.
 use crate::chat_adapter::{Answers, ChatInit, Decision};
 use crate::native_chat::{
     Core, LaunchArgs, MAX_TEXT, NativeAdapter, NativeClient, Protocol, approval_scope, clip,
@@ -46,9 +39,7 @@ struct Written {
     content: String,
 }
 
-/// What Codex keeps per turn (`Turn` in chat-common.mjs): steering written
-/// before the turn had an id, that id, whether an interrupt went out, and what
-/// the turn last reported it spent.
+/// Per-turn steering, native turn ID, interrupt state and reported usage.
 #[derive(Default)]
 struct TurnExtra {
     early: Vec<Written>,
@@ -57,7 +48,7 @@ struct TurnExtra {
     turn_usage: Option<Value>,
 }
 
-/// What follows a request's answer: the code after an `await` in the bridge.
+/// The continuation after a native request is answered.
 enum Then {
     Initialize,
     ModelList,
@@ -124,7 +115,7 @@ impl Codex {
             .or_else(|| self.default_model.clone())
     }
 
-    // -- chat.mjs: what to do with each command --
+    // -- Conversation commands --
 
     fn open(&mut self, init: ChatInit) {
         if !valid_init(&init) {
@@ -161,7 +152,7 @@ impl Codex {
         self.core.initializing = true;
         let program = self.program.clone();
         if self.core.spawn(&program, &args).is_err() {
-            // A process that never started fails as the bridge's does: its
+            // A process that never started has its
             // first request is already waiting when the launch error arrives,
             // and is failed by the close that follows.
             self.core.waiting(Then::Initialize);
@@ -195,11 +186,6 @@ impl Codex {
         self.restate_settings();
     }
     fn choose_permission(&mut self, mode: &str) {
-        if self.core.active.is_some() {
-            self.core
-                .raw_error("Wait for the current turn to finish before changing permissions.");
-            return;
-        }
         let (policy, sandbox) = match mode {
             "ask" => ("on-request", None),
             "danger" => ("never", Some(json!({"type":"dangerFullAccess"}))),

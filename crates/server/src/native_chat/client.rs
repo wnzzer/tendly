@@ -182,7 +182,7 @@ pub trait NativeClient: Send + 'static {
                 .error("Native approval timed out and was cancelled.");
         }
     }
-    /// chat.mjs: what to do with each command.
+    /// Handle conversation commands.
     fn command(&mut self, input: Input) {
         if self.core().closed {
             return;

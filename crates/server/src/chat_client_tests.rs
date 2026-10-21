@@ -1,15 +1,7 @@
-//! The clients run in this process against the Node bridge they replace.
-//!
-//! Each scenario runs twice against the same synthetic client
-//! (`packages/native-bridge/fixtures/chat-cli.mjs` for Codex, `pi-cli.mjs` for
-//! Pi): once through `node chat.mjs` (BridgeAdapter) and once through the
-//! client's adapter here. Both must produce
-//! the same events, after the server's own validation, and send Codex the same
-//! messages. Approval ids are random, so they are compared by order of
-//! appearance; the scenario's directory is compared as a placeholder.
-use crate::chat_adapter::{BridgeAdapter, ChatCommand, ChatInit, ClientAdapter, dispatch};
+//! Rust client protocol regression tests against synthetic native clients.
+use crate::chat_adapter::{ChatCommand, ChatInit, ClientAdapter, dispatch};
 use serde_json::{Value, json};
-use std::{collections::BTreeMap, path::PathBuf, process::Stdio, time::Duration};
+use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 
 /// One thing a scenario does.
 enum Step {
@@ -24,7 +16,7 @@ enum Step {
 }
 use Step::*;
 
-fn bridge_dir() -> PathBuf {
+fn fixture_package_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../packages/native-bridge")
 }
 
@@ -253,7 +245,11 @@ fn scenario_dir_for(client: &Client, name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("tendly-parity-{name}-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let program = dir.join(client.fixture);
-    std::fs::copy(bridge_dir().join("fixtures").join(client.fixture), &program).unwrap();
+    std::fs::copy(
+        fixture_package_dir().join("fixtures").join(client.fixture),
+        &program,
+    )
+    .unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -275,32 +271,11 @@ fn init_for(client: &Client, dir: &std::path::Path, args: &[&str]) -> ChatInit {
     }
 }
 
-async fn both(name: &str, args: &[&str], steps: &[Step]) -> Vec<Value> {
-    both_for(&CODEX, name, args, steps).await
+async fn scenario(name: &str, args: &[&str], steps: &[Step]) -> Vec<Value> {
+    scenario_for(&CODEX, name, args, steps).await
 }
-/// Runs the scenario through the bridge and through the Rust adapter, asserts
-/// they match, and returns the events, so a scenario can also check that what
-/// both did is right -- they can agree on a bug.
-async fn both_for(client: &Client, name: &str, args: &[&str], steps: &[Step]) -> Vec<Value> {
-    let bridge = {
-        let dir = scenario_dir_for(client, &format!("{name}-bridge"));
-        let log = dir.join("native.jsonl");
-        let mut command = tokio::process::Command::new(crate::bridge::js_runtime());
-        command
-            .arg(bridge_dir().join("chat.mjs"))
-            .current_dir(&dir)
-            .envs(environment(&log))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .kill_on_drop(true);
-        tendly_runtime::process::own_group(command.as_std_mut());
-        let adapter = BridgeAdapter::new(command.spawn().expect("node")).unwrap();
-        let run = drive(adapter, init_for(client, &dir, args), steps, &log).await;
-        let result = comparable(run, &dir.to_string_lossy());
-        let _ = std::fs::remove_dir_all(&dir);
-        result
-    };
+/// Verify normalized events and native protocol requests.
+async fn scenario_for(client: &Client, name: &str, args: &[&str], steps: &[Step]) -> Vec<Value> {
     let rust = {
         let dir = scenario_dir_for(client, &format!("{name}-rust"));
         let log = dir.join("native.jsonl");
@@ -315,19 +290,34 @@ async fn both_for(client: &Client, name: &str, args: &[&str], steps: &[Step]) ->
             .iter()
             .any(|e| e.to_string().contains("fixture-secret-value"))
     };
-    assert!(
-        !secret(&bridge.0) && !secret(&rust.0),
-        "{name}: a secret reached the output"
-    );
-    assert_eq!(
-        rust.0, bridge.0,
-        "{name}: events differ (left: rust, right: bridge)"
-    );
-    assert_eq!(
-        rust.1, bridge.1,
-        "{name}: what Codex received differs (left: rust, right: bridge)"
-    );
-    assert!(!bridge.0.is_empty());
+    assert!(!secret(&rust.0), "{name}: a secret reached the output");
+    assert!(!rust.0.is_empty());
+    if name == "permission-running" {
+        let turns: Vec<_> = rust
+            .1
+            .iter()
+            .filter(|e| e["method"] == "turn/start")
+            .collect();
+        assert_eq!(turns.len(), 2);
+        assert!(turns[0]["params"].get("approvalPolicy").is_none());
+        assert_eq!(turns[1]["params"]["approvalPolicy"], "never");
+        assert_eq!(
+            turns[1]["params"]["sandboxPolicy"]["type"],
+            "dangerFullAccess"
+        );
+    }
+    if name == "sandbox" {
+        let turns: Vec<_> = rust
+            .1
+            .iter()
+            .filter(|e| e["method"] == "turn/start")
+            .collect();
+        assert_eq!(
+            turns[0]["params"]["sandboxPolicy"]["type"],
+            "dangerFullAccess"
+        );
+        assert_eq!(turns[1]["params"]["sandboxPolicy"]["type"], "readOnly");
+    }
     rust.0
 }
 
@@ -343,7 +333,7 @@ fn brief(approval: &Value) -> Value {
 
 #[tokio::test]
 async fn a_simple_turn() {
-    both(
+    scenario(
         "simple",
         &[],
         &[
@@ -356,7 +346,7 @@ async fn a_simple_turn() {
 
 #[tokio::test]
 async fn declining_an_approval() {
-    both(
+    scenario(
         "decline",
         &[],
         &[
@@ -371,7 +361,7 @@ async fn declining_an_approval() {
 
 #[tokio::test]
 async fn accepting_then_cancelling() {
-    both(
+    scenario(
         "accept-cancel",
         &[],
         &[
@@ -390,7 +380,7 @@ async fn accepting_then_cancelling() {
 
 #[tokio::test]
 async fn questions_and_their_answers() {
-    both(
+    scenario(
         "ask",
         &[],
         &[
@@ -407,7 +397,7 @@ async fn questions_and_their_answers() {
 
 #[tokio::test]
 async fn permissions_on_a_resumed_thread() {
-    both(
+    scenario(
         "permissions",
         &["resume", "saved-thread"],
         &[
@@ -422,7 +412,7 @@ async fn permissions_on_a_resumed_thread() {
 
 #[tokio::test]
 async fn interrupting_a_turn_and_a_repeated_message() {
-    both(
+    scenario(
         "interrupt",
         &[],
         &[
@@ -440,7 +430,7 @@ async fn interrupting_a_turn_and_a_repeated_message() {
 
 #[tokio::test]
 async fn an_unsupported_request_fails_closed() {
-    both(
+    scenario(
         "unknown",
         &[],
         &[
@@ -452,8 +442,27 @@ async fn an_unsupported_request_fails_closed() {
 }
 
 #[tokio::test]
+async fn codex_permission_can_change_while_a_turn_is_running() {
+    scenario(
+        "permission-running",
+        &[],
+        &[
+            Send(json!({"type":"message","id":"hold","content":"hold"})),
+            Wait(|e| e["type"] == "tool" && e["id"] == "hold-1"),
+            Send(json!({"type":"permission","mode":"danger"})),
+            Wait(|e| e["type"] == "settings" && e["permission_mode"] == "danger"),
+            Send(json!({"type":"interrupt"})),
+            Wait(|e| turn(e, "hold", "interrupted")),
+            Send(json!({"type":"message","id":"next","content":"simple"})),
+            Wait(|e| turn(e, "next", "completed")),
+        ],
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn leaving_danger_restores_the_sandbox() {
-    both(
+    scenario(
         "sandbox",
         &[],
         &[
@@ -465,7 +474,7 @@ async fn leaving_danger_restores_the_sandbox() {
             Wait(|e| e["type"] == "settings" && e["permission_mode"] == "ask"),
             Send(json!({"type":"message","id":"guarded","content":"simple"})),
             Wait(|e| turn(e, "guarded", "completed")),
-            // A mode Codex has no equivalent of is refused in the bridge's words.
+            // Unsupported permission modes are refused.
             Send(json!({"type":"permission","mode":"plan"})),
             Wait(|e| e["type"] == "error"),
         ],
@@ -475,7 +484,7 @@ async fn leaving_danger_restores_the_sandbox() {
 
 #[tokio::test]
 async fn file_changes_and_mcp_tools() {
-    both(
+    scenario(
         "tools",
         &[],
         &[
@@ -488,7 +497,7 @@ async fn file_changes_and_mcp_tools() {
 
 #[tokio::test]
 async fn choosing_a_model_and_a_depth() {
-    both(
+    scenario(
         "model",
         &[],
         &[
@@ -511,7 +520,7 @@ async fn choosing_a_model_and_a_depth() {
 
 #[tokio::test]
 async fn steering_the_running_turn() {
-    both(
+    scenario(
         "steer",
         &[],
         &[
@@ -527,7 +536,7 @@ async fn steering_the_running_turn() {
 
 #[tokio::test]
 async fn a_turn_that_refuses_steering_passes_it_on() {
-    both(
+    scenario(
         "steer-refused",
         &[],
         &[
@@ -543,7 +552,7 @@ async fn a_turn_that_refuses_steering_passes_it_on() {
 
 #[tokio::test]
 async fn steering_with_no_turn_running_is_a_message() {
-    both(
+    scenario(
         "steer-idle",
         &[],
         &[
@@ -579,30 +588,15 @@ async fn a_client_that_cannot_start() {
         init
     };
     let dir = scenario_dir("missing");
-    let mut command = tokio::process::Command::new(crate::bridge::js_runtime());
-    command
-        .arg(bridge_dir().join("chat.mjs"))
-        .current_dir(&dir)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    let bridge = unlaunchable(
-        BridgeAdapter::new(command.spawn().expect("node")).unwrap(),
-        missing(&dir),
-    )
-    .await;
     let rust = unlaunchable(
         crate::codex_chat::adapter(&BTreeMap::new(), &[]),
         missing(&dir),
     )
     .await;
-    assert_eq!(rust, bridge);
     assert!(
-        bridge
-            .iter()
+        rust.iter()
             .any(|e| e["message"] == "Could not launch the configured native client."),
-        "{bridge:?}"
+        "{rust:?}"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -610,25 +604,12 @@ async fn a_client_that_cannot_start() {
 #[tokio::test]
 async fn an_unusable_launch_option() {
     let dir = scenario_dir("option");
-    let mut command = tokio::process::Command::new(crate::bridge::js_runtime());
-    command
-        .arg(bridge_dir().join("chat.mjs"))
-        .current_dir(&dir)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    let bridge = unlaunchable(
-        BridgeAdapter::new(command.spawn().expect("node")).unwrap(),
-        init(&dir, &["--full-auto"]),
-    )
-    .await;
     let rust = unlaunchable(
         crate::codex_chat::adapter(&BTreeMap::new(), &[]),
         init(&dir, &["--full-auto"]),
     )
     .await;
-    assert_eq!(rust, bridge);
+    assert!(rust.iter().any(|e| e["type"] == "error"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -636,7 +617,7 @@ async fn an_unusable_launch_option() {
 /// (`early`), then joins that turn.
 #[tokio::test]
 async fn steering_before_the_turn_has_an_id() {
-    both(
+    scenario(
         "steer-early",
         &[],
         &[
@@ -655,7 +636,7 @@ async fn steering_before_the_turn_has_an_id() {
 /// turn/start. It runs as the next turn, like a steer a turn refused.
 #[tokio::test]
 async fn an_early_steer_survives_a_turn_that_fails_to_start() {
-    both(
+    scenario(
         "steer-early-failed",
         &[],
         &[
@@ -670,7 +651,7 @@ async fn an_early_steer_survives_a_turn_that_fails_to_start() {
 
 #[tokio::test]
 async fn an_early_steer_survives_a_turn_that_ends_before_its_id() {
-    both(
+    scenario(
         "steer-early-raced",
         &[],
         &[
@@ -685,7 +666,7 @@ async fn an_early_steer_survives_a_turn_that_ends_before_its_id() {
 
 #[tokio::test]
 async fn interrupting_before_the_turn_has_an_id() {
-    both(
+    scenario(
         "interrupt-early",
         &[],
         &[
@@ -733,7 +714,7 @@ async fn a_dropped_adapter_stops_its_app_server() {
 
 #[tokio::test]
 async fn pi_a_message_with_its_reply_tools_and_usage() {
-    both_for(
+    scenario_for(
         &PI,
         "pi-simple",
         &[],
@@ -747,7 +728,7 @@ async fn pi_a_message_with_its_reply_tools_and_usage() {
 
 #[tokio::test]
 async fn pi_confirmations_accepted_and_declined() {
-    both_for(
+    scenario_for(
         &PI,
         "pi-confirm",
         &[],
@@ -767,7 +748,7 @@ async fn pi_confirmations_accepted_and_declined() {
 
 #[tokio::test]
 async fn pi_models_by_provider_and_depths() {
-    both_for(
+    scenario_for(
         &PI,
         "pi-model",
         &[],
@@ -792,7 +773,7 @@ async fn pi_models_by_provider_and_depths() {
 
 #[tokio::test]
 async fn pi_interrupting_and_steering_a_running_turn() {
-    both_for(
+    scenario_for(
         &PI,
         "pi-interrupt",
         &[],
@@ -815,7 +796,7 @@ async fn pi_interrupting_and_steering_a_running_turn() {
 
 #[tokio::test]
 async fn pi_a_resumed_session_and_an_unusable_option() {
-    both_for(
+    scenario_for(
         &PI,
         "pi-resume",
         &["--session", "pi-session-1", "--thinking", "high"],
@@ -864,7 +845,7 @@ async fn pi_a_dropped_adapter_stops_pi() {
 /// every later message is refused as "a turn is already running".
 #[tokio::test]
 async fn pi_an_extension_command_ends_its_turn() {
-    both_for(
+    scenario_for(
         &PI,
         "pi-extension-command",
         &[],
@@ -882,7 +863,7 @@ async fn pi_an_extension_command_ends_its_turn() {
 /// once it starts, instead of letting it run to the end as "interrupted".
 #[tokio::test]
 async fn pi_interrupting_before_the_run_starts() {
-    both_for(
+    scenario_for(
         &PI,
         "pi-interrupt-early",
         &[],
@@ -901,7 +882,7 @@ async fn pi_interrupting_before_the_run_starts() {
 /// level that model allows; the depth shown is the one Pi runs, not the one asked.
 #[tokio::test]
 async fn pi_the_depth_shown_is_the_one_pi_runs() {
-    let events = both_for(
+    let events = scenario_for(
         &PI,
         "pi-depth",
         &[],
@@ -968,7 +949,7 @@ fn claude_native(events: &[Value]) -> Vec<Value> {
 
 #[tokio::test]
 async fn claude_a_turn_with_its_reply_usage_and_settings() {
-    let events = both_for(
+    let events = scenario_for(
         &CLAUDE,
         "claude-simple",
         &[],
@@ -1002,7 +983,7 @@ async fn claude_a_turn_with_its_reply_usage_and_settings() {
 
 #[tokio::test]
 async fn claude_tools_and_their_results() {
-    let events = both_for(
+    let events = scenario_for(
         &CLAUDE,
         "claude-tools",
         &[],
@@ -1022,7 +1003,7 @@ async fn claude_tools_and_their_results() {
 
 #[tokio::test]
 async fn claude_steering_joins_a_turn_or_follows_it() {
-    let events = both_for(
+    let events = scenario_for(
         &CLAUDE,
         "claude-steer",
         &[],
@@ -1051,7 +1032,7 @@ async fn claude_steering_joins_a_turn_or_follows_it() {
 
 #[tokio::test]
 async fn claude_interrupting_a_turn() {
-    both_for(
+    scenario_for(
         &CLAUDE,
         "claude-interrupt",
         &[],
@@ -1069,7 +1050,7 @@ async fn claude_interrupting_a_turn() {
 
 #[tokio::test]
 async fn claude_approvals_accepted_for_the_session_declined_and_cancelled() {
-    let events = both_for(
+    let events = scenario_for(
         &CLAUDE,
         "claude-approve",
         &[],
@@ -1145,7 +1126,7 @@ async fn claude_a_session_wide_approval_stays_in_the_session() {
 
 #[tokio::test]
 async fn claude_questions_answered_refused_and_declined() {
-    let events = both_for(
+    let events = scenario_for(
         &CLAUDE,
         "claude-ask",
         &[],
@@ -1181,7 +1162,7 @@ async fn claude_questions_answered_refused_and_declined() {
 
 #[tokio::test]
 async fn claude_requests_it_cannot_take() {
-    let events = both_for(
+    let events = scenario_for(
         &CLAUDE,
         "claude-refused",
         &[],
@@ -1203,7 +1184,7 @@ async fn claude_requests_it_cannot_take() {
 /// rather than the dialog answered.
 #[tokio::test]
 async fn claude_a_native_dialog_stops_the_turn() {
-    both_for(
+    scenario_for(
         &CLAUDE,
         "claude-dialog",
         &[],
@@ -1214,7 +1195,7 @@ async fn claude_a_native_dialog_stops_the_turn() {
 
 #[tokio::test]
 async fn claude_a_request_the_client_withdraws() {
-    let events = both_for(
+    let events = scenario_for(
         &CLAUDE,
         "claude-withdrawn",
         &[],
@@ -1226,7 +1207,7 @@ async fn claude_a_request_the_client_withdraws() {
 
 #[tokio::test]
 async fn claude_subagents_and_background_tasks() {
-    let events = both_for(
+    let events = scenario_for(
         &CLAUDE,
         "claude-subagent",
         &[],
@@ -1269,7 +1250,7 @@ async fn claude_subagents_and_background_tasks() {
 
 #[tokio::test]
 async fn claude_a_turn_the_client_starts_by_itself() {
-    let events = both_for(
+    let events = scenario_for(
         &CLAUDE,
         "claude-background",
         &[],
@@ -1295,7 +1276,7 @@ async fn claude_a_turn_the_client_starts_by_itself() {
 
 #[tokio::test]
 async fn claude_failed_turns_say_why() {
-    let events = both_for(
+    let events = scenario_for(
         &CLAUDE,
         "claude-fail",
         &[],
@@ -1347,7 +1328,7 @@ async fn claude_failed_turns_say_why() {
 
 #[tokio::test]
 async fn claude_models_depths_and_permission_modes() {
-    let events = both_for(
+    let events = scenario_for(
         &CLAUDE,
         "claude-settings",
         &[],
@@ -1390,7 +1371,7 @@ async fn claude_models_depths_and_permission_modes() {
 
 #[tokio::test]
 async fn claude_a_resumed_session_with_its_model_and_depth() {
-    let events = both_for(
+    let events = scenario_for(
         &CLAUDE,
         "claude-resume",
         &[
@@ -1462,12 +1443,12 @@ async fn claude_a_dropped_adapter_stops_claude() {
 }
 
 /// The real Claude Code, not the fixture: a short turn and an interrupted one,
-/// through the bridge and through the Rust adapter. It uses the host's own
+/// through the Rust adapter. It uses the host's own
 /// `claude` and sign-in and spends a little of its quota on the cheapest
 /// model, so it only runs when asked: `cargo test -- --ignored real_claude`.
 #[tokio::test]
 #[ignore]
-async fn real_claude_a_turn_and_an_interrupt_on_both_layers() {
+async fn real_claude_a_turn_and_an_interrupt() {
     let program = std::env::var("TENDLY_REAL_CLAUDE").unwrap_or_else(|_| "claude".into());
     async fn next<A: ClientAdapter>(adapter: &mut A, events: &mut Vec<Value>, wait: u64) -> bool {
         match tokio::time::timeout(Duration::from_secs(wait), adapter.next_event()).await {
@@ -1571,22 +1552,6 @@ async fn real_claude_a_turn_and_an_interrupt_on_both_layers() {
     fn events_after_two(_: &Value) -> bool {
         true
     }
-    let bridge = {
-        let mut command = tokio::process::Command::new(crate::bridge::js_runtime());
-        command
-            .arg(bridge_dir().join("chat.mjs"))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .kill_on_drop(true);
-        tendly_runtime::process::own_group(command.as_std_mut());
-        run(
-            BridgeAdapter::new(command.spawn().expect("node")).unwrap(),
-            &program,
-            "bridge",
-        )
-        .await
-    };
     let rust = run(
         crate::claude_chat::adapter(&BTreeMap::new(), &[]),
         &program,
@@ -1623,12 +1588,7 @@ async fn real_claude_a_turn_and_an_interrupt_on_both_layers() {
         out
     }
     eprintln!("approval: {:#}", json!(shown(&rust)));
-    assert_eq!(
-        shown(&rust),
-        shown(&bridge),
-        "the layers showed the real approval differently"
-    );
-    for (layer, events) in [("bridge", &bridge), ("rust", &rust)] {
+    for (layer, events) in [("rust", &rust)] {
         let status = |id: &str| {
             events
                 .iter()

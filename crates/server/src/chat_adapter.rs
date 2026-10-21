@@ -1,24 +1,16 @@
-//! The two layers a structured conversation can run on.
-//!
-//! A session's client speaks to the server through one internal protocol:
-//! commands in (`init`, `message`, `steer`, `approval`, `interrupt`, `model`,
-//! `permission`, `shutdown`) and events out (`ready`, `settings`, `cleared`,
-//! `message`, `tool`, `approval`, `approval_resolved`, `turn`, `usage`,
-//! `error`, `exit`; see `conversations::normalize_event`). [`ClientAdapter`]
-//! is that protocol as an interface. [`BridgeAdapter`] runs it over the Node
-//! chat bridge; [`crate::native_chat::NativeAdapter`] runs it in this process,
-//! against the client directly, for the clients [`in_process`] selects.
-use serde_json::{Map, Value, json};
-use std::{future::Future, time::Duration};
-use tendly_runtime::process::OwnedGroup;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+//! Structured conversation commands and the Rust client adapter interface.
+#[cfg(test)]
+use serde_json::json;
+use serde_json::{Map, Value};
+use std::future::Future;
 
 /// A failure that ends the conversation, worded for the transcript.
 pub type Failure = &'static str;
 
-/// What starts a client: the `init` line, as the bridge has always received it.
+/// Configuration for starting a native client.
 #[derive(Debug, Clone)]
 pub struct ChatInit {
+    #[cfg(test)]
     pub provider: String,
     pub program: String,
     pub args: Vec<String>,
@@ -27,6 +19,7 @@ pub struct ChatInit {
 }
 
 impl ChatInit {
+    #[cfg(test)]
     pub fn to_value(&self) -> Value {
         let mut init = json!({"type":"init","provider":self.provider,"program":self.program,"args":self.args,"cwd":self.cwd});
         if let Some(id) = &self.resume_id {
@@ -34,31 +27,6 @@ impl ChatInit {
         }
         init
     }
-}
-
-/// Whether `provider`'s conversations run in this process rather than under
-/// the Node bridge. They do unless `node` is asked for: `TENDLY_CODEX_ADAPTER`
-/// for Codex ([`crate::codex_chat`]), `TENDLY_PI_ADAPTER` for Pi
-/// ([`crate::pi_chat`]), `TENDLY_CLAUDE_ADAPTER` for Claude Code
-/// ([`crate::claude_chat`]); `codex_adapter`, `pi_adapter` and
-/// `claude_adapter = "node"` in config.toml set them, so a problem in a Rust
-/// client is one setting from undone. Read at each start: a running
-/// conversation keeps the layer it began on.
-pub fn in_process(provider: tendly_domain::ProviderKind) -> bool {
-    let variable = match provider {
-        tendly_domain::ProviderKind::Codex => "TENDLY_CODEX_ADAPTER",
-        tendly_domain::ProviderKind::Pi => "TENDLY_PI_ADAPTER",
-        tendly_domain::ProviderKind::ClaudeCode => "TENDLY_CLAUDE_ADAPTER",
-        _ => return false,
-    };
-    adapter_choice(std::env::var(variable).ok().as_deref())
-}
-
-fn adapter_choice(value: Option<&str>) -> bool {
-    !value.is_some_and(|value| {
-        let value = value.trim();
-        value.eq_ignore_ascii_case("node") || value.eq_ignore_ascii_case("bridge")
-    })
 }
 
 /// One decision a person can give a native request.
@@ -93,7 +61,7 @@ impl Decision {
 /// Answers to a native question, by question id.
 pub type Answers = Map<String, Value>;
 
-/// A command after the same checks `chat.mjs` (`validateChatInput`) makes.
+/// A validated structured conversation command.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChatCommand {
     Message {
@@ -125,7 +93,7 @@ fn has_control(value: &str) -> bool {
 }
 
 impl ChatCommand {
-    /// Parse a command, refusing what the bridge refuses with its own words.
+    /// Parse and validate a conversation command.
     pub fn parse(value: &Value) -> Result<Self, &'static str> {
         let Some(object) = value.as_object() else {
             return Err("Expected a structured chat object.");
@@ -225,10 +193,9 @@ impl ChatCommand {
 
 /// One structured conversation's client, behind the internal protocol.
 ///
-/// The methods are `ChatBase`'s (packages/native-bridge/chat-common.mjs) and
-/// nothing more. Each returns once its command has been taken; what follows
+/// Each method returns once its command has been taken; what follows
 /// arrives as events from [`ClientAdapter::next_event`]. A `Failure` from any
-/// of them ends the conversation the way a broken bridge pipe always has.
+/// of them ends the conversation.
 pub trait ClientAdapter: Send + Sized + 'static {
     /// The process this conversation owns, for resource reporting.
     fn pid(&self) -> Option<u32>;
@@ -287,193 +254,12 @@ pub async fn dispatch<A: ClientAdapter>(
     }
 }
 
-/// The Node chat bridge (`chat.mjs`), unchanged: one JSON line per command on
-/// its stdin, one per event on its stdout.
-pub struct BridgeAdapter {
-    child: tokio::process::Child,
-    stdin: tokio::process::ChildStdin,
-    stdout: tokio::process::ChildStdout,
-    buffer: Vec<u8>,
-    failed: bool,
-}
-
-impl BridgeAdapter {
-    pub fn new(mut child: tokio::process::Child) -> Result<Self, crate::ApiError> {
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| crate::ApiError::conflict("Cannot open native chat input"))?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| crate::ApiError::conflict("Cannot open native chat output"))?;
-        Ok(Self {
-            child,
-            stdin,
-            stdout,
-            buffer: Vec::new(),
-            failed: false,
-        })
-    }
-    async fn write(&mut self, line: Value, failure: Failure) -> Result<(), Failure> {
-        match tokio::time::timeout(
-            Duration::from_secs(3),
-            self.stdin.write_all(format!("{line}\n").as_bytes()),
-        )
-        .await
-        {
-            Ok(Ok(())) => Ok(()),
-            _ => Err(failure),
-        }
-    }
-    /// The next complete line already read, as an event.
-    fn take_line(&mut self) -> Option<Result<Value, Failure>> {
-        let end = self.buffer.iter().position(|b| *b == b'\n')?;
-        if end > 256 * 1024 {
-            return Some(Err("Native chat event exceeded the size limit"));
-        }
-        let line: Vec<_> = self.buffer.drain(..=end).collect();
-        Some(serde_json::from_slice::<Value>(&line).map_err(
-            |_| "Native chat returned an unsupported event; update the installed bridge/client",
-        ))
-    }
-}
-
-const INPUT_UNAVAILABLE: Failure = "Native chat input is unavailable";
-
-impl ClientAdapter for BridgeAdapter {
-    fn pid(&self) -> Option<u32> {
-        self.child.id()
-    }
-    async fn start(&mut self, init: &ChatInit) -> Result<(), Failure> {
-        self.write(
-            init.to_value(),
-            "Native chat input closed during initialization",
-        )
-        .await
-    }
-    async fn message(&mut self, id: String, content: String) -> Result<(), Failure> {
-        self.write(
-            json!({"type":"message","id":id,"content":content}),
-            INPUT_UNAVAILABLE,
-        )
-        .await
-    }
-    async fn steer(&mut self, id: String, content: String) -> Result<(), Failure> {
-        self.write(
-            json!({"type":"steer","id":id,"content":content}),
-            INPUT_UNAVAILABLE,
-        )
-        .await
-    }
-    async fn approve(
-        &mut self,
-        request_id: String,
-        decision: Decision,
-        answers: Option<Answers>,
-    ) -> Result<(), Failure> {
-        let mut line =
-            json!({"type":"approval","request_id":request_id,"decision":decision.as_str()});
-        if let Some(answers) = answers {
-            line["answers"] = Value::Object(answers);
-        }
-        self.write(line, INPUT_UNAVAILABLE).await
-    }
-    async fn interrupt(&mut self) -> Result<(), Failure> {
-        self.write(json!({"type":"interrupt"}), INPUT_UNAVAILABLE)
-            .await
-    }
-    async fn set_model(
-        &mut self,
-        model: Option<String>,
-        effort: Option<String>,
-    ) -> Result<(), Failure> {
-        let mut line = json!({"type":"model"});
-        if let Some(model) = model {
-            line["model"] = json!(model);
-        }
-        if let Some(effort) = effort {
-            line["effort"] = json!(effort);
-        }
-        self.write(line, INPUT_UNAVAILABLE).await
-    }
-    async fn set_permission_mode(&mut self, mode: String) -> Result<(), Failure> {
-        self.write(json!({"type":"permission","mode":mode}), INPUT_UNAVAILABLE)
-            .await
-    }
-    async fn next_event(&mut self) -> Option<Result<Value, Failure>> {
-        if self.failed {
-            return None;
-        }
-        loop {
-            if let Some(event) = self.take_line() {
-                self.failed = event.is_err();
-                return Some(event);
-            }
-            if self.buffer.len() > 256 * 1024 {
-                self.failed = true;
-                return Some(Err("Native chat event exceeded the size limit"));
-            }
-            let mut bytes = [0u8; 8192];
-            // Cancel-safe: a read that is dropped has consumed nothing.
-            match self.stdout.read(&mut bytes).await {
-                Ok(0) => return None,
-                Ok(count) => self.buffer.extend_from_slice(&bytes[..count]),
-                Err(_) => {
-                    self.failed = true;
-                    return Some(Err("Native chat output closed unexpectedly"));
-                }
-            }
-        }
-    }
-    async fn shutdown(mut self) {
-        let mut group = OwnedGroup::new(self.child.id());
-        let _ = tokio::time::timeout(
-            Duration::from_millis(250),
-            self.stdin.write_all(b"{\"type\":\"shutdown\"}\n"),
-        )
-        .await;
-        // A dedicated, positively identified process group contains only this bridge
-        // and its native CLI descendants. Never signal the host or unrelated Agents.
-        // Windows has no polite request, so there the bridge gets the time it had to
-        // shut down on its own after the message above before its tree is stopped.
-        #[cfg(windows)]
-        let _ = tokio::time::timeout(Duration::from_millis(1600), self.child.wait()).await;
-        group.terminate();
-        // Keep the leader unreaped until its owned group has been cleaned up.
-        // Waiting for only the Node PID can leave TERM-ignoring descendants.
-        #[cfg(unix)]
-        tokio::time::sleep(Duration::from_millis(1600)).await;
-        group.finish();
-        if tokio::time::timeout(Duration::from_secs(2), self.child.wait())
-            .await
-            .is_err()
-        {
-            let _ = self.child.start_kill();
-            let _ = tokio::time::timeout(Duration::from_secs(1), self.child.wait()).await;
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn a_client_runs_in_process_unless_the_bridge_is_asked_for() {
-        // Terminals have no layer to choose.
-        assert!(!in_process(tendly_domain::ProviderKind::Terminal));
-        assert!(adapter_choice(None));
-        assert!(adapter_choice(Some("")));
-        assert!(adapter_choice(Some("rust")));
-        assert!(adapter_choice(Some("rusty")));
-        assert!(!adapter_choice(Some("node")));
-        assert!(!adapter_choice(Some(" Node ")));
-        assert!(!adapter_choice(Some("bridge")));
-    }
-
-    #[test]
-    fn commands_are_refused_in_the_bridges_own_words() {
+    fn invalid_commands_are_refused() {
         let parse = |value: Value| ChatCommand::parse(&value);
         assert_eq!(
             parse(json!({"type":"message","id":"a","content":"hi"})),

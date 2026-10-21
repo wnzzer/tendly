@@ -1,7 +1,4 @@
-//! Claude Code, driven from this process: the user's installed `claude` in
-//! stream-json mode with no Node bridge in between. This is
-//! `packages/native-bridge/chat-claude.mjs` in Rust, on the shared core
-//! ([`crate::native_chat`]), and it produces the same events.
+//! Claude Code stream-json on the shared Rust conversation core.
 //!
 //! Claude's protocol is its stream-json control channel: user messages and
 //! `control_request`s in, a stream of `system`, `assistant`, `user`,

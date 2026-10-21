@@ -3,7 +3,7 @@
 //!
 //! Pi has no approval prompts and no MCP: it runs its tools without asking,
 //! so it offers no permission modes, and Tendly's own tools do not reach
-//! it. Its chat runs over `pi --mode rpc` (chat-pi.mjs).
+//! it. Its chat runs over `pi --mode rpc` (pi_chat.rs).
 use super::{AccountOperations, CatalogStep, ClientAdapter, EndpointLaunch};
 use crate::providers::KEY_STAND_IN;
 use crate::usage::{

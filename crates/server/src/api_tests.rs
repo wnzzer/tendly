@@ -81,9 +81,11 @@ impl Fixture {
             workspace_roots: vec![dunce::canonicalize(&path).unwrap()],
             native_sources: Vec::new(),
             native_bridge: PathBuf::from("packages/native-bridge/history.mjs"),
-            chat_bridge: PathBuf::from("packages/native-bridge/chat.mjs"),
-            // These tests drive the Node bridge, and fixture scripts in its place.
-            chat_in_process: Some(false),
+            chat_fixture: Some(
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../packages/native-bridge/fixtures/chat-supervisor.mjs"),
+            ),
+            // Route tests use a synthetic JSONL supervisor.
             chats: conversations::ChatManager::default(),
             watches: file_watch::FileWatches::default(),
             accounts: accounts::AccountManager::default(),

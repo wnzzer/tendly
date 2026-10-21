@@ -594,6 +594,28 @@ impl Store {
         )))
     }
 
+    /// Persist a cross-client handoff so reloads cannot lose the context.
+    pub fn carry_conversation(&self, source: SessionId, target: SessionId) -> Result<()> {
+        let mut conn = self.connection.lock().expect("sqlite lock");
+        let tx = conn.transaction()?;
+        let events = {
+            let mut stmt = tx.prepare("SELECT event_json FROM conversation_events WHERE session_id=?1 AND json_extract(event_json,'$.type') IN ('message','configuration','cleared') ORDER BY seq")?;
+            stmt.query_map([source.to_string()], |r| {
+                serde_json::from_str::<Value>(&r.get::<_, String>(0)?).map_err(conversion_error)
+            })?
+            .collect::<Result<Vec<_>>>()?
+        };
+        for event in events {
+            append(&tx, target, event)?;
+        }
+        append(
+            &tx,
+            target,
+            json!({"type":"configuration","id":Uuid::new_v4().to_string(),"text":"Conversation carried from another client. The next message includes the earlier conversation."}),
+        )?;
+        tx.commit()
+    }
+
     pub fn append_conversation_event(&self, id: SessionId, event: Value) -> Result<Value> {
         let mut conn = self.connection.lock().expect("sqlite lock");
         let tx = conn.transaction()?;
@@ -870,6 +892,48 @@ mod tests {
             derived_title("Attached files in this workspace:\n- a.png\n- b.png"),
             None
         );
+    }
+
+    #[test]
+    fn cross_client_handoff_survives_reopen_and_is_sent_once() {
+        let path = std::env::temp_dir().join(format!("tendly-handoff-{}.db", Uuid::new_v4()));
+        let store = Store::open(&path).unwrap();
+        let workspace = store.create_workspace("Fixture", "/fixture").unwrap();
+        let source = store
+            .create_session(workspace.id, ProviderKind::ClaudeCode, "CC")
+            .unwrap()
+            .id;
+        let target = store
+            .create_session(workspace.id, ProviderKind::Codex, "Codex")
+            .unwrap()
+            .id;
+        store
+            .append_conversation_event(
+                source,
+                json!({"type":"message","id":"old","role":"user","text":"forgotten"}),
+            )
+            .unwrap();
+        store
+            .append_conversation_event(source, json!({"type":"cleared"}))
+            .unwrap();
+        store
+            .append_conversation_event(
+                source,
+                json!({"type":"message","id":"u","role":"user","text":"repair the connection"}),
+            )
+            .unwrap();
+        store.append_conversation_event(source, json!({"type":"message","id":"a","role":"assistant","text":"Found the timeout in client.rs"})).unwrap();
+        store.carry_conversation(source, target).unwrap();
+        drop(store);
+        let store = Store::open(&path).unwrap();
+        let carried = store.carried_transcript(target, 65536).unwrap().unwrap();
+        assert!(carried.contains("repair the connection"));
+        assert!(carried.contains("Found the timeout in client.rs"));
+        assert!(!carried.contains("forgotten"));
+        store
+            .submit_chat_message(target, "next", "continue")
+            .unwrap();
+        assert_eq!(store.carried_transcript(target, 65536).unwrap(), None);
     }
 
     #[test]

@@ -15,7 +15,7 @@ Rust API/Session Gateway (crates/server)
 ## 关键边界
 
 - API 层只负责协议、鉴权和请求编排，不直接执行任意命令。
-- 结构化会话通过 `chat_adapter::ClientAdapter` 接入：命令进（`init`、`message`、`steer`、`approval`、`interrupt`、`model`、`permission`、`shutdown`），事件出（`ready`、`message`、`tool`、`approval`、`turn`、`usage`、`exit` 等）。默认在 Rust 进程内直连客户端（`codex_chat`、`claude_chat`、`pi_chat`，共用 `native_chat`）；`TENDLY_CODEX_ADAPTER` / `TENDLY_CLAUDE_ADAPTER` / `TENDLY_PI_ADAPTER=node`（或 config.toml 里的 `codex_adapter` / `claude_adapter` / `pi_adapter = "node"`）改回由 Node 桥（`packages/native-bridge/chat.mjs`）跑这套协议，两条路径产出相同事件。
+- 结构化会话通过 `chat_adapter::ClientAdapter` 接入：命令进（`init`、`message`、`steer`、`approval`、`interrupt`、`model`、`permission`、`shutdown`），事件出（`ready`、`message`、`tool`、`approval`、`turn`、`usage`、`exit` 等）。结构化会话统一在 Rust 进程内直连客户端（`codex_chat`、`claude_chat`、`pi_chat`，共用 `native_chat`），不再提供 Node 聊天桥或回退开关。
 - 每个客户端的安装、配置目录、历史来源与环境变量清理由 `adapters::ClientAdapter`（`crates/server/src/adapters/mod.rs`）描述，Claude Code、Codex、Pi 各一个实现。
 - 终端会话和旧 PTY 会话走 `crates/agent-runtime`：独立进程组、有界回放缓冲，重连时按帧序号续传（见 `pty_routes.rs` 的 `resume_point`）。
 - 默认直接使用宿主机真实开发环境，不提供容器或 microVM 运行时。

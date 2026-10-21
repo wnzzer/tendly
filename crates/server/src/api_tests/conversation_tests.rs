@@ -2,8 +2,10 @@ use super::*;
 
 fn chat_fixture() -> Fixture {
     let mut fixture = Fixture::new("127.0.0.1:8787".parse().unwrap(), None);
-    fixture.state.chat_bridge = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../packages/native-bridge/fixtures/chat-supervisor.mjs");
+    fixture.state.chat_fixture = Some(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../packages/native-bridge/fixtures/chat-supervisor.mjs"),
+    );
     fixture
 }
 async fn new_chat(fixture: &Fixture) -> Uuid {
@@ -456,105 +458,6 @@ async fn chat_and_configuration_routes_require_existing_authentication() {
 }
 
 #[tokio::test]
-async fn actual_node_bridge_contract_runs_both_synthetic_native_protocols_end_to_end() {
-    for provider in ["codex", "claude_code"] {
-        let mut fixture = chat_fixture();
-        let cli = fixture.path.join("repo/fake-chat-cli.mjs");
-        fs::write(
-            &cli,
-            include_str!("../../../../packages/native-bridge/fixtures/chat-cli.mjs"),
-        )
-        .unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&cli, fs::Permissions::from_mode(0o700)).unwrap();
-        }
-        let wrapper = fixture.path.join("bridge-fixture.mjs");
-        let fixture_url = url::Url::from_file_path(
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../packages/native-bridge/fixtures/chat-supervised-bridge.mjs"),
-        )
-        .unwrap();
-        let log = fixture.path.join("native.jsonl");
-        // Only this test child gets fixture variables. Never change the test
-        // runner's process environment or resolve an actual account secret.
-        fs::write(&wrapper,format!("process.env.TENDLY_CHAT_TEST_INHERITED='kept';\nprocess.env.TENDLY_CHAT_TEST_LOG={};\nprocess.env.TENDLY_SECRET_TEST_CREDENTIAL='synthetic-fixture-secret';\nawait import({});\n",json!(log),json!(fixture_url.as_str()))).unwrap();
-        fixture.state.chat_bridge = wrapper;
-        let workspace = fixture
-            .state
-            .store
-            .create_workspace(
-                "Full stack fixture",
-                fixture.path.join("repo").to_str().unwrap(),
-            )
-            .unwrap();
-        let (status, session) = call(
-            fixture.app(),
-            "POST",
-            &format!("/api/workspaces/{}/sessions", workspace.id),
-            json!({"provider":provider,"title":"Bridge fixture","interaction_mode":"structured"}),
-        )
-        .await;
-        assert_eq!(status, StatusCode::CREATED, "{session}");
-        let id = Uuid::parse_str(session["id"].as_str().unwrap()).unwrap();
-        let (status, body) = call(
-            fixture.app(),
-            "POST",
-            &format!("/api/sessions/{id}/start"),
-            json!({}),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK, "{provider}: {body}");
-        let before = fs::read_to_string(&log).unwrap();
-        assert!(!before.contains("turn/start"));
-        assert!(!before.contains("thread/start"));
-        assert!(!before.contains("\"type\":\"user\""));
-        let message_id = Uuid::new_v4();
-        assert_eq!(
-            call(
-                fixture.app(),
-                "POST",
-                &format!("/api/sessions/{id}/conversation/message"),
-                json!({"id":message_id,"content":"simple"})
-            )
-            .await
-            .0,
-            StatusCode::ACCEPTED
-        );
-        let events = wait_event(&fixture, id, "turn", Some("completed")).await;
-        assert!(
-            events.iter().any(|event| event["type"] == "message"
-                && event["role"] == "assistant"
-                && event["delta"] == false
-                && event["text"] == "Hello 🦊"),
-            "{provider}: {events:?}"
-        );
-        assert!(
-            events
-                .iter()
-                .any(|event| event["role"] == "user" && event["id"] == message_id.to_string())
-        );
-        assert!(
-            !serde_json::to_string(&events)
-                .unwrap()
-                .contains("synthetic-fixture-secret")
-        );
-        assert!(
-            fixture
-                .state
-                .store
-                .get_session(id)
-                .unwrap()
-                .unwrap()
-                .provider_session_id
-                .is_some()
-        );
-        fixture.state.chats.stop(id).await.unwrap();
-    }
-}
-
-#[tokio::test]
 async fn structured_websocket_only_attaches_and_disconnection_keeps_native_process_alive() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -735,7 +638,7 @@ for await (const line of createInterface({input:process.stdin})) {
   if(job.type==='shutdown') process.exit(0);
 }
 "#).unwrap();
-    fixture.state.chat_bridge = bridge;
+    fixture.state.chat_fixture = Some(bridge);
     let id = new_chat(&fixture).await;
     assert_eq!(
         call(

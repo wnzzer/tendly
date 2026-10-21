@@ -1,6 +1,4 @@
-//! What every structured client driven from this process shares: the Node
-//! bridge's `chat-common.mjs` (`ChatBase`, `NativeProcess`, `jsonLines`, `clip`,
-//! `redactEvents`) and `chat.mjs`'s command handling, in Rust.
+//! Shared process lifecycle, commands, approvals and events for Rust clients.
 //!
 //! A client ([`NativeClient`]) owns a [`Core`] and adds only its protocol: how
 //! it starts, what a message from it means, what follows each of its replies
@@ -11,7 +9,7 @@
 //! records what follows its answer (`Then`) instead of awaiting it, so no state
 //! is held across a wait.
 //!
-//! `values.rs` has what the bridge does to every string and value, `launch.rs`
+//! `values.rs` validates and bounds strings and values, `launch.rs`
 //! the launch-argument walk and the approval scope, `base.rs` the core's state
 //! and the events it emits (`ChatBase`), `connection.rs` the process and the
 //! requests waiting on it (`NativeProcess`), `client.rs` the [`NativeClient`]
@@ -39,11 +37,11 @@ pub use values::*;
 /// One line from the client. Codex reports a generated image inline as
 /// base64, several megabytes for one picture, so this is sized for images.
 pub const MAX_NATIVE_LINE: usize = 64 * 1024 * 1024;
-/// What may be queued for the client to read (chat.mjs).
+/// What may be queued for the client to read (bounded queue).
 pub const MAX_NATIVE_INPUT: usize = 4 * 1024 * 1024;
 pub const MAX_TEXT: usize = 64 * 1024;
 pub const MAX_EVENT_LINE: usize = 192 * 1024;
-/// Events sent and not yet taken, past which a conversation stops (chat.mjs).
+/// Events sent and not yet taken, past which a conversation stops (bounded queue).
 const MAX_UNSENT: usize = 4 * 1024 * 1024;
 /// Everything the client writes over the session's life. Each line is read
 /// and let go, so this only stops a runaway stream, not an image-heavy session.

@@ -1,9 +1,9 @@
 //! Starting the Node bridges, and what no child of this server may inherit.
 //!
-//! Every bridge script (chat, accounts, history, file search) runs the same
+//! Every bridge script (accounts, history, file search) runs the same
 //! way: under the configured JavaScript runtime, in a process group of its own,
 //! with piped stdio, and without Tendly's own secrets in its environment.
-//! Keeping that in one place is what keeps the four from drifting apart, and
+//! Keeping that in one place keeps the helpers consistent, and
 //! [`is_tendly_secret`] is the one definition every launch path filters by.
 use std::{
     env,

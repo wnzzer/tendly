@@ -3,7 +3,6 @@
 // a client up here instead of branching on its id; adding a client is its
 // modules plus one entry.
 //
-// - `Chat`: a ChatBase subclass speaking the client's structured protocol.
 // - `account(job, options)`: an account operation; `options.env` is already
 //   isolated for this client (see account.mjs).
 // - `history(cwd, configDir, configEnv)`: the client's saved sessions for one
@@ -11,9 +10,6 @@
 // - `configEnv`: the variable that points the client at its config directory.
 // - `envStrip`: the client's own variables. None of them is inherited by an
 //   account process of any client, so one never runs on another's credentials.
-import { ClaudeChat } from './chat-claude.mjs';
-import { CodexChat } from './chat-codex.mjs';
-import { PiChat } from './chat-pi.mjs';
 import { claudeAccount } from './account-claude.mjs';
 import { codexAccount } from './account-codex.mjs';
 import { piAccount } from './account-pi.mjs';
@@ -22,9 +18,9 @@ import { codexHistory } from './history-codex.mjs';
 import { piHistory } from './history-pi.mjs';
 
 export const CLIENTS = Object.freeze({
-  claude_code: Object.freeze({ Chat: ClaudeChat, account: claudeAccount, history: claudeHistory, configEnv: 'CLAUDE_CONFIG_DIR', envStrip: /^(ANTHROPIC_|CLAUDE_|CLAUDECODE$)/i }),
-  codex: Object.freeze({ Chat: CodexChat, account: codexAccount, history: codexHistory, configEnv: 'CODEX_HOME', envStrip: /^(OPENAI_|CODEX_|AZURE_OPENAI_)/i }),
-  pi: Object.freeze({ Chat: PiChat, account: piAccount, history: piHistory, configEnv: 'PI_CODING_AGENT_DIR', envStrip: /^PI_/i }),
+  claude_code: Object.freeze({ account: claudeAccount, history: claudeHistory, configEnv: 'CLAUDE_CONFIG_DIR', envStrip: /^(ANTHROPIC_|CLAUDE_|CLAUDECODE$)/i }),
+  codex: Object.freeze({ account: codexAccount, history: codexHistory, configEnv: 'CODEX_HOME', envStrip: /^(OPENAI_|CODEX_|AZURE_OPENAI_)/i }),
+  pi: Object.freeze({ account: piAccount, history: piHistory, configEnv: 'PI_CODING_AGENT_DIR', envStrip: /^PI_/i }),
 });
 
 /** The registered client for a provider id; inherited keys such as `constructor` are not ids. */

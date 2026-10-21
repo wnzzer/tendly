@@ -7,6 +7,7 @@ use super::*;
 #[serde(deny_unknown_fields)]
 pub(super) struct CreateSession {
     interaction_mode: Option<InteractionMode>,
+    handoff_source_id: Option<SessionId>,
     #[serde(default)]
     environment: tendly_domain::EnvironmentOverrides,
     provider: ProviderKind,
@@ -79,6 +80,16 @@ pub(super) async fn create_session(
             "Terminals do not support structured conversations",
         ));
     }
+    if let Some(source) = input.handoff_source_id {
+        let source = session_record(&state, source).await?;
+        if interaction_mode != InteractionMode::Structured
+            || source.provider == ProviderKind::Terminal
+        {
+            return Err(ApiError::bad(
+                "Handoffs require a conversation and a structured target",
+            ));
+        }
+    }
     if model
         .as_ref()
         .is_some_and(|m| m.len() > 200 || m.chars().any(char::is_control))
@@ -128,6 +139,9 @@ pub(super) async fn create_session(
                 )?;
                 if interaction_mode == InteractionMode::Structured {
                     s.set_interaction_mode(session.id, interaction_mode)?;
+                    if let Some(source) = input.handoff_source_id {
+                        s.carry_conversation(source, session.id)?;
+                    }
                     s.get_session(session.id)?
                         .ok_or(tendly_persistence::DbError::QueryReturnedNoRows)
                 } else {

@@ -2089,6 +2089,8 @@ export const zhCN: Readonly<Record<string, string>> = {
   "Effort": "思考深度",
   "Permission": "权限",
   "This permission mode applies when the session next starts.": "该权限模式会在会话下次启动时生效。",
+  "The permission change applies to the next turn.": "权限变更将在下一轮生效。",
+  "A new {provider} session saves this conversation and includes it with your next message. Tool output and files it opened are not carried over.": "新的 {provider} 会话会保存此对话，并随你的下一条消息一起发送。工具输出及已打开文件不会携带。",
   "New API key": "新的 API key",
   "Directory": "目录",
   "Create endpoint profile “{name}”": "新建端点配置「{name}」",

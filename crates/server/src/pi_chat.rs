@@ -1,6 +1,4 @@
-//! Pi, driven from this process: `pi --mode rpc` with no Node bridge in
-//! between. This is `packages/native-bridge/chat-pi.mjs` in Rust, on the
-//! shared core ([`crate::native_chat`]), and it produces the same events.
+//! Pi RPC on the shared Rust conversation core.
 //!
 //! Pi's protocol is a command in (`{id, type, ...}`), a response per command
 //! (`{type: "response", id, success, data | error}`) and a stream of agent

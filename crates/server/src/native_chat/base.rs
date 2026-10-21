@@ -182,7 +182,7 @@ impl<T, R, X: Default> Core<T, R, X> {
 
     // -- emitting --
 
-    /// `emit` in chat.mjs: redacted, and refused when the line is too long.
+    /// Emit a redacted event within the line size limit.
     pub fn emit(&mut self, event: Value) {
         if self.finished {
             return;
@@ -214,7 +214,7 @@ impl<T, R, X: Default> Core<T, R, X> {
         let message = clip(message, 2048);
         self.emit(json!({"type":"error","message":message}));
     }
-    /// An error chat.mjs reports itself, unclipped.
+    /// A conversation error, unclipped.
     pub fn raw_error(&mut self, message: &str) {
         self.emit(json!({"type":"error","message":message}));
     }

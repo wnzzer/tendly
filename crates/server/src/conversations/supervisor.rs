@@ -55,34 +55,34 @@ pub async fn start_locked(state: &AppState, session: &Session) -> Result<Arc<Cha
     }
     let spec = crate::launch::prepare(state, session).await?;
     let init = ChatInit {
+        #[cfg(test)]
         provider: session.provider.as_str().to_owned(),
         program: spec.program.clone(),
         args: spec.args.clone(),
         cwd: spec.cwd.to_string_lossy().into_owned(),
         resume_id: session.provider_session_id.clone(),
     };
-    // Every client runs in this process unless a deployment asks for the
-    // Node bridge instead (chat_adapter::in_process).
-    if state
-        .chat_in_process
-        .unwrap_or_else(|| crate::chat_adapter::in_process(session.provider))
-    {
-        let adapter = match session.provider {
-            ProviderKind::Pi => crate::pi_chat::adapter(&spec.env, &spec.env_remove),
-            ProviderKind::ClaudeCode => crate::claude_chat::adapter(&spec.env, &spec.env_remove),
-            _ => crate::codex_chat::adapter(&spec.env, &spec.env_remove),
-        };
-        return run_adapter(state, session, adapter, init).await;
+    #[cfg(test)]
+    if let Some(script) = &state.chat_fixture {
+        let mut command = crate::bridge::node_command(&[], script);
+        command.current_dir(&spec.cwd).envs(&spec.env);
+        for key in &spec.env_remove {
+            command.env_remove(key);
+        }
+        let child = command.spawn().map_err(ApiError::internal)?;
+        return run_adapter(
+            state,
+            session,
+            crate::chat_fixture::FixtureAdapter::new(child)?,
+            init,
+        )
+        .await;
     }
-    let mut command = crate::bridge::node_command(&[], &state.chat_bridge);
-    command.current_dir(&spec.cwd).envs(&spec.env);
-    for key in &spec.env_remove {
-        command.env_remove(key);
-    }
-    let child = command.spawn().map_err(|_| {
-        ApiError::conflict("Native chat needs Node.js and the installed chat bridge")
-    })?;
-    let adapter = BridgeAdapter::new(child)?;
+    let adapter = match session.provider {
+        ProviderKind::Pi => crate::pi_chat::adapter(&spec.env, &spec.env_remove),
+        ProviderKind::ClaudeCode => crate::claude_chat::adapter(&spec.env, &spec.env_remove),
+        _ => crate::codex_chat::adapter(&spec.env, &spec.env_remove),
+    };
     run_adapter(state, session, adapter, init).await
 }
 

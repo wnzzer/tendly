@@ -87,17 +87,9 @@ allowed-origins = ["http://box.local:28789"]
 
 Any other key names the `TENDLY_` variable it spells (`shell`, `claude-bin`, `browse-roots`, …); dashes and underscores are the same, a full `TENDLY_*` name is accepted as written, and a list becomes the comma-separated form those variables already take. Keys always land under that prefix, so this file cannot set a variable outside Tendly's namespace.
 
-### Running agent clients in the server itself
+### Conversation runtime
 
-Structured Codex, Claude Code and Pi conversations run through the Node chat bridge by default. Each client can instead be driven directly by the server, with no Node process per conversation:
-
-```toml
-codex_adapter = "rust"    # TENDLY_CODEX_ADAPTER
-claude_adapter = "rust"   # TENDLY_CLAUDE_ADAPTER
-pi_adapter = "rust"       # TENDLY_PI_ADAPTER
-```
-
-Any other value, or none, keeps the bridge, so going back is one line. The choice is read when a conversation starts: one already running keeps the layer it began on. A change in this file takes effect after a restart; the environment variable takes effect when it is set for the server. Account sign-in, native history and file search still use the bridge either way.
+Structured Codex, Claude Code and Pi conversations run directly in Rust. There is no JavaScript chat adapter or runtime selection. Account sign-in, native history and file search still use Node helpers.
 
 Precedence is command line → environment → file → default. `--lan` outranks the file only about the host: a port written down is still the port that was meant. `TENDLY_HOME` and `TENDLY_STATE_DIR` cannot come from the file, which lives inside the directory they choose.
 
@@ -126,11 +118,7 @@ TENDLY_TOKEN               # access token; required by a binding that reaches ot
 TENDLY_ALLOWED_ORIGINS     # optional extra browser origins, comma-separated
 TENDLY_WEB_DIR             # state-dir/web if installed, else source apps/web/dist
 TENDLY_NATIVE_BRIDGE       # optional path to packages/native-bridge/history.mjs
-TENDLY_JS_RUNTIME          # native helper/chat/account runtime; default node (absolute path supported)
-TENDLY_CHAT_BRIDGE         # optional path to packages/native-bridge/chat.mjs
-TENDLY_CODEX_ADAPTER       # `rust` runs Codex conversations in the server; anything else, the bridge
-TENDLY_CLAUDE_ADAPTER      # the same for Claude Code
-TENDLY_PI_ADAPTER          # the same for Pi
+TENDLY_JS_RUNTIME          # account/history/search helper runtime; default node (absolute path supported)
 TENDLY_ACCOUNT_BRIDGE      # optional path to packages/native-bridge/account.mjs
 TENDLY_NODE_BIN            # legacy runtime override, used only if JS_RUNTIME is unset/empty
 TENDLY_CODEX_HISTORY_DIR   # optional history source; otherwise CODEX_HOME or ~/.codex

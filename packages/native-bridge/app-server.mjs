@@ -4,7 +4,7 @@
 //
 // Nothing the server writes to stderr is kept: it can carry configuration and
 // authentication details, and none of these bridges may reflect it.
-import { jsonLines } from './chat-common.mjs';
+import { jsonLines } from './json-lines.mjs';
 import { spawnNative } from './native-spawn.mjs';
 
 /** The server answered with a JSON-RPC error; `code` is its own. */

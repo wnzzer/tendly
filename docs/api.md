@@ -17,7 +17,7 @@ GET  /api/workspaces
 POST /api/workspaces {name,root_path}
 GET  /api/workspaces/:id
 GET  /api/sessions?workspace_id=:id
-POST /api/workspaces/:id/sessions {provider,title,endpoint_profile_id?,model?,effort?,environment?,interaction_mode?,ephemeral?}
+POST /api/workspaces/:id/sessions {provider,title,endpoint_profile_id?,model?,effort?,environment?,interaction_mode?,ephemeral?,handoff_source_id?}
 GET  /api/sessions/:id
 PATCH /api/sessions/:id {title}
 DELETE /api/sessions/:id
@@ -52,6 +52,8 @@ destroyed by closing a window. Archive a permanent session instead.
 returns the updated record. It is deliberately one-way — there is no request shape that
 makes an existing session temporary, so the destructive path can never be opened on a
 session the user has been treating as durable.
+
+`handoff_source_id` optionally copies a source conversation into a new structured session. The server persists the history and includes up to 64 KiB of recent conversation text with the first message, using the same mechanism as endpoint changes. Tool output is excluded; `/clear` boundaries are respected.
 
 `interaction_mode` is `"pty"` or `"structured"`. The HTTP default remains `pty` for backwards compatibility; the current Web client requests `structured` for new Agent sessions when the backend advertises it. Terminal cannot use structured mode. `/start` dispatches to the session's selected runtime. `/message {content}` is the legacy PTY input endpoint and rejects structured sessions; use the receipt-bearing conversation endpoint below instead.
 
