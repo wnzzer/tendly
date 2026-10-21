@@ -1588,7 +1588,8 @@ async fn real_claude_a_turn_and_an_interrupt() {
         out
     }
     eprintln!("approval: {:#}", json!(shown(&rust)));
-    for (layer, events) in [("rust", &rust)] {
+    {
+        let (layer, events) = ("rust", &rust);
         let status = |id: &str| {
             events
                 .iter()
