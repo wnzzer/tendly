@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { setTerminalThemePreference, setThemePreference, terminalThemePreference, themePreference, type TerminalThemePreference, type ThemePreference } from './theme';
 import { RECENT_DAY_CHOICES, recentDays, setRecentDays, type RecentDays } from './recent-sessions';
 import { CHAT_FONTS, INTERFACE_FONTS, PALETTES, TEXT_SCALES, chatFont, interfaceFont, palette, setChatFont, setInterfaceFont, setPalette, setTextScale, textScale, type ChatFont, type InterfaceFont, type Palette, type TextScale } from './appearance';
@@ -8,6 +8,7 @@ import type { EndpointProfile } from '@tendly/protocol';
 import ProviderIcon from './ProviderIcon.vue';
 import Icon from './Icon.vue';
 import { errorMessage, json, providerLabel, request } from './api';
+import { showToast } from './toasts';
 import { REASONING_EFFORTS, effortLabel } from './reasoning-effort';
 import { loadPreferences, preferences, savePreferences, type PreferenceProvider, type Preferences } from './preferences';
 import { backendCapabilities } from './backend-capabilities';
@@ -27,7 +28,10 @@ const PALETTE_LABELS: Record<Palette, string> = { dock: 'Dock · warm paper, tea
 const FONT_LABELS: Record<InterfaceFont, string> = { 'instrument-sans': 'Instrument Sans', inter: 'Inter', geist: 'Geist', 'dm-sans': 'DM Sans', system: 'System' };
 const CHAT_FONT_LABELS: Record<ChatFont, string> = { interface: 'Match interface', lora: 'Lora · serif', serif: 'System serif' };
 const SCALE_LABELS: Record<TextScale, string> = { small: 'Small', default: 'Default', large: 'Large', larger: 'Larger' };
-const loaded = ref(false), saving = ref(false), error = ref(''), saved = ref(false);
+const loaded = ref(false), saving = ref(false), error = ref('');
+// Every choice saves as it is made, anywhere down the page: say so where
+// every save does rather than at the top, which may be scrolled away.
+watch(error, message => { if (message) { showToast(t(message), { tone: 'error', duration: 10000 }); error.value = ''; } });
 const profilesFor = (provider: PreferenceProvider) => props.profiles.filter(profile => profile.provider === provider);
 /** A preference naming a deleted profile reads as none, and says so. */
 const staleProfile = computed(() => Object.fromEntries(AGENT_CLIENTS.map(provider => {
@@ -40,8 +44,8 @@ onMounted(async () => { await loadPreferences(true); loaded.value = true; });
 async function update(provider: PreferenceProvider, field: 'endpoint_profile_id' | 'effort' | 'permission', value: string) {
   const next: Preferences = JSON.parse(JSON.stringify(preferences.value));
   if (value) next[provider][field] = value; else delete next[provider][field];
-  saving.value = true; error.value = ''; saved.value = false;
-  try { await savePreferences(next); saved.value = true; }
+  saving.value = true;
+  try { await savePreferences(next); showToast(t('Saved'), { duration: 2000 }); }
   catch (cause) { error.value = errorMessage(cause); }
   finally { saving.value = false; }
 }
@@ -49,8 +53,8 @@ async function update(provider: PreferenceProvider, field: 'endpoint_profile_id'
 async function setSwitch(key: 'agent_tools' | 'resource_monitoring', on: boolean) {
   const next: Preferences = JSON.parse(JSON.stringify(preferences.value));
   if (on) delete next[key]; else next[key] = false;
-  saving.value = true; error.value = ''; saved.value = false;
-  try { await savePreferences(next); saved.value = true; }
+  saving.value = true;
+  try { await savePreferences(next); showToast(t('Saved'), { duration: 2000 }); }
   catch (cause) { error.value = errorMessage(cause); }
   finally { saving.value = false; }
 }
@@ -89,8 +93,7 @@ async function revokeGrants() { try { hostGrants.value = await request('/host/gr
 
 <template>
   <section class="preferences-page">
-    <div class="settings-lead"><p>{{ t('What a new session starts with. The new-session dialog and each session\'s own controls can still change it.') }}</p><span v-if="saving||saved" class="preferences-state" role="status">{{ t(saving ? 'Saving…' : 'Saved') }}</span></div>
-    <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
+    <div class="settings-lead"><p>{{ t('What a new session starts with. The new-session dialog and each session\'s own controls can still change it.') }}</p></div>
     <!-- The interface language belongs to this browser, not the server: it is
          a per-viewer choice, and a phone and a laptop may well differ. The
          appearance is kept by the server, like the rest of the preferences. -->
@@ -203,7 +206,6 @@ async function revokeGrants() { try { hostGrants.value = await request('/host/gr
 .preferences-page{min-width:0}
 .settings-lead{display:flex;align-items:center;gap:12px;margin:2px 0 16px}
 .settings-lead p{flex:1;margin:0;font-size:var(--text-sm);line-height:1.7;color:var(--ink-soft)}
-.preferences-state{flex-shrink:0;font-size:var(--text-xs);color:var(--muted)}
 .preferences-quiet{font-size:var(--text-xs);color:var(--muted)}
 .preference-card{border:1px solid var(--border);border-radius:var(--radius-lg);padding:13px 14px 6px;margin-bottom:10px;background:var(--surface)}
 .preference-card header{display:flex;align-items:center;gap:10px;margin-bottom:6px}

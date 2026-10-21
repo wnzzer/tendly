@@ -49,7 +49,7 @@ test('actual native profile save initializes its environment and sends an explic
     sent = { url, method: init.method, body: JSON.parse(init.body) };
     return new Response(JSON.stringify({ ...original, ...sent.body }), { status: 200 });
   });
-  await state.save();
+  await state.flush();
   assert.deepEqual(sent, { url: '/api/endpoint-profiles/profile-fixture', method: 'PATCH', body: { name: 'Fixture', environment: {} } });
 });
 
@@ -67,8 +67,30 @@ test('custom profile save includes overrides while model discovery never receive
   await state.discover();
   assert.equal(calls[0].url, '/api/endpoint-profiles/discover-models');
   assert.equal(Object.hasOwn(calls[0].body, 'environment'), false);
-  await state.save();
+  await state.flush();
   assert.deepEqual(calls[1].body.environment, { MODE: { kind: 'literal', value: 'new' } });
+});
+
+test('an open profile saves only a change, and never one that is not valid', async () => {
+  capabilities.environment = true;
+  const original = profile();
+  const { state } = await setup([original]);
+  state.edit(original);
+  const patches = [];
+  mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    if (init.method === 'PATCH') patches.push(JSON.parse(init.body));
+    return new Response(JSON.stringify(init.method === 'PATCH' ? { ...original, ...JSON.parse(init.body) } : {}), { status: 200 });
+  });
+  await state.flush();
+  assert.equal(patches.length, 0);
+  state.form.name = '';
+  await state.flush();
+  assert.equal(patches.length, 0);
+  state.form.name = 'Renamed';
+  await state.flush();
+  assert.deepEqual(patches.map(body => body.name), ['Renamed']);
+  await state.flush();
+  assert.equal(patches.length, 1);
 });
 
 test('capability loss blocks save and navigation asks before discarding raw environment drafts', async () => {
@@ -79,7 +101,7 @@ test('capability loss blocks save and navigation asks before discarding raw envi
   state.environmentDraft.value = [{ id: 'incomplete', name: '', kind: 'literal', value: 'unsaved draft' }];
   capabilities.environment = false;
   const fetch = mock.method(globalThis, 'fetch', async () => { throw new Error('must not send a request'); });
-  await state.save();
+  await state.flush();
   assert.equal(fetch.mock.callCount(), 0);
   assert.match(state.environmentError.value, /Upgrade/);
   let left = false;

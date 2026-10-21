@@ -504,8 +504,10 @@ svg { flex-shrink: 0; vertical-align: middle; }
 .secondary-button, .small-button { background: linear-gradient(180deg, var(--elevated), var(--surface)); color: var(--ink); border-color: var(--line); box-shadow: var(--shadow-sm), inset 0 1px 0 var(--card-highlight); }
 .secondary-button:hover:not(:disabled), .small-button:hover:not(:disabled) { border-color: var(--line-strong); background: linear-gradient(180deg, var(--elevated), var(--sunken)); }
 .small-button { min-height: 28px; padding: 0 10px; font-size: var(--text-xs); border-radius: var(--radius-sm); }
-.small-button.danger { color: var(--danger-ink); background: var(--surface); border-color: var(--danger-line); }
-.small-button.danger:hover:not(:disabled) { background: var(--danger-soft); border-color: var(--danger-line); }
+.primary-button.danger { background: var(--danger); border-color: var(--danger); color: var(--on-accent); box-shadow: none; }
+.primary-button.danger:hover:not(:disabled) { background: var(--danger-ink); border-color: var(--danger-ink); box-shadow: none; }
+.small-button.danger, .secondary-button.danger { color: var(--danger-ink); background: var(--surface); border-color: var(--danger-line); }
+.small-button.danger:hover:not(:disabled), .secondary-button.danger:hover:not(:disabled) { background: var(--danger-soft); border-color: var(--danger-line); }
 .text-button { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; color: var(--accent-ink); padding: 3px 0; font-size: var(--text-xs); font-weight: 550; line-height: 16px; }
 .text-button:hover:not(:disabled) { text-decoration: underline; }
 .danger-text { color: var(--danger) !important; }

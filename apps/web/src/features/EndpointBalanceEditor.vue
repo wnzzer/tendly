@@ -12,7 +12,7 @@ const CodeEditor=defineAsyncComponent(()=>import('./CodeEditor.vue'));
 const props=defineProps<{profileId:string; disabled?:boolean}>();
 const {t}=useI18n();
 const mode=ref<'disabled'|'money'|'percentage'>('disabled'), currency=ref('USD'), queryUrl=ref(''), secret=ref(''), script=ref(BALANCE_EXAMPLE);
-const loaded=ref(false), busy=ref(false), error=ref(''), message=ref(''), view=ref<BalanceView>(), preview=ref<BalanceReading>();
+const loaded=ref(false), busy=ref(false), error=ref(''), view=ref<BalanceView>(), preview=ref<BalanceReading>();
 const baseline=ref('');
 const auth=reactive(authFields({kind:'header',name:'Authorization',value:'Bearer {key}'}));
 const url=`/endpoint-profiles/${encodeURIComponent(props.profileId)}/balance`;
@@ -21,7 +21,7 @@ function config():BalanceConfig|null {
   if(mode.value==='disabled')return null;
   return {unit:mode.value==='money'?{kind:'money',currency:currency.value.trim().toUpperCase()}:{kind:'percentage'},query_url:queryUrl.value.trim(),auth:authFromFields(auth),secret_ref:secret.value.trim()||null,script:script.value};
 }
-watch(() => JSON.stringify(config()), () => { preview.value=undefined; message.value=''; }, {flush:'sync'});
+watch(() => JSON.stringify(config()), () => { preview.value=undefined; }, {flush:'sync'});
 const dirty=computed(()=>loaded.value&&JSON.stringify(config())!==baseline.value);
 const disabled=computed(()=>busy.value||props.disabled||!loaded.value);
 function apply(next:BalanceView){
@@ -32,10 +32,36 @@ function apply(next:BalanceView){
 async function load(){error.value='';try{apply(await request<BalanceView>(url));}catch(cause){error.value=errorMessage(cause);}}
 onMounted(load);
 function reset(){if(view.value)apply(view.value);}
-defineExpose({dirty,busy,reset});
-async function save(){busy.value=true;error.value='';message.value='';try{const next=await request<BalanceView>(url,json('PUT',config()));apply(next);applyView(props.profileId,next);message.value=t('Balance query saved');}catch(cause){error.value=errorMessage(cause);}finally{busy.value=false;}}
-async function test(){busy.value=true;error.value='';message.value='';preview.value=undefined;try{preview.value=await request<BalanceReading>(url+'/test',json('POST',config()));}catch(cause){error.value=errorMessage(cause);}finally{busy.value=false;}}
-async function refresh(){busy.value=true;error.value='';message.value='';try{view.value=await request<BalanceView>(url+'/query',json('POST'));applyView(props.profileId,view.value);preview.value=undefined;}catch(cause){error.value=errorMessage(cause);}finally{busy.value=false;}}
+/**
+ * Saved as it is edited, like the profile around it: once what a query needs
+ * is filled in, and for text, when the field is left. A half-written query is
+ * not sent to be refused; the header says what it still needs.
+ */
+const ready=computed(()=>mode.value==='disabled'||(!!queryUrl.value.trim()&&!!script.value.trim()&&(mode.value!=='money'||/^[A-Za-z]{3}$/.test(currency.value.trim()))));
+const saved=ref(false);
+let timer:ReturnType<typeof setTimeout>|undefined, saving:Promise<void>|undefined;
+const root=ref<HTMLElement>();
+function typing(){const active=document.activeElement as HTMLElement|null;return !!active&&!!root.value?.contains(active)&&(active.isContentEditable||active instanceof HTMLTextAreaElement||(active instanceof HTMLInputElement&&active.type!=='checkbox'));}
+watch(()=>dirty.value&&JSON.stringify(config()),value=>{saved.value=false;if(!value)return;clearTimeout(timer);timer=setTimeout(()=>{if(!typing())void flush();},300);});
+async function flush():Promise<void>{
+  clearTimeout(timer);
+  if(saving){await saving;}
+  if(!dirty.value||!ready.value||props.disabled)return;
+  saving=save().finally(()=>{saving=undefined;});
+  return saving;
+}
+async function save(){
+  const sent=JSON.stringify(config());
+  busy.value=true;error.value='';
+  try{const next=await request<BalanceView>(url,json('PUT',config()));view.value=next;applyView(props.profileId,next);baseline.value=sent;saved.value=JSON.stringify(config())===sent;}
+  catch(cause){error.value=errorMessage(cause);baseline.value=sent;}
+  finally{busy.value=false;}
+}
+/** Leaving a field saves it; the next field taking focus is not typing yet. */
+function leaveField(){setTimeout(()=>void flush());}
+defineExpose({dirty,busy,ready,reset,flush});
+async function test(){busy.value=true;error.value='';preview.value=undefined;try{preview.value=await request<BalanceReading>(url+'/test',json('POST',config()));}catch(cause){error.value=errorMessage(cause);}finally{busy.value=false;}}
+async function refresh(){busy.value=true;error.value='';try{view.value=await request<BalanceView>(url+'/query',json('POST'));applyView(props.profileId,view.value);preview.value=undefined;}catch(cause){error.value=errorMessage(cause);}finally{busy.value=false;}}
 /** The help sentence with its code set apart; the code reads the same in every language. */
 const codeParts=(text:string)=>text.split(/(await ctx\.request\(\)|\{ value \})/);
 function useExample(event:Event){const select=event.target as HTMLSelectElement;const example=BALANCE_EXAMPLES.find(entry=>entry.id===select.value);if(example)script.value=example.script;select.value='';}
@@ -54,26 +80,28 @@ const completions:CompletionSource=context=>{
 };
 </script>
 <template>
-  <section class="balance-editor" :aria-label="t('Custom balance query')">
-    <header class="balance-editor-head">
-      <h4><Icon name="wallet" :size="15" />{{ t('Custom balance query') }}</h4>
-      <span v-if="dirty" class="balance-dirty">{{ t('Unsaved changes') }}</span>
-    </header>
-    <p v-if="error" class="inline-error" role="alert">{{ t(error) }} <button v-if="!loaded" type="button" class="text-button" @click="load">{{ t('Retry') }}</button></p>
-    <fieldset class="form-stack" :disabled="disabled">
-      <div class="balance-modes" role="radiogroup" :aria-label="t('Balance type')">
+  <section ref="root" class="setting-card balance-editor" :aria-label="t('Custom balance query')" @focusout="leaveField">
+    <header class="setting-card-head balance-editor-head">
+      <span class="setting-mark"><Icon name="wallet" :size="16" /></span><strong>{{ t('Custom balance query') }}</strong>
+      <span v-if="busy&&dirty" class="balance-state">{{ t('Saving…') }}</span>
+      <span v-else-if="dirty&&!ready" class="balance-state warn">{{ t(mode==='money'&&queryUrl.trim()?'Saves once the currency is a 3-letter code':'Saves once the query URL and script are filled in') }}</span>
+      <span v-else-if="saved" class="balance-state ok">{{ t('Saved') }}</span>
+      <div class="balance-modes setting-card-aside" role="radiogroup" :aria-label="t('Balance type')">
         <button v-for="entry in MODES" :key="entry.id" type="button" role="radio" :aria-checked="mode===entry.id" :class="{selected:mode===entry.id}" @click="mode=entry.id">{{ t(entry.label) }}</button>
       </div>
+    </header>
+    <p v-if="error" class="inline-error" role="alert">{{ t(error) }} <button v-if="!loaded" type="button" class="text-button" @click="load">{{ t('Retry') }}</button></p>
+    <fieldset class="balance-fields" :disabled="disabled">
       <template v-if="mode!=='disabled'">
-        <div class="balance-grid">
-          <label class="wide">{{ t('Balance query URL') }}<input v-model="queryUrl" type="url" placeholder="https://api.example.com/balance" autocomplete="off" spellcheck="false" /></label>
-          <label v-if="mode==='money'">{{ t('Currency code') }}<input v-model="currency" maxlength="3" placeholder="USD / CNY" spellcheck="false" autocomplete="off" class="field-mono balance-currency" /></label>
-          <label>{{ t('Authentication') }}<select v-model="auth.preset"><option value="bearer">{{ t('Bearer token (Authorization header)') }}</option><option value="api_key">{{ t('x-api-key header') }}</option><option value="header">{{ t('Custom header') }}</option><option value="query">{{ t('Query parameter') }}</option><option value="none">{{ t('No authentication') }}</option></select></label>
-          <template v-if="auth.preset==='header'"><label>{{ t('Header name') }}<input v-model="auth.headerName" placeholder="X-Token" autocomplete="off" spellcheck="false" class="field-mono" /></label><label>{{ t('Header value') }}<input v-model="auth.headerValue" placeholder="Bearer {key}" autocomplete="off" spellcheck="false" class="field-mono" /><small>{{ t('{key} is replaced by the key on the server.') }}</small></label></template>
-          <label v-else-if="auth.preset==='query'">{{ t('Parameter name') }}<input v-model="auth.queryName" placeholder="api_key" autocomplete="off" spellcheck="false" class="field-mono" /></label>
-          <label v-if="auth.preset!=='none'" class="wide">{{ t('Balance key reference') }}<input v-model="secret" class="field-mono" :placeholder="t('Empty uses the endpoint key · env:TENDLY_SECRET_…')" autocomplete="off" spellcheck="false" /></label>
+        <div class="balance-rows">
+          <label class="setting-row"><span class="setting-label"><strong>{{ t('Balance query URL') }}</strong><small>{{ t('Where the script reads the balance from.') }}</small></span><input v-model="queryUrl" type="url" class="field-mono" placeholder="https://api.example.com/balance" autocomplete="off" spellcheck="false" /></label>
+          <label v-if="mode==='money'" class="setting-row"><span class="setting-label"><strong>{{ t('Currency code') }}</strong><small>{{ t('Three letters, such as USD or CNY.') }}</small></span><input v-model="currency" maxlength="3" placeholder="USD / CNY" spellcheck="false" autocomplete="off" class="field-mono balance-currency" /></label>
+          <label class="setting-row"><span class="setting-label"><strong>{{ t('Authentication') }}</strong><small>{{ t('How the query sends the key.') }}</small></span><select v-model="auth.preset"><option value="bearer">{{ t('Bearer token (Authorization header)') }}</option><option value="api_key">{{ t('x-api-key header') }}</option><option value="header">{{ t('Custom header') }}</option><option value="query">{{ t('Query parameter') }}</option><option value="none">{{ t('No authentication') }}</option></select></label>
+          <div v-if="auth.preset==='header'" class="setting-row"><span class="setting-label"><strong>{{ t('Custom header') }}</strong><small>{{ t('{key} is replaced by the key on the server.') }}</small></span><span class="setting-pair"><input :aria-label="t('Header name')" v-model="auth.headerName" placeholder="X-Token" autocomplete="off" spellcheck="false" class="field-mono" /><input :aria-label="t('Header value')" v-model="auth.headerValue" placeholder="Bearer {key}" autocomplete="off" spellcheck="false" class="field-mono" /></span></div>
+          <label v-else-if="auth.preset==='query'" class="setting-row"><span class="setting-label"><strong>{{ t('Parameter name') }}</strong></span><input v-model="auth.queryName" placeholder="api_key" autocomplete="off" spellcheck="false" class="field-mono" /></label>
+          <label v-if="auth.preset!=='none'" class="setting-row"><span class="setting-label"><strong>{{ t('Balance key reference') }}</strong><small>{{ t('Empty uses the endpoint key.') }}</small></span><input v-model="secret" class="field-mono" :placeholder="t('Empty uses the endpoint key · env:TENDLY_SECRET_…')" autocomplete="off" spellcheck="false" /></label>
         </div>
-        <div class="balance-script">
+        <div class="setting-row stack balance-script">
           <div class="balance-script-head">
             <span>{{ t('Balance JavaScript') }}</span>
             <select class="balance-examples" :aria-label="t('Insert an example')" @change="useExample"><option value="">{{ t('Insert an example…') }}</option><option v-for="entry in BALANCE_EXAMPLES" :key="entry.id" :value="entry.id">{{ t(entry.label) }}</option></select>
@@ -89,38 +117,30 @@ const completions:CompletionSource=context=>{
         </div>
       </template>
     </fieldset>
-    <footer class="balance-editor-foot">
+    <footer class="setting-row balance-editor-foot">
       <div class="balance-outcome">
         <div v-if="preview" class="balance-preview"><strong>{{ t('Test result') }}</strong><BalanceResult :reading="preview" /></div>
         <BalanceResult v-else-if="view?.config&&!dirty" :reading="view.reading" :stale="view.stale" :error="view.error" />
-        <p v-if="message" class="form-help" role="status">{{ message }}</p>
       </div>
       <div class="toolbar-buttons">
         <button v-if="view?.config" type="button" class="small-button" :disabled="disabled||dirty" @click="refresh"><Icon name="refresh" :size="13" />{{ t('Refresh saved balance') }}</button>
         <button v-if="mode!=='disabled'" type="button" class="small-button" :disabled="disabled" @click="test"><Icon name="play" :size="13" />{{ t(busy?'Working…':'Test balance script') }}</button>
-        <button type="button" class="small-button primary" :disabled="disabled||!dirty" @click="save">{{ t('Save balance query') }}</button>
       </div>
     </footer>
   </section>
 </template>
 <style scoped>
-.balance-editor{display:grid;gap:14px;margin:16px 0;padding:16px;border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface)}
-.balance-editor-head{display:flex;align-items:center;gap:12px}
-.balance-editor-head h4{display:flex;align-items:center;gap:7px;margin:0;font-size:var(--text-md);font-weight:600;color:var(--ink)}
-.balance-editor-head h4 .app-icon{--icon-color:var(--accent)}
-.balance-dirty{margin-left:auto;flex-shrink:0;padding:2px 9px;border-radius:var(--radius-full);background:var(--warn-soft);color:var(--warn-ink);font-size:var(--text-xs);white-space:nowrap}
-.balance-editor fieldset{display:grid;gap:14px;min-width:0;margin:0;padding:0;border:0}
-.balance-modes{display:inline-flex;justify-self:start;padding:3px;border-radius:var(--radius-full);background:var(--fill)}
+.balance-editor-head{flex-wrap:wrap}
+.balance-fields{min-width:0;margin:0;padding:0;border:0}
+.balance-editor-foot{align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.balance-state{flex-shrink:0;font-size:var(--text-xs);color:var(--muted);white-space:nowrap}
+.balance-state.warn{color:var(--warn-ink)}
+.balance-state.ok{color:var(--ok-ink)}
+.balance-modes{display:inline-flex;margin-left:auto;padding:3px;border-radius:var(--radius-full);background:var(--fill)}
 .balance-modes button{height:28px;padding:0 14px;border:0;border-radius:var(--radius-full);background:none;color:var(--ink-soft);font-size:var(--text-sm);cursor:pointer;white-space:nowrap}
 .balance-modes button.selected{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:var(--shadow-sm)}
-.balance-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:12px}
-.balance-grid .wide{grid-column:1 / -1}
-.balance-editor label{display:grid;gap:6px;font-size:var(--text-sm);color:var(--ink-soft);min-width:0}
-.balance-editor input,.balance-editor select{width:100%;box-sizing:border-box}
 .balance-currency{text-transform:uppercase}
-.balance-editor small{color:var(--muted);font-size:var(--text-xs);font-weight:400}
-.balance-script{display:grid;gap:8px}
-.balance-script-head{display:flex;align-items:center;gap:10px;font-size:var(--text-sm);font-weight:550;color:var(--ink-soft)}
+.balance-script-head{display:flex;align-items:center;gap:10px;font-size:var(--text-sm);font-weight:550;color:var(--ink)}
 .balance-examples{margin-left:auto;width:auto !important;max-width:55%;min-height:28px;padding:3px 10px;font-size:var(--text-xs)}
 /* A balance script is a few lines; the shared editor's height is sized for longer code. */
 .balance-script .code-editor :deep(.cm-content),.balance-script .code-editor :deep(.cm-gutter){min-height:96px}
@@ -128,7 +148,6 @@ const completions:CompletionSource=context=>{
 .balance-api-help{font-size:var(--text-xs);color:var(--muted)}
 .balance-api-help summary{cursor:pointer;width:max-content}
 .balance-api-help pre{margin:8px 0;padding:10px 12px;border-radius:var(--radius-md);background:var(--code-line);overflow:auto;font:var(--text-xs)/1.6 var(--mono);color:var(--syn-text)}
-.balance-editor-foot{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px;padding-top:12px;border-top:1px solid var(--line)}
 .balance-outcome{display:grid;gap:8px;min-width:0;flex:1 1 220px}
 .balance-preview{padding:10px 12px;border:1px dashed var(--accent-line);border-radius:var(--radius-md);background:var(--accent-soft)}
 .balance-preview>strong{display:block;font-size:var(--text-xs);color:var(--accent-ink);margin-bottom:6px}

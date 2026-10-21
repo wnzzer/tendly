@@ -25,5 +25,6 @@ function submit() {
 </template>
 
 <style scoped>
-.session-rename-dialog label{display:flex;flex-direction:column;gap:7px;font-size:var(--text-sm);color:var(--ink-soft)}.session-rename-dialog input{min-height:44px;width:100%;padding:10px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface);font-size:var(--input-text);color:var(--ink)}.dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.dialog-actions button{min-height:38px}
+.session-rename-dialog label{display:flex;flex-direction:column;gap:7px;font-size:var(--text-sm);color:var(--ink-soft)}.session-rename-dialog input{min-height:38px;width:100%;padding:8px 12px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface);font-size:var(--text-md);color:var(--ink)}.dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+@media(pointer:coarse){.session-rename-dialog input{min-height:44px;font-size:var(--input-text)}}
 </style>
