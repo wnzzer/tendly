@@ -26,5 +26,9 @@ test("a workspace's Pi sessions are listed by their first prompt, and other dire
     assert.equal(truncated, false);
     assert.deepEqual(items.map(item => [item.id, item.provider, item.title, item.cwd]), [['pi-one', 'pi', 'Fix the login form', work]]);
     assert.deepEqual(await piHistory(work, join(root, 'missing')), { items: [], truncated: false });
+    const transcript=await piHistory(work,home,undefined,'pi-one');
+    assert.equal(transcript.messages[0].content[0].text,'Fix the login form');
+    await assert.rejects(piHistory(work,home,undefined,'pi-two'),/not found/);
+
   } finally { await rm(root, { recursive: true, force: true }); }
 });

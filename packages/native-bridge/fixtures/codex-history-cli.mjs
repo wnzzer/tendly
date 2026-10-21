@@ -14,6 +14,14 @@ for await (const line of createInterface({ input: process.stdin })) {
   if (request.method === 'initialized') continue;
   let result;
   if (request.method === 'initialize') result = { userAgent: 'fixture' };
+  else if(request.method==='thread/read') {
+    assert.equal(request.params.threadId,'history-1');
+    assert.equal(request.params.includeTurns,true);
+    result={thread:{cwd:process.cwd(),turns:[{items:[
+      {type:'userMessage',id:'u',content:[{type:'text',text:'历史 🦊'}]},
+      {type:'agentMessage',id:'a',text:'Loaded reply'},
+    ]}]}};
+  }
   else {
     assert.equal(request.method, 'thread/list');
     assert.deepEqual(request.params.modelProviders, []);

@@ -154,7 +154,7 @@ onBeforeUnmount(() => { document.removeEventListener('pointerdown', onOutside); 
 .chip-rows .chip-menu.is-active .chip-menu-label{color:var(--teal-deep);font-weight:600}
 .chip-rows .chip-menu.is-danger .chip-menu-label{color:#a85c4e;font-weight:600}
 .chip-rows .chip-menu.is-active>summary,.chip-rows .chip-menu.is-danger>summary{background:none;border-color:transparent}
-.chip-rows .chip-menu-label[data-repeats]{display:none}
+.chip-rows .chip-menu-label[data-repeats="true"]{display:none}
 .chip-rows .chip-menu-caret,.chip-rows .chip-menu[open] .chip-menu-caret{transform:none}
 .chip-menu-caret{transform:rotate(90deg);flex:0 0 auto;opacity:.55}
 .chip-menu[open] .chip-menu-caret{transform:rotate(-90deg)}

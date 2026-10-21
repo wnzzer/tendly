@@ -17,6 +17,9 @@ const emit = defineEmits<{ close: []; opened: [] }>();
 const sheet = ref<HTMLElement>();
 const shown = ref(false);
 const offset = ref(0);
+// Nested sheets can be teleported before their parent in DOM order.
+// Give each mounted sheet a higher layer than the sheets already open.
+const layer = ref(90);
 let startY: number | undefined;
 let previousFocus: HTMLElement | null = null;
 
@@ -36,6 +39,7 @@ function dragEnd() {
   offset.value = 0;
 }
 onMounted(() => {
+  layer.value = Math.max(90, ...Array.from(document.querySelectorAll<HTMLElement>(".bottom-sheet"), element => Number(getComputedStyle(element).zIndex) || 90)) + 2;
   previousFocus = document.activeElement as HTMLElement | null;
   shown.value = true;
   void nextTick(() => emit("opened"));
@@ -47,9 +51,9 @@ defineExpose({ close });
 
 <template>
   <Teleport to="body">
-    <Transition name="sheet-fade"><div v-if="shown" class="sheet-backdrop" @click="close" /></Transition>
+    <Transition name="sheet-fade"><div v-if="shown" class="sheet-backdrop" :style="{ zIndex: layer }" @click="close" /></Transition>
     <Transition name="sheet-rise" @after-leave="afterLeave">
-      <section v-if="shown" ref="sheet" :class="['bottom-sheet', sheetClass]" role="dialog" aria-modal="true" :aria-label="title" tabindex="-1" :style="offset ? { transform: `translateY(${offset}px)`, transition: 'none' } : undefined" @keydown="key">
+      <section v-if="shown" ref="sheet" :class="['bottom-sheet', sheetClass]" role="dialog" aria-modal="true" :aria-label="title" tabindex="-1" :style="{ zIndex: layer + 1, ...(offset ? { transform: `translateY(${offset}px)`, transition: 'none' } : {}) }" @keydown="key">
         <div class="sheet-grip" :aria-label="t('Drag down to close')" @pointerdown="dragStart" @pointermove="dragMove" @pointerup="dragEnd" @pointercancel="dragEnd"><i /></div>
         <header v-if="title || $slots.header" class="sheet-header"><slot name="header"><h2>{{ title }}</h2></slot></header>
         <div class="sheet-body"><slot :close="close" /></div>

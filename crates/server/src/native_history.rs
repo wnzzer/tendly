@@ -36,6 +36,8 @@ pub struct HistoryItem {
 pub struct HistoryList {
     pub items: Vec<HistoryItem>,
     pub truncated: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<serde_json::Value>,
 }
 pub fn sources() -> Vec<NativeSource> {
     let home = env::var_os("HOME")
@@ -109,18 +111,27 @@ pub async fn list(
     workspace: WorkspaceId,
     source_id: &str,
 ) -> Result<HistoryList, ApiError> {
+    query(state, workspace, source_id, None).await
+}
+async fn query(
+    state: &AppState,
+    workspace: WorkspaceId,
+    source_id: &str,
+    native_id: Option<&str>,
+) -> Result<HistoryList, ApiError> {
     let cwd = crate::root(state, workspace).await?;
     let source = selected_source(state, source_id)?;
     if !source.config_dir.is_dir() {
         return Ok(HistoryList {
             items: Vec::new(),
             truncated: false,
+            events: Vec::new(),
         });
     }
     let config_dir = crate::paths::canonicalize_async(&source.config_dir)
         .await
         .map_err(|_| ApiError::bad("Native history directory is unavailable"))?;
-    let job = serde_json::json!({"provider":source.provider,"config_dir":config_dir,"cwd":cwd});
+    let job = serde_json::json!({"provider":source.provider,"config_dir":config_dir,"cwd":cwd,"native_id":native_id});
     let mut command = crate::bridge::node_command(&[], &state.native_bridge);
     let mut child = command.spawn().map_err(|_| {
         ApiError::bad(
@@ -227,9 +238,11 @@ pub async fn import_with_environment(
     let config = crate::paths::canonicalize_async(&source.config_dir)
         .await
         .map_err(|_| ApiError::bad("Native history source unavailable"))?;
+    let transcript = query(state, workspace, &source_id, Some(&native_id)).await?;
+    let _guard = state.operations.lock().await;
     let source_id = source.id.clone();
     let dir = config.to_string_lossy().into_owned();
-    crate::db(state, move |s| {
+    let session = crate::db(state, move |s| {
         s.import_native_session_with_environment(
             workspace,
             item.provider,
@@ -240,7 +253,20 @@ pub async fn import_with_environment(
             environment,
         )
     })
-    .await?.ok_or_else(|| ApiError::conflict("Existing native session has different environment overrides; stop it and edit its environment explicitly"))
+    .await?.ok_or_else(|| ApiError::conflict("Existing native session has different environment overrides; stop it and edit its environment explicitly"))?;
+    let id = session.id;
+    crate::db(state, move |s| {
+        // Re-importing a session must not duplicate messages or overwrite local turns.
+        if s.conversation_page(id, None, 1)?.events.is_empty() {
+            for event in transcript.events {
+                s.append_conversation_event(id, event)?;
+            }
+        }
+        Ok(())
+    })
+    .await?;
+    crate::conversations::publish_snapshot(state, id).await;
+    Ok(session)
 }
 pub fn resume_spec(
     state: &AppState,

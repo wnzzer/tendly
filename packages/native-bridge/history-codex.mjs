@@ -1,3 +1,4 @@
+import { realpath } from "node:fs/promises";
 import { withoutTendlySecrets } from "./native-spawn.mjs";
 import { AppServerClient, AppServerError } from "./app-server.mjs";
 import { LIMIT, normalizeSessions } from "./history-common.mjs";
@@ -6,7 +7,7 @@ import { LIMIT, normalizeSessions } from "./history-common.mjs";
 // as belonging to this workspace just because it omitted that field.
 export const codexSession=row=>typeof row.cwd!=="string"||!row.cwd?undefined:{id:row.id,cwd:row.cwd,time:row.updatedAt*1000};
 /** @param {string} cwd @param {string} configDir @param {string} configEnv */
-export async function codexHistory(cwd,configDir,configEnv) {
+export async function codexHistory(cwd,configDir,configEnv,nativeId) {
   const environment=withoutTendlySecrets(process.env);
   environment[configEnv]=configDir;
   const server=new AppServerClient(process.env.TENDLY_CODEX_BIN||"codex",["app-server"],{cwd,env:environment});
@@ -23,6 +24,11 @@ export async function codexHistory(cwd,configDir,configEnv) {
       (async()=>{
         await rpc("initialize",{clientInfo:{name:"tendly_history",title:"Tendly history",version:"0.1.0"}});
         server.notify("initialized");
+        if(nativeId) {
+          const {thread}=await rpc("thread/read",{threadId:nativeId,includeTurns:true});
+          if(await realpath(thread.cwd)!==cwd) throw Error("Native session belongs to another workspace");
+          return {items:[],truncated:false,messages:(thread.turns??[]).flatMap(turn=>(turn.items??[]).flatMap(item=>item.type==="userMessage"?[{id:item.id,role:"user",content:item.content}]:item.type==="agentMessage"?[{id:item.id,role:"assistant",content:item.text}]:[]))};
+        }
         const items=[],seenIds=new Set(),seenCursors=new Set();let cursor=null,pages=0;
         do{
           const page=await rpc("thread/list",{cwd,limit:100,cursor,sortKey:"updated_at",modelProviders:[],sourceKinds:["cli","vscode","exec","appServer","unknown"],useStateDbOnly:true});

@@ -17,6 +17,12 @@ async fn native_history_requires_confirmation_and_filters_cross_workspace_import
     let (source_id, config) = f.native_source(ProviderKind::Codex, vec![
         json!({"id":"native-allowed","provider":"codex","title":"Fixture thread","cwd":cwd,"updated_at":"2026-09-09T00:00:00Z"}),
     ]);
+    let historical =
+        json!({"type":"message","id":"native-user","role":"user","text":"历史内容 🦊"});
+    fs::write(config.join("history-fixture.json"), serde_json::to_vec(&json!({
+        "items":[{"id":"native-allowed","provider":"codex","title":"Fixture thread","cwd":cwd,"updated_at":"2026-09-09T00:00:00Z"}],
+        "truncated":false,"events":[historical.clone()]
+    })).unwrap()).unwrap();
     let import_path = format!("/api/workspaces/{workspace}/native-history/import");
     let (status, rejection) = call(
         f.app(),
@@ -70,6 +76,25 @@ async fn native_history_requires_confirmation_and_filters_cross_workspace_import
         json!({"source_id":source_id,"native_id":"native-allowed","confirmed_original_config":true}),
     ).await;
     assert_eq!(duplicate["id"], imported["id"]);
+    let (status, snapshot) = call(
+        f.app(),
+        "GET",
+        &format!(
+            "/api/sessions/{}/conversation",
+            imported["id"].as_str().unwrap()
+        ),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let events = snapshot["events"].as_array().unwrap();
+    assert_eq!(
+        events.len(),
+        1,
+        "Repeated imports must not duplicate historical messages"
+    );
+    assert_eq!(events[0]["text"], historical["text"]);
+
     assert_eq!(f.state.store.list_sessions(None).unwrap().len(), 1);
     assert!(
         f.state

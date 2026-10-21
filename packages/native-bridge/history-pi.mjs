@@ -1,4 +1,4 @@
-import { open, readdir, stat } from "node:fs/promises";
+import { open, readdir, stat, readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { LIMIT, normalizeSessions } from "./history-common.mjs";
 
@@ -28,7 +28,7 @@ async function header(file) {
 }
 export const piSession=row=>typeof row.cwd!=="string"||!row.cwd?undefined:{id:row.id,cwd:row.cwd,time:row.updatedAt};
 /** @param {string} cwd @param {string} configDir */
-export async function piHistory(cwd,configDir) {
+export async function piHistory(cwd,configDir,_configEnv,nativeId) {
   const root=join(configDir,"sessions");
   let directories;try{directories=await readdir(root,{withFileTypes:true});}catch{return {items:[],truncated:false};}
   const files=[];
@@ -42,8 +42,18 @@ export async function piHistory(cwd,configDir) {
   const rows=[];
   for(const {file,time} of dated.slice(0,LIMIT*4)){
     const session=await header(file).catch(()=>undefined);
+    if(session && nativeId && session.id===nativeId && await realpath(session.cwd)===cwd) {
+      if((await stat(file)).size>4*1024*1024)throw Error("Native transcript exceeds limit");
+      const entries=(await readFile(file,"utf8")).split("\n").filter(Boolean).map(line=>JSON.parse(line));
+      // Follow the active leaf's parents rather than showing abandoned branches.
+      const byId=new Map(entries.filter(entry=>entry.id).map(entry=>[entry.id,entry]));
+      const chain=[];let entry=entries.at(-1);const seen=new Set();
+      while(entry&&!seen.has(entry.id)){seen.add(entry.id);chain.push(entry);entry=byId.get(entry.parentId);}
+      return {items:[],truncated:false,messages:chain.reverse().filter(entry=>entry.type==="message").map(entry=>({...entry.message,id:entry.id}))};
+    }
     if(session)rows.push({...session,updatedAt:time});
   }
+  if(nativeId)throw Error("Native session not found");
   const items=await normalizeSessions(rows,"pi",cwd,piSession);
   return {items:items.slice(0,LIMIT),truncated:items.length>LIMIT||dated.length>LIMIT*4};
 }
