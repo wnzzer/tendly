@@ -56,6 +56,9 @@ export interface AccountView {
     secondary?: AccountLimit;
     reset_credits?: number;
     reset_credits_source?: 'official';
+    /** Available credits the official client itemised, soonest expiry first;
+     * may be capped below `reset_credits`. A null expiry never expires. */
+    reset_credit_details?: { expires_at: number | null; granted_at?: number; title?: string }[];
   };
   reset_outcome?: AccountResetOutcome;
   usage?: AccountUsage;

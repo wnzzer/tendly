@@ -101,6 +101,20 @@ pub struct Limits {
     /// Provenance is kept separate from the count so an unavailable or
     /// malformed native response is never represented as zero credits.
     pub reset_credits_source: Option<ResetCreditsSource>,
+    /// Available credits the official client itemised, soonest expiry first.
+    /// The backend may cap the list below `reset_credits`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_credit_details: Option<Vec<ResetCreditDetail>>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ResetCreditDetail {
+    /// Unix seconds; `None` means the credit does not expire.
+    pub expires_at: Option<f64>,
+    /// Unix seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub granted_at: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 /// Where a Claude usage figure came from. Queries are explicit and the value
 /// remains a bounded display snapshot; it can be absent, stale, or older than

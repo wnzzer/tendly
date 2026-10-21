@@ -114,6 +114,13 @@ test('unrecognized account schemas are unsupported instead of guessed signed-in 
     await assert.rejects(executeAccount({ ...job, action: 'read' }, f.options), error => error instanceof RpcError && error.code === -32601);
   }
   assert.equal(normalizeLimits({ rateLimitResetCredits: { availableCount: 1.5 } }).reset_credits, undefined);
+  assert.equal(normalizeLimits({ rateLimitResetCredits: { availableCount: 1, credits: null } }).reset_credit_details, undefined);
+  assert.deepEqual(normalizeLimits({ rateLimitResetCredits: { availableCount: 3, credits: [
+    { id: 'a', status: 'available', expiresAt: null, title: 'Forever' },
+    { id: 'b', status: 'redeemed', expiresAt: 1800000000 },
+    { id: 'c', status: 'available', expiresAt: 1900000000, title: null },
+    { id: 'd', status: 'available', expiresAt: 1850000000, grantedAt: 1700000000 },
+  ] } }).reset_credit_details, [{ expires_at: 1850000000, granted_at: 1700000000 }, { expires_at: 1900000000 }, { expires_at: null, title: 'Forever' }]);
 });
 test('quota windows remain unmapped when the native duration is not an exact known window', () => {
   const limits = normalizeLimits({ rateLimits: { primary: { usedPercent: 10, windowDurationMins: 301 }, secondary: { usedPercent: 20, windowDurationMins: 10079 } } });

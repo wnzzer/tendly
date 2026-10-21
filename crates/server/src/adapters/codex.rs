@@ -400,6 +400,7 @@ fn logged_limits(home: &Path) -> Option<LoggedLimits> {
                     secondary,
                     reset_credits: None,
                     reset_credits_source: None,
+                    reset_credit_details: None,
                 },
                 plan: limits
                     .get("plan_type")

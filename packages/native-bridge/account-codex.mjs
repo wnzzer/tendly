@@ -30,11 +30,23 @@ export function normalizeLimits(response) {
   // rateLimitResetCredits object. Keeping the provenance lets the UI explain
   // that this is an earned reset credit, never a locally-created reset.
   const resetSource = resetCredits && typeof resetCredits === 'object' && !Array.isArray(resetCredits) ? 'official' : undefined;
+  // Detail rows come only when the backend sends them, and may be capped below
+  // the count. Only available credits are kept, soonest expiry first; a null
+  // expiry is a credit that never expires.
+  const details = resetSource && Array.isArray(resetCredits.credits) ? resetCredits.credits
+    .filter(credit => credit?.status === 'available')
+    .map(credit => ({
+      expires_at: numeric(credit.expiresAt) ?? null,
+      ...(numeric(credit.grantedAt) !== undefined ? { granted_at: credit.grantedAt } : {}),
+      ...(clean(credit.title) ? { title: clean(credit.title) } : {}),
+    }))
+    .sort((a, b) => (a.expires_at ?? Infinity) - (b.expires_at ?? Infinity)) : undefined;
   return {
     ...(primary ? { primary } : {}),
     ...(secondary ? { secondary } : {}),
     ...(available !== undefined ? { reset_credits: available } : {}),
     ...(resetSource ? { reset_credits_source: resetSource } : {}),
+    ...(details ? { reset_credit_details: details } : {}),
   };
 }
 // The app-server connection for account management. Only the RPC error a
