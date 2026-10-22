@@ -22,7 +22,7 @@ const { t } = useI18n();
 /** `checkout`: the worktree of the session in focus, when it works in one; without it, the workspace directory. */
 const props = defineProps<{ workspaceId: string; checkout?: string | null; refreshToken?: number; selectedPath?: string }>();
 const place = computed(() => placeKey(props.workspaceId, props.checkout));
-const emit = defineEmits<{ open: [file: FileEntry]; close: [] }>();
+const emit = defineEmits<{ open: [file: FileEntry]; close: []; moved: [from: string, to: string] }>();
 const directories = ref(new Map<string, TreeDirectory>());
 const expanded = ref(new Set<string>());
 const query = ref("");
@@ -162,6 +162,8 @@ async function renameEntry() {
   try {
     const entry = await request<FileEntry>(placeUrl(place.value, "/file/rename"), { method: "POST", body: JSON.stringify({ from: draft.entry.path, to }) });
     renaming.value = null;
+    // Panes showing it, or a file inside it, follow it to the new name.
+    emit("moved", draft.entry.path, entry.path);
     // The row is gone under its old name; the tree follows it to the new one.
     if (selected.value === draft.entry.path) selected.value = entry.path;
     // An open folder stays open under its new name, which means loading it

@@ -160,7 +160,8 @@ pub(super) async fn checkout_root(
 }
 pub(super) fn bounded_name(s: &str) -> Result<String> {
     let s = s.trim();
-    if s.is_empty() || s.len() > 200 {
+    // Characters, not bytes: a name in Chinese takes three bytes a character.
+    if s.is_empty() || s.chars().count() > 200 {
         Err(ApiError::bad("Name must be 1–200 characters"))
     } else {
         Ok(s.into())

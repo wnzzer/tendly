@@ -3,6 +3,8 @@ import type { LayoutDocument, PaneNode, Session } from "@tendly/protocol";
 import { flattenPanes } from "../layout/layout-engine";
 import { ApiConnectionError, ApiError, json, request } from "./api";
 import { backendCapabilities } from "./backend-capabilities";
+import { conversationView, type ChatEvent } from "./chat-model";
+import { conversationCache } from "./conversation-cache";
 import { paneSession, paneString, renameSessionPanes } from "./pane-context";
 import { sessionConnections } from "./session-connection";
 import { isEphemeralSession } from "./session-list";
@@ -32,9 +34,15 @@ export function deletableSessions(list: readonly Session[], busyIds: readonly st
 }
 
 /** Closing a temporary window asks first only for a conversation in the middle of a turn. A terminal's process is
- * "running" for as long as it is open, which says nothing about work under way. */
-export function asksBeforeDiscard(session: Session): boolean {
-  return session.interaction_mode === "structured" && ["running", "starting", "waiting"].includes(session.status);
+ * "running" for as long as it is open, which says nothing about work under way -- nor does a conversation's: its
+ * client stays up between turns. What its view last held (`conversation`) tells whether a turn or a question is open. */
+export function asksBeforeDiscard(session: Session, conversation?: readonly ChatEvent[]): boolean {
+  if (session.interaction_mode !== "structured") return false;
+  if (session.status === "starting" || session.status === "waiting") return true;
+  if (session.status !== "running") return false;
+  if (!conversation) return true;
+  const view = conversationView(conversation, true);
+  return view.turn === "running" || view.awaitingApproval;
 }
 
 /** The list with the server's copy of one session in place of its own. */
@@ -144,7 +152,7 @@ export function useSessionChanges({ sessions, layout, canvas, report, t, touch, 
     if (!session) return true;
     let closing = true;
     if (isEphemeralSession(session)) {
-      if (asksBeforeDiscard(session)) { discardPrompt.value = { paneId: pane.id, session }; return false; }
+      if (asksBeforeDiscard(session, conversationCache.get(session.id)?.events)) { discardPrompt.value = { paneId: pane.id, session }; return false; }
       // A second close while the first is still discarding leaves the tab to
       // that one: an escape hatch left by its button exits under the DELETE,
       // and its exit asks to close the same tab again.

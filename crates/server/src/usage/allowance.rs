@@ -310,9 +310,9 @@ pub(super) async fn allowance(State(state): State<AppState>) -> Result<Json<Vec<
                     )
                 };
                 let (mut tokens, mut cost) = (0u64, 0f64);
-                for call in calls.iter().filter(|call| {
-                    call.provider == provider && call.at >= start.max(plan_since)
-                })
+                for call in calls
+                    .iter()
+                    .filter(|call| call.provider == provider && call.at >= start.max(plan_since))
                 {
                     tokens += call.tokens.total();
                     cost += prices.cost(call).unwrap_or(0.0);

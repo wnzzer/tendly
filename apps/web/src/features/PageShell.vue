@@ -22,7 +22,9 @@ const previous = typeof window === "undefined" ? undefined : window.history.stat
 const back = t(backLabel(typeof previous === "string" && router ? router.resolve(previous).name : undefined));
 function onKey(event: KeyboardEvent) {
   if (event.key !== "Escape" || event.defaultPrevented) return;
-  if (document.querySelector(".modal-backdrop, .bottom-sheet-backdrop, details[open]")) return;
+  // An open menu closes first. Other open <details> -- a tool call expanded in a
+  // conversation behind the page, an "Advanced" section -- are not in the way.
+  if (document.querySelector(".modal-backdrop, .bottom-sheet-backdrop, details[open]:is(.chip-menu, .session-menu, .new-session-more, .dock-layout-menu, .dock-add-menu, .account-more, .chat-menu)")) return;
   event.preventDefault();
   // From a field, Esc only leaves it; the next one goes back.
   if (event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable='true']")) { page.value?.focus({ preventScroll: true }); return; }

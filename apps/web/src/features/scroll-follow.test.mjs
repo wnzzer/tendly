@@ -15,4 +15,6 @@ test('a move up nobody asked for changes nothing', () => {
   // Content below shrank and the browser moved the view: still following.
   assert.equal(followsAfterScroll({ following: true, movedUp: true, byPerson: false, gap: 0 }), true);
   assert.equal(followsAfterScroll({ following: false, movedUp: true, byPerson: false, gap: 500 }), false);
+  // Near the bottom too: a late scroll from the wheel that stopped following does not resume it.
+  assert.equal(followsAfterScroll({ following: false, movedUp: true, byPerson: false, gap: 20 }), false);
 });

@@ -9,7 +9,10 @@
  * -- changes nothing.
  */
 export function followsAfterScroll(state: { following: boolean; movedUp: boolean; byPerson: boolean; gap: number }): boolean {
-  if (state.movedUp && state.byPerson) return false;
+  // Upward, by the person, stops following; by anything else, changes nothing --
+  // not even near the bottom, where a wheel's own scroll arriving late (a busy
+  // page) would otherwise read as coming back down.
+  if (state.movedUp) return state.byPerson ? false : state.following;
   if (state.gap < 90) return true;
   return state.following;
 }

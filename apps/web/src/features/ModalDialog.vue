@@ -20,7 +20,8 @@ function onKey(event: KeyboardEvent) {
   if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
   else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
 }
-onMounted(() => { if (props.embedded) return; previousFocus = document.activeElement as HTMLElement; dialog.value?.querySelector<HTMLElement>('[autofocus], input, button')?.focus(); });
+onMounted(() => { if (props.embedded) return; previousFocus = document.activeElement as HTMLElement; // What asks for focus first, wherever it is; a field kept out of the tab order (a password form's hidden username) never.
+  const box = dialog.value; (box?.querySelector<HTMLElement>('[autofocus]') ?? box?.querySelector<HTMLElement>('input:not([readonly]):not([tabindex="-1"]), button'))?.focus(); });
 onUnmounted(() => { if (!props.embedded) previousFocus?.focus(); });
 </script>
 <template>

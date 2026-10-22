@@ -149,7 +149,8 @@ export function prefixKey(event: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKe
     return hit?.command.repeat ? hit.id : "cancel-pass";
   }
   if (event.repeat) return active || prefix ? "ignore" : undefined;
-  if (prefix) return active ? "pass" : "prefix";
+  // Twice in a row sends Ctrl+B on; after a repeatable key it starts anew, as in tmux.
+  if (prefix) return active && !repeating ? "pass" : "prefix";
   if (!active) return undefined;
   if (event.key === "Escape") return "cancel";
   if (event.ctrlKey || event.metaKey || event.altKey) return "cancel-pass";

@@ -138,6 +138,8 @@ async function toggle() {
   await nextTick(); position(); void load(); void prune();
   document.addEventListener('pointerdown', outside, true);
 }
+/** Esc on the chip itself, where focus stays after opening, closes the menu too. */
+function anchorEscape(event: KeyboardEvent) { if (!open.value) return; event.stopPropagation(); event.preventDefault(); escape(); }
 function close() { open.value = false; resetRow(); document.removeEventListener('pointerdown', outside, true); }
 function resetRow() { actions.value = undefined; renaming.value = ''; confirming.value = undefined; blocking.value = undefined; sweeping.value = false; sweepSkipped.value = []; note.value = ''; }
 /** Esc steps back one level: an open question or form first, then the menu. */
@@ -239,7 +241,7 @@ onBeforeUnmount(close);
 </script>
 
 <template>
-  <button ref="anchor" type="button" :class="['ws-branch', { compact }]" :aria-expanded="open" :title="t('Branch of the workspace directory · click to switch')" @click.stop="toggle" @contextmenu.prevent.stop="open || toggle()">
+  <button ref="anchor" type="button" :class="['ws-branch', { compact }]" :aria-expanded="open" :title="t('Branch of the workspace directory · click to switch')" @click.stop="toggle" @keydown.esc="anchorEscape" @contextmenu.prevent.stop="open || toggle()">
     <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M5 3v7M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm0-7a2 2 0 1 0 0-.01M11 5a2 2 0 1 0 0-.01M11 7c0 2-2 3-6 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
     <span>{{ branch || t('Detached HEAD') }}</span>
   </button>

@@ -570,6 +570,28 @@ test('message usage stays with its own Pi reply inside a multi-reply turn', () =
   ]);
 });
 
+test('a conversation carried from another client opens, including one stored before its boundary was named', () => {
+  const text = 'Conversation carried from another client. The next message includes the earlier conversation.';
+  for (const boundary of [{ type: 'configuration', id: 'c', text, seq: 1 }, { type: 'configuration', id: 'c', profile_name: 'Pi 2', text, seq: 1 }]) {
+    const snapshot = parseConversationSnapshot({ mode: 'structured', running: true, events: [boundary, { type: 'ready', seq: 2 }] });
+    assert.equal(conversationView(snapshot.events).items[0].type, 'configuration');
+  }
+  assert.equal(isChatEvent({ type: 'configuration', id: 'c', profile_name: 7, text }), false);
+});
+
+test('a steer the turn ended without reading opens the next turn, unmarked', () => {
+  const view = conversationView([
+    { type: 'message', id: 'first', role: 'user', text: 'hold', seq: 1 },
+    { type: 'turn', id: 'first', status: 'running', seq: 2 },
+    { type: 'message', id: 'late', role: 'user', text: 'late', steered: true, seq: 3 },
+    { type: 'message', id: 'reply-1', role: 'assistant', text: 'done', seq: 4 },
+    { type: 'turn', id: 'first', status: 'completed', seq: 5 },
+    { type: 'turn', id: 'late', status: 'running', seq: 6 },
+    { type: 'message', id: 'reply-2', role: 'assistant', text: 'read it', seq: 7 },
+  ]);
+  assert.deepEqual(view.items.map(item => [item.id, !!item.steered]), [['first', false], ['reply-1', false], ['late', false], ['reply-2', false]]);
+});
+
 test('a resumed greeting says where it resumes, and a view resumes from its last event', async () => {
   const { lastChatSeq } = await import('./chat-model.ts');
   const resumed = parseConversationSnapshot({ running: true, events: [{ type: 'ready', seq: 8 }], after: 7 });

@@ -81,8 +81,9 @@ const startsGroup = (index: number) => index === 0 || results.value[index - 1]?.
 .palette-input{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border);color:var(--muted)}
 .palette-input input{flex:1;min-width:0;border:0;outline:0;background:none;font-size:var(--text-lg);color:var(--ink)}
 .palette-input input::placeholder{color:var(--muted)}
-@media (pointer:coarse){kbd,.palette-footer{display:none}}
 kbd{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 5px;border:1px solid var(--line);border-bottom-width:2px;border-radius:var(--radius-xs);background:var(--sunken);color:var(--ink-soft);font:var(--text-xs) var(--font-body)}
+/* After the rule above, which it overrides: a touch screen has no keys to show. */
+@media (pointer:coarse){kbd,.palette-footer{display:none}}
 .palette-results{flex:1;min-height:0;overflow:auto;padding:6px}
 .palette-group{padding:10px 10px 4px;font-size:var(--text-xs);font-weight:600;color:var(--muted)}
 .palette-item{display:flex;align-items:center;gap:10px;width:100%;min-height:42px;padding:6px 10px;border:0;border-radius:var(--radius-md);background:none;text-align:left;cursor:pointer;color:var(--ink)}

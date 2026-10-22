@@ -36,6 +36,8 @@ export function useWorkspaceGit({ contextPlace, activeSessions, paused, report }
   const fileRefresh = ref<Record<string, number>>({}), gitRefresh = ref<Record<string, number>>({});
   const currentGit = computed<GitStatus>(() => gitStatuses.value[contextPlace.value ?? ""] ?? { branch: null, files: [] });
   const currentGitAvailable = computed(() => !!gitAvailable.value[contextPlace.value ?? ""]);
+  /** Whether the place's status has been read at all: until then it is neither a branch nor "unavailable". */
+  const currentGitKnown = computed(() => (contextPlace.value ?? "") in gitAvailable.value);
   const workspaceBranches = computed(() => branchesByWorkspace(gitStatuses.value));
   const gitLoading = new Set<string>();
   function tick(counter: typeof fileRefresh, id: string) { counter.value = bumped(counter.value, id); }
@@ -55,5 +57,5 @@ export function useWorkspaceGit({ contextPlace, activeSessions, paused, report }
   /** Files were written in a workspace: its tree, its Git views and its status all catch up. */
   function filesSaved(id: string) { tick(fileRefresh, id); tick(gitRefresh, id); void refreshGit(id); }
 
-  return { gitStatuses, gitAvailable, fileRefresh, gitRefresh, currentGit, currentGitAvailable, workspaceBranches, tick, gitChanged, refreshGit, filesSaved };
+  return { gitStatuses, gitAvailable, fileRefresh, gitRefresh, currentGit, currentGitAvailable, currentGitKnown, workspaceBranches, tick, gitChanged, refreshGit, filesSaved };
 }

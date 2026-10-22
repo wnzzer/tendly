@@ -48,14 +48,13 @@ import { AGENT_CLIENTS, DEFAULT_CLIENT, PROVIDER_KINDS } from "./features/client
 import { loadPreferences, preferenceFor } from "./features/preferences";
 import { placeKey, placeOf, placeUrl } from "./features/checkout-place";
 import { paneDisplayTitle, paneString, paneWorkspace, paneSession, paneCheckout, filePane, changesPane, sessionPane, renameSessionPanes, acceptsScopedPane, ephemeralSessionIds, withoutDiscardedPanes } from "./features/pane-context";
-import { isEphemeralSession } from "./features/session-list";
 import { lastQuickProvider, planQuickSession, rememberQuickProvider } from "./features/quick-session";
 import { backendCapabilities, setBackendCapabilities, type BackendHealth } from "./features/backend-capabilities";
 import { formatLatency } from "./features/host-latency";
 import { loadAccountQuotas, loadBalances } from "./features/balance-store";
 import { browserStorage, canvasStorageKey } from "./features/canvas-cache";
 import { readPanelVisibility, sidebarIsRail, useSidebarWidth, writePanelVisibility } from "./features/panel-state";
-import { hasDirtyDrafts } from "./features/file-drafts";
+import { hasDirtyDrafts, moveFileDrafts } from "./features/file-drafts";
 import { hasGitDrafts } from "./features/git-view-state";
 import { sessionConnections } from "./features/session-connection";
 import { conversationCache } from "./features/conversation-cache";
@@ -108,6 +107,8 @@ const hostStatus = computed(() => formatLatency(latencyMs.value, apiOnline.value
 const PLATFORM_LABELS: Record<string, string> = { windows: "Windows", macos: "macOS", darwin: "macOS", linux: "Linux" };
 const platformLabel = computed(() => (platform.value ? PLATFORM_LABELS[platform.value] ?? platform.value : "Local"));
 const showWorkspace = ref(false), showAuth = ref(false), workspaceInitialPath = ref<string>();
+/** The host has let this browser in: until it says so, nothing that polls is mounted. */
+const signedIn = ref(false);
 /** A file an agent named outside every workspace, shown read-only. */
 const hostPreview = ref<{ path: string; line?: number }>();
 /**
@@ -137,10 +138,10 @@ const renameSessionId = ref<string>();
 const environmentSession = computed(() => sessions.value.find(session => session.id === environmentSessionId.value));
 const renameSessionTarget = computed(() => sessions.value.find(session => session.id === renameSessionId.value));
 const historyWorkspace = computed(() => workspaces.value.find(workspace => workspace.id === historyWorkspaceId.value));
-const { gitStatuses, fileRefresh, gitRefresh, currentGit, currentGitAvailable, workspaceBranches, tick, gitChanged, refreshGit, filesSaved } = useWorkspaceGit({ contextPlace, activeSessions, paused: () => showAuth.value, report });
+const { gitStatuses, fileRefresh, gitRefresh, currentGit, currentGitAvailable, currentGitKnown, workspaceBranches, tick, gitChanged, refreshGit, filesSaved } = useWorkspaceGit({ contextPlace, activeSessions, paused: () => showAuth.value, report });
 const storage = browserStorage();
 const storageKey = computed(() => canvasStorageKey(window.location.origin, workspaces.value));
-const { canvasReady, layoutStatus, canvasRevision, canvasConflict, localRecovery, cacheLayout, queueLayout, flushLayout, initializeCanvas, resolveCanvasConflict, restoreLocalRecovery, agentCanvas, hasPendingLayout, dispose: disposeCanvas } = useCanvasPersistence({
+const { canvasReady, layoutStatus, canvasRevision, canvasConflict, localRecovery, cacheLayout, queueLayout, flushLayout, initializeCanvas, resolveCanvasConflict, restoreLocalRecovery, agentCanvas, hasPendingLayout, showWithoutSaving, dispose: disposeCanvas } = useCanvasPersistence({
   layout, selectedPaneId, sessions, storage, storageKey, report,
   onReady: preferred => { explorerWorkspaceId.value = contextWorkspace.value?.id ?? preferred.id; explorerCheckout.value = contextWorkspace.value ? contextCheckout.value : null; },
 });
@@ -215,7 +216,7 @@ function report(cause: unknown) {
     else connectionError.value = cause.message;
     return;
   }
-  if (cause instanceof ApiError && cause.status === 401) { showAuth.value = true; apiOnline.value = false; }
+  if (cause instanceof ApiError && cause.status === 401) { showAuth.value = true; signedIn.value = false; apiOnline.value = false; }
   else error.value = errorMessage(cause);
 }
 function rememberWorkspace(id: string) { try { storage?.setItem("tendly:last-workspace", id); } catch { /* Optional preference. */ } }
@@ -238,14 +239,22 @@ function selectPane(pane: PaneNode) {
 // Custom balances show in every message box, so read them once the backend says it has them.
 watch(() => backendCapabilities.customBalances, enabled => { if (enabled) void loadBalances(); }, { immediate: true });
 watch(() => backendCapabilities.accounts, enabled => { if (enabled) void loadAccountQuotas(); }, { immediate: true });
-watch(contextPlace, place => { if (place) { const { workspaceId, checkout } = placeOf(place); followWithExplorer(workspaceId, checkout); } });
+watch(contextPlace, place => { if (place) { const { workspaceId, checkout } = placeOf(place); followWithExplorer(workspaceId, checkout); void refreshGit(place); } });
+// A canvas just put in place gives the keys to its selected pane, as moving to
+// it would; on a phone that would raise the keyboard unasked, so not there.
+watch(canvasReady, async ready => {
+  if (!ready || mobile.value) return;
+  await nextTick();
+  if (!document.activeElement || document.activeElement === document.body) canvas.value?.focusSelected();
+});
 // A tab keeps the name its session had when it opened. The server renames a
 // session too -- after its first message -- so every change in the list
-// reaches the tabs, not only a rename made here.
+// reaches the tabs, not only a rename made here. Every open page does this,
+// so none saves it (showWithoutSaving).
 watch(sessions, list => {
   let root = layout.value.root;
   for (const session of list) root = renameSessionPanes(root, session.id, session.title);
-  if (root !== layout.value.root) layout.value = { ...layout.value, root };
+  if (root !== layout.value.root) void showWithoutSaving({ ...layout.value, root });
 });
 // A temporary window restored from a saved layout whose session has since been
 // discarded (a server restart, another page closing it) has nothing to show.
@@ -300,10 +309,10 @@ async function revealSession(id: string) {
 watch(sidebarOpen, async open => {
   const id = selectedSessionId.value;
   if (!open || !mobile.value || !id) return;
-  // Archived and temporary sessions live in the library, not the drawer's
-  // groups; revealing one would leave the drawer for that page.
+  // Archived sessions live in the library, not the drawer's groups; revealing
+  // one would leave the drawer for that page.
   const session = sessions.value.find(item => item.id === id);
-  if (!session || isSessionArchived(session) || isEphemeralSession(session)) return;
+  if (!session || isSessionArchived(session)) return;
   await nextTick();
   const row = () => document.querySelector<HTMLElement>(`.workspace-groups [data-sidebar-session-id="${CSS.escape(id)}"]`);
   // Its workspace may be folded: unfold it first, then centre the row.
@@ -326,7 +335,8 @@ provide(SESSION_ACTIONS, {
 async function saveRenameSession(title: string) {
   const session = renameSessionTarget.value;
   if (!session) return;
-  if (await renameSession(session, title)) renameSessionId.value = undefined;
+  // Saving the name it already has is done, not refused.
+  if (title.trim() === session.title || await renameSession(session, title)) renameSessionId.value = undefined;
 }
 function sessionEnvironmentSaved(session: Session) {
   sessions.value = sessions.value.map(item => item.id === session.id ? session : item);
@@ -338,6 +348,17 @@ function openFile(id: string, file: FileEntry | string, checkout: string | null 
   if (!workspaces.value.some(workspace => workspace.id === id)) return;
   canvas.value?.openPane(filePane(id, typeof file === "string" ? file : file.path, checkout));
   if (window.innerWidth <= 1100) explorerOpen.value = false;
+}
+/** A file or folder renamed from the explorer: open panes on it, or inside it, show it under its new name, drafts and all. */
+function fileMoved(id: string, checkout: string | null, from: string, to: string) {
+  const place = placeKey(id, checkout);
+  moveFileDrafts(place, from, to);
+  for (const pane of flattenPanes(layout.value.root)) {
+    const path = paneString(pane, "path");
+    if (!path || (pane.kind !== "editor" && pane.kind !== "file_preview") || panePlace(pane) !== place) continue;
+    if (path === from) canvas.value?.retarget(pane.id, filePane(id, to, checkout));
+    else if (path.startsWith(`${from}/`)) canvas.value?.retarget(pane.id, filePane(id, to + path.slice(from.length), checkout));
+  }
 }
 /**
  * Open a file a chat message pointed at: an absolute path inside the
@@ -421,6 +442,8 @@ async function quickSession(id = selectedWorkspaceId.value, provider: ProviderKi
     // A "+" pressed on a tab strip opens there; the sidebar has no target and
     // falls back to the canvas's own placement.
     canvas.value?.openPaneAt(targetPaneId, sessionPane(session));
+    // Made to be used: its input takes the keys once drawn (a terminal mounts once attached).
+    await nextTick(); canvas.value?.focusSelected();
   } catch (cause) { report(cause); }
   finally { quickBusy.value = false; }
 }
@@ -724,8 +747,8 @@ async function bootstrap() {
     linkSignInFailed.value = (await linkSignIn) === "failed";
     const auth = await request<{ required: boolean; authenticated: boolean; via_tailnet?: boolean }>("/auth");
     authViaTailnet.value = !!auth.via_tailnet;
-    if (auth.required && !auth.authenticated) { showAuth.value = true; return; }
-    showAuth.value = false;
+    if (auth.required && !auth.authenticated) { showAuth.value = true; signedIn.value = false; return; }
+    showAuth.value = false; signedIn.value = true;
     // The appearance is a preference too; it applies itself when it arrives (theme.ts).
     void loadPreferences(true);
     const [workspaceList, sessionList, profileList, health] = await Promise.all([
@@ -813,8 +836,8 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
         <div v-if="!mobile" class="host-card"><span class="host-symbol"><Icon name="monitor" :size="17"/></span><div class="host-card-text"><strong>{{ t('Runs on this machine') }}</strong><small>{{ platformLabel }}</small></div><span class="host-latency" :class="hostStatus.level" :title="apiOnline ? t('Round-trip to host: {ms}', { ms: hostStatus.text }) : t('Offline')" :aria-label="apiOnline ? t('Round-trip to host: {ms}', { ms: hostStatus.text }) : t('Offline')"><i class="host-dot"/><span>{{ hostStatus.text }}</span></span></div>
       
         <div v-else class="drawer-footer">
-          <div v-if="contextWorkspace" class="drawer-git"><span :title="contextCheckout ?? contextWorkspace.root_path"><Icon name="git" :size="15"/><span v-if="contextCheckout" class="status-worktree" :title="t('Works in worktree {path}', { path: contextCheckout })"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M5 3v7M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm0-7a2 2 0 1 0 0-.01M11 5a2 2 0 1 0 0-.01M11 7c0 2-2 3-6 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>{{ currentGit.branch || t('Detached HEAD') }}</span><WorkspaceBranchMenu v-else-if="currentGitAvailable" :workspace-id="contextWorkspace.id" :branch="currentGit.branch" @switched="branchSwitched(contextWorkspace.id)" @changed="branchSwitched(contextWorkspace.id)" /><template v-else>{{ t('Git unavailable') }}</template></span><button v-if="currentGitAvailable" type="button" @click="openChanges()">{{ t(currentGit.files.length===1?'{count} change':'{count} changes',{count:currentGit.files.length}) }}</button></div>
-          <div class="drawer-host"><HostUsage :sessions="sessions" @open="openPage('system')" /><span v-if="layoutTrouble" class="danger-text">{{ t('Layout {status}',{status:t(layoutStatus)}) }}</span><button class="icon-button" type="button" :aria-label="t('Settings')" :title="t('Settings') + ' · ' + hint('settings')" @click="openSettings()"><Icon name="settings" :size="19"/></button></div>
+          <div v-if="contextWorkspace" class="drawer-git"><span :title="contextCheckout ?? contextWorkspace.root_path"><Icon name="git" :size="15"/><span v-if="contextCheckout" class="status-worktree" :title="t('Works in worktree {path}', { path: contextCheckout })"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M5 3v7M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm0-7a2 2 0 1 0 0-.01M11 5a2 2 0 1 0 0-.01M11 7c0 2-2 3-6 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>{{ currentGit.branch || (currentGitKnown ? t('Detached HEAD') : '') }}</span><WorkspaceBranchMenu v-else-if="currentGitAvailable" :workspace-id="contextWorkspace.id" :branch="currentGit.branch" @switched="branchSwitched(contextWorkspace.id)" @changed="branchSwitched(contextWorkspace.id)" /><template v-else-if="currentGitKnown">{{ t('Git unavailable') }}</template></span><button v-if="currentGitAvailable" type="button" @click="openChanges()">{{ t(currentGit.files.length===1?'{count} change':'{count} changes',{count:currentGit.files.length}) }}</button></div>
+          <div class="drawer-host"><HostUsage v-if="signedIn&&!showAuth" :sessions="sessions" @open="openPage('system')" /><span v-if="layoutTrouble" class="danger-text">{{ t('Layout {status}',{status:t(layoutStatus)}) }}</span><button class="icon-button" type="button" :aria-label="t('Settings')" :title="t('Settings') + ' · ' + hint('settings')" @click="openSettings()"><Icon name="settings" :size="19"/></button></div>
         </div>
       </aside>
       <main class="main-workspace">
@@ -839,10 +862,10 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
       <aside v-if="explorerOpen && explorerWorkspace" class="explorer-panel">
         <div class="explorer-workspace-control"><label><span>{{ t('Explorer workspace') }}</span><select :value="explorerWorkspaceId" :aria-label="t('Explorer workspace')" @change="explorerWorkspaceId=($event.target as HTMLSelectElement).value;explorerCheckout=null;explorerPinned=true"><option v-for="workspace in workspaces" :key="workspace.id" :value="workspace.id">{{ workspace.name }}</option></select></label><button class="small-button" :class="{primary:explorerPinned}" :aria-pressed="explorerPinned" :title="t(explorerPinned?'Unpin explorer and follow the focused pane':'Pin explorer to this workspace')" @click="explorerPinned=!explorerPinned;!explorerPinned&&contextWorkspace&&followWithExplorer(contextWorkspace.id,contextCheckout)">{{ t(explorerPinned?'Pinned':'Follow focus') }}</button></div>
         <p v-if="explorerCheckout" class="explorer-checkout" :title="t('Works in worktree {path}', { path: explorerCheckout })"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M5 3v7M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm0-7a2 2 0 1 0 0-.01M11 5a2 2 0 1 0 0-.01M11 7c0 2-2 3-6 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>{{ gitStatuses[explorerPlace]?.branch || explorerCheckout.split(/[\\/]/).pop() }}</span><small>{{ t('Own directory') }}</small></p>
-        <FileExplorer ref="explorer" :workspace-id="explorerWorkspace.id" :checkout="explorerCheckout" :refresh-token="fileRefresh[explorerPlace]??0" :selected-path="activeFilePath" @open="openFile(explorerWorkspace.id,$event,explorerCheckout)" @close="explorerOpen=false"/>
+        <FileExplorer ref="explorer" :workspace-id="explorerWorkspace.id" :checkout="explorerCheckout" :refresh-token="fileRefresh[explorerPlace]??0" :selected-path="activeFilePath" @open="openFile(explorerWorkspace.id,$event,explorerCheckout)" @moved="(from,to)=>fileMoved(explorerWorkspace!.id,explorerCheckout,from,to)" @close="explorerOpen=false"/>
       </aside>
     </div>
-    <footer v-if="!mobile" class="statusbar"><span :title="contextCheckout ?? contextWorkspace?.root_path"><Icon name="git" :size="13"/>{{ contextWorkspace?.name || t('No workspace') }} · <span v-if="contextCheckout" class="status-worktree" :title="t('This session works in its own directory, {path}. The workspace directory\'s branch is in the sidebar.', { path: contextCheckout })"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M5 3v7M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm0-7a2 2 0 1 0 0-.01M11 5a2 2 0 1 0 0-.01M11 7c0 2-2 3-6 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>{{ currentGit.branch || t('Detached HEAD') }}</span><WorkspaceBranchMenu v-else-if="contextWorkspace&&currentGitAvailable" :workspace-id="contextWorkspace.id" :branch="currentGit.branch" @switched="branchSwitched(contextWorkspace.id)" @changed="branchSwitched(contextWorkspace.id)" /><template v-else>{{ t('Git unavailable') }}</template></span><button v-if="contextWorkspace" @click="openChanges()">{{ currentGitAvailable?t(currentGit.files.length===1?'{count} change':'{count} changes',{count:currentGit.files.length}):t('Changes') }}</button><button v-if="contextWorkspace&&currentGit.ahead!==undefined" type="button" :class="['git-count',{due:currentGit.ahead}]" :title="t('{count} commits to push · open Changes',{count:currentGit.ahead})" @click="openChanges()">↑ {{ currentGit.ahead }}</button><button v-if="contextWorkspace&&currentGit.behind!==undefined" type="button" :class="['git-count',{due:currentGit.behind}]" :title="t('{count} commits to pull · open Changes',{count:currentGit.behind})" @click="openChanges()">↓ {{ currentGit.behind }}</button><span class="flex-spacer"/><span v-if="canvasReady" :class="{'danger-text':layoutTrouble}">{{ t('Layout {status}',{status:t(layoutStatus)}) }}</span><HostUsage :sessions="sessions" @open="openPage('system')" /><span class="status-agent-count"><i :class="['state-dot',activeSessions.length?'running':'stopped']"/>{{ t('{count} active sessions',{count:activeSessions.length}) }}</span></footer>
+    <footer v-if="!mobile" class="statusbar"><span :title="contextCheckout ?? contextWorkspace?.root_path"><Icon name="git" :size="13"/>{{ contextWorkspace?.name || t('No workspace') }} · <span v-if="contextCheckout" class="status-worktree" :title="t('This session works in its own directory, {path}. The workspace directory\'s branch is in the sidebar.', { path: contextCheckout })"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M5 3v7M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm0-7a2 2 0 1 0 0-.01M11 5a2 2 0 1 0 0-.01M11 7c0 2-2 3-6 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>{{ currentGit.branch || (currentGitKnown ? t('Detached HEAD') : '') }}</span><WorkspaceBranchMenu v-else-if="contextWorkspace&&currentGitAvailable" :workspace-id="contextWorkspace.id" :branch="currentGit.branch" @switched="branchSwitched(contextWorkspace.id)" @changed="branchSwitched(contextWorkspace.id)" /><template v-else-if="currentGitKnown">{{ t('Git unavailable') }}</template></span><button v-if="contextWorkspace" @click="openChanges()">{{ currentGitAvailable?t(currentGit.files.length===1?'{count} change':'{count} changes',{count:currentGit.files.length}):t('Changes') }}</button><button v-if="contextWorkspace&&currentGit.ahead!==undefined" type="button" :class="['git-count',{due:currentGit.ahead}]" :title="t('{count} commits to push · open Changes',{count:currentGit.ahead})" @click="openChanges()">↑ {{ currentGit.ahead }}</button><button v-if="contextWorkspace&&currentGit.behind!==undefined" type="button" :class="['git-count',{due:currentGit.behind}]" :title="t('{count} commits to pull · open Changes',{count:currentGit.behind})" @click="openChanges()">↓ {{ currentGit.behind }}</button><span class="flex-spacer"/><span v-if="canvasReady" :class="{'danger-text':layoutTrouble}">{{ t('Layout {status}',{status:t(layoutStatus)}) }}</span><HostUsage v-if="signedIn&&!showAuth" :sessions="sessions" @open="openPage('system')" /><span class="status-agent-count"><i :class="['state-dot',activeSessions.length?'running':'stopped']"/>{{ t('{count} active sessions',{count:activeSessions.length}) }}</span></footer>
   </div>
   <WorkspaceDialog v-if="showWorkspace" :initial-path="workspaceInitialPath" @close="showWorkspace=false;workspaceInitialPath=undefined" @created="workspaceCreated"/>
   <HostFilePreview v-if="hostPreview" :key="hostPreview.path" :path="hostPreview.path" :line="hostPreview.line" @close="hostPreview=undefined" @add-workspace="folder=>{hostPreview=undefined;workspaceInitialPath=folder;showWorkspace=true}"/>

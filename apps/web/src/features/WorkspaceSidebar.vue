@@ -7,7 +7,7 @@ import { providerLabel } from "./api";
 import { emptyWorkspaceGroupPreferences, groupWorkspaces, loadWorkspaceGroupPreferences, saveWorkspaceGroupPreferences, workspaceGroupStorageKey } from "./workspace-groups";
 import type { WorkspaceGroup } from "./workspace-groups";
 import { recentDays } from "./recent-sessions";
-import { isEphemeralSession, isSessionArchived } from "./session-list";
+import { isSessionArchived } from "./session-list";
 import { useI18n } from "../i18n";
 import Icon from "./Icon.vue";
 import ProviderIcon from "./ProviderIcon.vue";
@@ -139,9 +139,9 @@ async function revealSession(id: string): Promise<boolean> {
   query.value = ""; searchExpanded.value = {}; openMenuId.value = undefined;
   preferences.value.expanded = { ...preferences.value.expanded, [session.workspace_id]: true }; persist();
   preferences.value.olderExpanded = { ...preferences.value.olderExpanded, [session.workspace_id]: true }; persist();
-  // Temporary windows are deliberately absent from the workspace groups, so the
-  // library is where revealing one has to land.
-  const needsLibrary = isSessionArchived(session) || isEphemeralSession(session) || !props.workspaces.some(workspace => workspace.id === session.workspace_id);
+  // Archived sessions are absent from the workspace groups, so the library is
+  // where revealing one has to land. Temporary windows are listed with theirs.
+  const needsLibrary = isSessionArchived(session) || !props.workspaces.some(workspace => workspace.id === session.workspace_id);
   if (needsLibrary) { emit("showInSessions", id, isSessionArchived(session)); return true; }
   await nextTick();
   const container = sidebarElement.value?.querySelector(".workspace-groups");

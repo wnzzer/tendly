@@ -118,7 +118,7 @@ test('locatable tabs expose stable pane ids and accessible panel relationships i
     assert.ok(html.includes(`id="dock-tab-${id}"`));
     assert.ok(html.includes(`aria-controls="dock-panel-${id}"`));
   }
-  assert.match(html, /class="dock-pane is-selected is-located"[^>]*data-pane-id="right"/);
+  assert.match(html, /class="dock-pane(?: is-entering)? is-selected is-located"[^>]*data-pane-id="right"/);
   assert.ok(html.includes('id="dock-panel-right" aria-labelledby="dock-tab-right"'));
 });
 

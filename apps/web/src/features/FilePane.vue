@@ -341,6 +341,9 @@ async function read() {
   }
   finally { if (requestId === revision) loading.value = false; }
 }
+const FILE_GONE = "This file is no longer on the host: it was deleted or renamed. Your draft is kept; copy it if you need it.";
+/** The server refuses to save over a file that is gone as a conflict; it is not one. */
+const fileGone = (cause: unknown) => cause instanceof ApiError && cause.status === 409 && /no longer exists/.test(cause.message);
 async function save() {
   if (!props.path || !dirty.value || saving.value) return;
   const target = draft.value, sentContent = target.content;
@@ -350,7 +353,7 @@ async function save() {
     const file = await request<TextFile>(placeUrl(at, `/file?path=${encodeURIComponent(path)}`), json("PUT", { content: sentContent, expected_version: target.version }));
     target.original = sentContent; target.version = file.version;
     if (own === revision) { conflict.value = false; success.value = "Saved to host"; emit("saved"); }
-  } catch (cause) { if (own === revision) { conflict.value = cause instanceof ApiError && cause.status === 409; error.value = conflict.value ? "This file changed on the host. Your draft is kept. Copy your draft, or reload the host version before saving." : errorMessage(cause); } }
+  } catch (cause) { if (own === revision) { conflict.value = cause instanceof ApiError && cause.status === 409; error.value = conflict.value ? (fileGone(cause) ? FILE_GONE : "This file changed on the host. Your draft is kept. Copy your draft, or reload the host version before saving.") : errorMessage(cause); } }
   finally { if (own === revision) saving.value = false; }
 }
 function reload() { if (dirty.value) confirmReload.value = true; else void read(); }
@@ -372,7 +375,11 @@ async function hostChanged() {
     await nextTick();
     input.setSelectionRange(at.start, at.end); input.scrollTop = at.top; input.scrollLeft = at.left;
     syncScroll({ target: input } as unknown as Event);
-  } catch { /* Deleted or unreadable: an explicit reload says why. */ }
+  } catch (cause) {
+    // Deleted or renamed on the host: said now, not as a conflict at the next save.
+    if (own === revision && cause instanceof ApiError && cause.status === 404) { conflict.value = true; error.value = FILE_GONE; }
+    /* Otherwise unreadable: an explicit reload says why. */
+  }
 }
 // A pane is unmounted while another tab or pane is in front of it, and the
 // cached draft outlives it, so a file shown again re-checks the host below:

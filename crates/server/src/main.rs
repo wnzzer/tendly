@@ -415,7 +415,9 @@ fn router(state: AppState) -> Router {
         )
         .fallback_service(if from_disk {
             axum::routing::any_service(
-                ServeDir::new(&web).not_found_service(ServeFile::new(web.join("index.html"))),
+                // `fallback`, not `not_found_service`: a page address such as
+                // /settings is the app, served with 200 as the embedded copy does.
+                ServeDir::new(&web).fallback(ServeFile::new(web.join("index.html"))),
             )
         } else {
             axum::routing::any(|uri: axum::http::Uri| async move { embedded::serve_web(&uri) })

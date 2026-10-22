@@ -168,5 +168,14 @@ export function useCanvasPersistence({ layout, selectedPaneId, sessions, storage
   /** The page is going: a change still waiting is kept in this browser to offer back, and nothing more is sent. */
   function dispose() { if (pendingLayout) cacheLayout(pendingLayout, true); disposed = true; clearTimeout(layoutTimer); }
 
-  return { canvasReady, layoutStatus, canvasRevision, canvasConflict, localRecovery, cacheLayout, queueLayout, flushLayout, initializeCanvas, resolveCanvasConflict, restoreLocalRecovery, agentCanvas, hasPendingLayout, dispose };
+  /**
+   * A change every open page makes for itself -- a tab taking its session's
+   * new name -- is shown but not saved: each page saving the same change
+   * against the same revision is a conflict for all but the first.
+   */
+  async function showWithoutSaving(document: LayoutDocument) {
+    const held = suspendLayoutSave; suspendLayoutSave = true; layout.value = document;
+    await nextTick(); suspendLayoutSave = held;
+  }
+  return { canvasReady, layoutStatus, canvasRevision, canvasConflict, localRecovery, cacheLayout, queueLayout, flushLayout, initializeCanvas, resolveCanvasConflict, restoreLocalRecovery, agentCanvas, hasPendingLayout, showWithoutSaving, dispose };
 }

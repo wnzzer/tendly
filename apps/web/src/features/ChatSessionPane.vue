@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, type Ref } from 'vue';
-import type { EndpointProfile, Session, Workspace } from '@tendly/protocol';
+import type { EndpointProfile, ProviderKind, Session, Workspace } from '@tendly/protocol';
 import { assetUrl, errorMessage, inCheckout, json, providerLabel, request, sessionPath, workspacePath } from './api';
 import { placeKey } from './checkout-place';
 import { backendCapabilities } from './backend-capabilities';
@@ -397,6 +397,9 @@ async function pickPermission(mode: string) {
 async function pickModel(id: string) {
   modelMenu.value?.close(true);
   if (!canPickModel.value || id === currentModel.value) return;
+  // Pi names a model provider/id and refuses anything else outright; that is
+  // said here, rather than read as an endpoint that only takes it at launch.
+  if (props.session.provider === 'pi' && !/^[^/]+\/./.test(id)) { error.value = t('Name a Pi model as provider/id.'); return; }
   await runAction(async session => {
     // Only send a depth when one was actually chosen; otherwise the client
     // keeps whatever it is already using.
@@ -482,6 +485,8 @@ function useStarter(prompt: string) {
  * session with a durable copy of the conversation. The server includes it
  * with the next message, including after a reload.
  */
+/** Who wrote a reply: this session's client, or the one a carried-over reply came from. */
+const authorOf = (item: { provider?: string }) => (item.provider ?? props.session.provider) as ProviderKind;
 const handoffChoices = computed(() => handoffChoicesFor(props.session.provider, props.profiles, t));
 const handoffTarget = ref<HandoffChoice>();
 function pickHandoff(choice: HandoffChoice) {
@@ -583,11 +588,15 @@ function atBottom() {
 }
 // Each is decided before the scroll it causes lands, so a reply streaming in
 // cannot pull the view back down in between.
-function timelineWheel(event: WheelEvent) { byPerson(); if (event.deltaY < 0) followBottom.value = false; }
+// The virtualizer keeps correcting a scroll to the last row for seconds while
+// rows grow (its private scrollState); a person turning away ends that too, or
+// a streaming reply pulls the view back down under the wheel.
+function stopFollowing() { followBottom.value = false; const list = windowed() as unknown as { scrollState?: unknown } | undefined; if (list) list.scrollState = null; }
+function timelineWheel(event: WheelEvent) { byPerson(); if (event.deltaY < 0) stopFollowing(); }
 let touchY: number | undefined;
 function timelineTouchStart(event: TouchEvent) { byPerson(); touchY = event.touches[0]?.clientY; }
-function timelineTouchMove(event: TouchEvent) { byPerson(); const y = event.touches[0]?.clientY; if (touchY !== undefined && y !== undefined && y > touchY + 4) followBottom.value = false; }
-function timelineKeydown(event: KeyboardEvent) { if (event.metaKey || event.ctrlKey || event.altKey) return; byPerson(); if (UPWARD_KEYS.has(event.key)) followBottom.value = false; }
+function timelineTouchMove(event: TouchEvent) { byPerson(); const y = event.touches[0]?.clientY; if (touchY !== undefined && y !== undefined && y > touchY + 4) stopFollowing(); }
+function timelineKeydown(event: KeyboardEvent) { if (event.metaKey || event.ctrlKey || event.altKey) return; byPerson(); if (UPWARD_KEYS.has(event.key)) stopFollowing(); }
 /** Whether the person is selecting text in the conversation: following new output would pull it away. */
 function selectingInTimeline(el: HTMLElement) { const selection = window.getSelection(); return !!selection && !selection.isCollapsed && !!selection.anchorNode && el.contains(selection.anchorNode); }
 // Asked once a frame while a reply streams: the selection is only looked at,
@@ -806,9 +815,17 @@ watch(() => [canSendIgnoringText.value, queued.value.length] as const, ([ready, 
   target.pending = pendingMessage(messageId, queuedContent(next), target.text, props.session); target.notice = undefined; error.value = '';
   void deliver(id, target, () => messageQueue.get(id).unshift(next));
 });
+/** Enter pressed while the client was still starting: sent once it can be, not dropped. */
+const sendWhenReady = ref(false);
+watch(canSend, ready => { if (ready && sendWhenReady.value) { sendWhenReady.value = false; void send(); } });
+// Editing the draft, or another session, withdraws it: only what Enter was pressed on goes.
+watch([() => props.session.id, () => draft.value.text], () => { sendWhenReady.value = false; });
 async function send(queue = false) {
   if (canQueue.value) { if (queue) queueDraft(); else await steerDraft(); return; }
-  if (!canSend.value) return;
+  if (!canSend.value) {
+    if ((booting.value || loading.value || streamState.value === 'connecting') && canSendMessage(draft.value.text, attachments.value)) sendWhenReady.value = true;
+    return;
+  }
   // This client exposes no commands, so a bare slash command would reach the
   // model as prose. Say so instead of sending something that cannot work.
   const unsupported = unsupportedCommand(draft.value.text, view.value.commands, view.value.commandsAnnounced);
@@ -1094,10 +1111,10 @@ function keydown(event: KeyboardEvent) {
       <div v-if="!view.items.length" class="chat-welcome"><span class="chat-welcome-mark"><ProviderIcon :provider="session.provider" :size="32" /></span><h3>{{ t('What shall we build?') }}</h3><p>{{ t('A real conversation with your native agent, with room for tools, changes and your next idea.') }}</p><span class="chat-context-chip" :title="activeProfile?(activeProfile.native_config?t('Uses the sign-in and settings in {path}',{path:activeProfile.native_config.config_dir}):undefined):t('A fresh, empty client home: no host sign-in or settings, so it may ask you to log in.')"><ProviderIcon :provider="session.provider" :size="12"/>{{ endpointName }}</span><Transition name="chat-boot" :duration="240"><p v-if="booting" class="chat-boot" role="status"><span class="chat-boot-bar"><i/></span>{{ t('Starting {provider}… models and commands arrive with it.',{provider:providerLabel(session.provider)}) }}</p></Transition><div v-if="startersAvailable" class="chat-starters"><button v-for="(starter,index) in STARTERS" :key="starter.title" type="button" :style="{'--starter-delay':index*60+'ms'}" @click="useStarter(starter.prompt)"><span class="chat-starter-icon" :data-tone="starter.icon"><Icon :name="starter.icon" :size="16"/></span><span><strong>{{ t(starter.title) }}</strong><small>{{ t(starter.note) }}</small></span></button></div><p v-if="chatNote" class="chat-trust-note">{{ t(chatNote) }}</p></div>
       <div v-if="older!==undefined" ref="olderSentinel" class="chat-history-older" role="status">{{ loadingOlder ? t('Loading earlier messages…') : '' }}</div>
       <VirtualRows ref="rowsList" v-slot="{ row: item }" :rows="rows.rows" :keys="rows.keys" :scroll-element="viewport" :scroll-margin="rowsMargin" :estimate="rowHeight" :measured="rememberRowHeight" :memo="[running, slowNow, locale]" @resize="onRowsResize" @range="onRowsRange">
-        <article v-if="item.type==='message'" :class="['chat-message',item.role]"><div class="chat-message-label"><ProviderIcon v-if="item.role==='assistant'" :provider="session.provider" :size="15" /><span>{{ item.role==='user'?t('You'):providerLabel(session.provider) }}</span><em v-if="item.steered" class="chat-steered" :title="t('Written while the agent worked, and read inside that turn')">{{ t('Steer') }}</em></div><div v-if="item.role==='user'&&attachedImagePaths(item.text).length" class="chat-attached-images"><img v-for="path in attachedImagePaths(item.text)" :key="path" :src="workspaceImage(path)" :alt="path" :title="path" loading="lazy" @click="openLightbox(workspaceImage(path), path)" /></div><MarkdownContent :text="item.text" :image-url="workspaceImage" :host-image-url="hostImage" :open-file="openReference" /><div class="chat-message-foot"><div class="chat-message-actions"><CopyButton :text="item.text" label="Copy message" compact /></div><span v-if="item.role==='assistant'&&item.usage" class="chat-turn-usage" :title="turnUsageTitle(item.usage)">{{ turnUsageLine(item.usage) }}</span></div></article>
+        <article v-if="item.type==='message'" :class="['chat-message',item.role]"><div class="chat-message-label"><ProviderIcon v-if="item.role==='assistant'" :provider="authorOf(item)" :size="15" /><span>{{ item.role==='user'?t('You'):providerLabel(authorOf(item)) }}</span><em v-if="item.steered" class="chat-steered" :title="t('Written while the agent worked, and read inside that turn')">{{ t('Steer') }}</em></div><div v-if="item.role==='user'&&attachedImagePaths(item.text).length" class="chat-attached-images"><img v-for="path in attachedImagePaths(item.text)" :key="path" :src="workspaceImage(path)" :alt="path" :title="path" loading="lazy" @click="openLightbox(workspaceImage(path), path)" /></div><MarkdownContent :text="item.text" :image-url="workspaceImage" :host-image-url="hostImage" :open-file="openReference" /><div class="chat-message-foot"><div class="chat-message-actions"><CopyButton :text="item.text" label="Copy message" compact /></div><span v-if="item.role==='assistant'&&item.usage" class="chat-turn-usage" :title="turnUsageTitle(item.usage)">{{ turnUsageLine(item.usage) }}</span></div></article>
         <component :is="item.type==='tool_run'&&item.tools.length>1?'details':'div'" v-else-if="item.type==='tool_run'" :class="item.tools.length>1?['chat-tool-run',toolRunStatus(item)]:'chat-tool-solo'"><summary v-if="item.tools.length>1"><span :class="['tool-indicator',toolRunStatus(item)]">{{ toolIndicator({ status: toolRunStatus(item) }) }}</span><strong>{{ t('{count} tool calls',{count:item.tools.length}) }}</strong><small>{{ toolRunStatus(item)==='running' ? runningLine(item) : toolRunNames(item) }}</small><Icon class="chat-tool-chevron" name="chevron" :size="14" /></summary><details v-for="tool in item.tools" :key="tool.id" class="chat-tool" :data-tool-id="tool.id"><summary><span :class="['tool-indicator',tool.status]">{{ toolIndicator(tool) }}</span><strong>{{ tool.name }}<template v-if="tool.label"> · {{ tool.label }}</template></strong><small>{{ tool.activity && tool.status==='running' ? lastLine(tool.activity) : t(tool.status==='running'?(running&&!tool.ended?'Working…':'Session ended'):tool.status==='failed'?'Failed':'Completed') }}</small><span v-if="tool.stats" class="chat-tool-stats">{{ statsLine(tool.stats) }}</span><span v-else-if="sizeWorthShowing(tool)" class="chat-tool-stats" :title="t('Its result added about {count} tokens to the context', { count: tool.result_tokens! })">≈ {{ t('{count} tokens', { count: compactCount(tool.result_tokens!) }) }}</span><em v-if="quietLine(tool)" class="chat-tool-stalled">{{ quietLine(tool) }}</em><Icon class="chat-tool-chevron" name="chevron" :size="14" /></summary><pre v-if="tool.activity" class="tool-activity">{{ tool.activity }}</pre><div v-if="tool.children?.length" class="chat-tool-children"><details v-for="entry in descendants(tool)" :key="entry.tool.id" class="chat-tool-nested" :style="{'--depth':entry.depth}" :data-tool-id="entry.tool.id"><summary><span :class="['tool-indicator',entry.tool.status]">{{ toolIndicator(entry.tool) }}</span><strong>{{ entry.tool.name }}<template v-if="entry.tool.label"> · {{ entry.tool.label }}</template></strong><small>{{ entry.tool.activity && entry.tool.status==='running' ? lastLine(entry.tool.activity) : t(entry.tool.status==='running'?(running&&!entry.tool.ended?'Working…':'Session ended'):entry.tool.status==='failed'?'Failed':'Completed') }}</small><span v-if="entry.tool.stats" class="chat-tool-stats">{{ statsLine(entry.tool.stats) }}</span><span v-else-if="sizeWorthShowing(entry.tool)" class="chat-tool-stats" :title="t('Its result added about {count} tokens to the context', { count: entry.tool.result_tokens! })">≈ {{ t('{count} tokens', { count: compactCount(entry.tool.result_tokens!) }) }}</span><em v-if="quietLine(entry.tool)" class="chat-tool-stalled">{{ quietLine(entry.tool) }}</em></summary><pre v-if="entry.tool.activity" class="tool-activity">{{ entry.tool.activity }}</pre><pre v-if="entry.tool.text">{{ entry.tool.text }}</pre></details></div><pre v-if="tool.text">{{ tool.text }}</pre><p v-else-if="!tool.activity&&!tool.children?.length">{{ t('The client did not provide tool output.') }}</p></details></component>
         <p v-else-if="item.type==='approval'" :class="['chat-approval-record',{pending:!item.resolved}]"><Icon :name="item.resolved?'check':'shield'" :size="13"/><span>{{ item.title }}</span><small>{{ t(item.resolved?'Resolved':'Waiting for you below') }}</small></p>
-        <div v-else-if="item.type==='configuration'" class="chat-boundary"><span>{{ t('New native context') }} · {{ item.profile_name }}</span><p>{{ t(item.text) }}</p></div>
+        <div v-else-if="item.type==='configuration'" class="chat-boundary"><span>{{ t('New native context') }}<template v-if="item.profile_name"> · {{ item.profile_name==='Isolated configuration'?t('Native · isolated configuration'):item.profile_name }}</template></span><p>{{ t(item.text) }}</p></div>
         <p v-else-if="item.type==='error'" class="chat-alert" role="alert">{{ item.text }}</p>
       </VirtualRows>
       <div v-if="view.turn==='running'" class="chat-working"><ProviderIcon class="chat-working-mark" :provider="session.provider" :size="15"/><span class="chat-working-label">{{ t('Agent is working') }}</span></div>
@@ -1456,14 +1473,25 @@ function keydown(event: KeyboardEvent) {
 .chat-queued .chat-queued-remove{color:var(--muted);font-size:var(--text-lg);line-height:1}
 .chat-steer-send{margin-left:auto;background:var(--violet)}
 .chat-steered{font-style:normal;font-size:var(--text-xs);padding:1px 6px;border-radius:var(--radius-sm);background:var(--violet-soft);color:var(--violet)}
-.chat-steer-more{margin-left:2px}
+/* Steer and its other ways to send are one split button: the arrow is the
+   same violet, joined to it, not a chip of its own beside it. */
+/* Pulled over the row's gap so the two halves touch. */
+.chat-steer-more{margin-left:-5px}
+.chat-composer.is-phone .chat-steer-more{margin-left:-4px}
+.chat-composer .chat-steer-send{border-top-right-radius:0;border-bottom-right-radius:0}
+.chat-steer-more :deep(.chip-menu-label){display:none}
+.chat-steer-more>:deep(summary){justify-content:center;width:20px;height:30px;min-height:0;padding:0;border:0;border-left:1px solid color-mix(in srgb, var(--on-accent) 35%, transparent);border-radius:0 var(--radius-md) var(--radius-md) 0;background:var(--violet);color:var(--on-accent);box-shadow:0 1px 3px #243b4c26}
+.chat-steer-more>:deep(summary:hover){background:color-mix(in srgb, var(--violet) 88%, black)}
+/* Hovered, each keeps its own colour rather than taking the send button's green. */
+.chat-steer-send:hover:not(:disabled){background:color-mix(in srgb, var(--violet) 88%, black)}
+.chat-stop:hover:not(:disabled){background:color-mix(in srgb, var(--danger) 88%, black)}
 .chat-steer-more :deep(.chip-menu-panel){min-width:240px}
 .chat-steer-more nav button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:7px 10px;border:0;border-radius:var(--radius-sm);background:none;text-align:left;cursor:pointer}
 .chat-steer-more nav button:hover{background:var(--fill)}
 .chat-steer-more nav strong{font-size:var(--text-sm);font-weight:550;color:var(--ink)}
 .chat-steer-more nav small{font-size:var(--text-xs);color:var(--muted)}
 .chat-steer-more nav button.danger strong{color:var(--danger-ink)}
-.chat-steer-more+.chat-stop{margin-left:6px}
+.chat-steer-more+.chat-stop{margin-left:8px}
 
 .chat-attached-images{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
 .chat-attached-images img{width:96px;height:72px;object-fit:cover;border-radius:var(--radius-md);border:1px solid var(--teal-line);background:var(--surface);cursor:zoom-in}
@@ -1512,6 +1540,8 @@ function keydown(event: KeyboardEvent) {
 .chat-composer.is-phone .chat-attach{width:40px;height:40px;min-width:40px;min-height:40px;border-radius:50%}
 .chat-composer.is-phone .chat-send{width:40px;height:40px;min-width:40px;min-height:40px;border-radius:50%;font-size:var(--text-2xl)}
 .chat-composer.is-phone .chat-send:not(.chat-steer-send){margin-left:auto}
+.chat-composer.is-phone .chat-steer-send{border-radius:var(--radius-full) 0 0 var(--radius-full)}
+.chat-composer.is-phone .chat-steer-more>:deep(summary){width:26px;height:40px;border-radius:0 var(--radius-full) var(--radius-full) 0}
 .chat-composer.is-phone .chat-chip-strip{flex:0 1 auto;gap:2px;overflow:visible}
 .chat-composer.is-phone .chat-chip-strip>*{max-width:none!important}
 /* The chips read as quiet controls in the row, not as filled pills. */

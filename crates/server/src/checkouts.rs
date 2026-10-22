@@ -366,7 +366,31 @@ async fn cleanup_candidates(
     Path(id): Path<WorkspaceId>,
 ) -> Result<Json<workspace_io::GitCleanup>> {
     let repo = root(&state, id).await?;
-    Ok(Json(workspace_io::git_cleanup(&repo).await?))
+    let mut found = workspace_io::git_cleanup(&repo).await?;
+    let mut kept = Vec::with_capacity(found.branches.len());
+    for candidate in found.branches {
+        if !just_moved_to(&state, id, &repo, &candidate).await? {
+            kept.push(candidate);
+        }
+    }
+    found.branches = kept;
+    Ok(Json(found))
+}
+
+/// A branch a session was just moved to: its worktree is that session's
+/// checkout and nothing was committed there yet. It reads as merged, but it
+/// is where the session's work is about to go, so it is not cleaned up.
+async fn just_moved_to(
+    state: &AppState,
+    id: WorkspaceId,
+    repo: &std::path::Path,
+    candidate: &workspace_io::CleanupCandidate,
+) -> Result<bool> {
+    let Some(path) = &candidate.worktree else {
+        return Ok(false);
+    };
+    Ok(!bound_to(state, id, path).await?.is_empty()
+        && workspace_io::git_never_committed(repo, &candidate.name).await)
 }
 
 #[derive(Deserialize)]
@@ -423,6 +447,12 @@ async fn cleanup_branches(
         };
         if candidate.reason == "gone" {
             results.push(skip("Its work was not found on the base branch."));
+            continue;
+        }
+        if just_moved_to(&state, id, &repo, candidate).await? {
+            results.push(skip(
+                "A session was just moved to it; nothing is committed there yet.",
+            ));
             continue;
         }
         if let Some(path) = &candidate.worktree {

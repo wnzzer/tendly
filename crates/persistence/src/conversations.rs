@@ -605,13 +605,31 @@ impl Store {
             })?
             .collect::<Result<Vec<_>>>()?
         };
-        for event in events {
+        // The boundary names where the conversation came from, as every other
+        // boundary names its configuration; a view reads it as one of them.
+        let (origin, provider): (String, Option<String>) = tx
+            .query_row(
+                "SELECT title,provider FROM sessions WHERE id=?1",
+                [source.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?
+            .unwrap_or_else(|| ("Another client".to_owned(), None));
+        for mut event in events {
+            // A reply carried over is still the other client's, and says so.
+            if event["type"] == "message"
+                && event["role"] == "assistant"
+                && event.get("provider").is_none()
+                && let (Some(provider), Some(fields)) = (&provider, event.as_object_mut())
+            {
+                fields.insert("provider".to_owned(), Value::String(provider.clone()));
+            }
             append(&tx, target, event)?;
         }
         append(
             &tx,
             target,
-            json!({"type":"configuration","id":Uuid::new_v4().to_string(),"text":"Conversation carried from another client. The next message includes the earlier conversation."}),
+            json!({"type":"configuration","id":Uuid::new_v4().to_string(),"profile_name":origin,"text":"Conversation carried from another client. The next message includes the earlier conversation."}),
         )?;
         tx.commit()
     }
@@ -924,6 +942,30 @@ mod tests {
             .unwrap();
         store.append_conversation_event(source, json!({"type":"message","id":"a","role":"assistant","text":"Found the timeout in client.rs"})).unwrap();
         store.carry_conversation(source, target).unwrap();
+        let boundary = store
+            .conversation(target)
+            .unwrap()
+            .events
+            .into_iter()
+            .rfind(|event| event["type"] == "configuration")
+            .unwrap();
+        assert!(
+            boundary["profile_name"]
+                .as_str()
+                .is_some_and(|name| !name.is_empty()),
+            "a view only accepts a boundary that names its origin: {boundary}"
+        );
+        let reply = store
+            .conversation(target)
+            .unwrap()
+            .events
+            .into_iter()
+            .find(|event| event["role"] == "assistant")
+            .unwrap();
+        assert_eq!(
+            reply["provider"], "claude_code",
+            "a carried reply names the client that wrote it"
+        );
         drop(store);
         let store = Store::open(&path).unwrap();
         let carried = store.carried_transcript(target, 65536).unwrap().unwrap();

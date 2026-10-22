@@ -503,6 +503,25 @@ pub(crate) async fn merged_into(
     Ok(squashed.starts_with('-').then_some("squashed"))
 }
 
+/// Whether nothing was ever committed on `branch`: its reflog holds only its
+/// creation. Such a branch reads as merged -- its tip is where it started --
+/// though it is new rather than finished. Without a reflog it counts as used.
+pub async fn git_never_committed(root: &Path, branch: &str) -> bool {
+    let log = git_text(
+        root,
+        &["reflog", "--format=%gs", &format!("refs/heads/{branch}")],
+    )
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or_default();
+    let mut entries = log.lines();
+    entries
+        .next()
+        .is_some_and(|entry| entry.starts_with("branch: Created"))
+        && entries.next().is_none()
+}
+
 /// The local branches that can be cleaned up, other than the one checked out
 /// here and the base itself, each with why and the worktree holding it.
 pub async fn git_cleanup(root: &Path) -> Result<GitCleanup, IoError> {

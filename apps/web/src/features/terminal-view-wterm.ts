@@ -15,6 +15,15 @@ import { concatBytes, themeVariables, type TerminalTheme, type TerminalView, typ
  * output that arrives meanwhile is kept and written once it is, and `ready`
  * is reported then.
  */
+/**
+ * Focus taken by a terminal's init, and from what, while any init is under
+ * way. Terminals loading together take focus from one another; giving it
+ * back to one that only had it by taking it would keep the steal, so the
+ * chain is followed back to what the person or the page last focused.
+ */
+const takenFrom = new Map<Element, Element | null>();
+let initializing = 0;
+
 export function createWtermView(host: HTMLElement, theme: TerminalTheme, events: TerminalViewEvents): TerminalView {
   const surface = document.createElement("div");
   surface.className = "wterm-surface";
@@ -56,14 +65,34 @@ export function createWtermView(host: HTMLElement, theme: TerminalTheme, events:
         onSearchChange: state => events.searched?.(state),
       });
       // wterm focuses its input during init. A background pane must not steal
-      // the user's focus or emit a pane-selection event while mounting.
-      const previousFocus = document.activeElement;
-      const quietFocus = (event: FocusEvent) => event.stopPropagation();
+      // the user's focus or emit a pane-selection event while mounting. Focus
+      // goes back to what wterm took it from -- not to what had it when init
+      // began, which the person may have left for this very terminal since
+      // (focusing the host is asking for it) or for another one.
+      let wanted = host.contains(document.activeElement), stolenFrom: Element | null = null;
+      const quietFocus = (event: FocusEvent) => {
+        event.stopPropagation();
+        if (event.target === host) { wanted = true; return; }
+        const from = event.relatedTarget instanceof Element && !host.contains(event.relatedTarget) ? event.relatedTarget : null;
+        if (from) stolenFrom = from;
+        // Focus passed on inside a terminal that was asked for it is its own, not taken.
+        if (!wanted && event.target instanceof Element && (from || !event.relatedTarget)) takenFrom.set(event.target, from);
+      };
       host.addEventListener("focusin", quietFocus);
+      initializing++;
       try { await view.init(); }
       finally {
         host.removeEventListener("focusin", quietFocus);
-        if (host.contains(document.activeElement) && previousFocus instanceof HTMLElement && previousFocus.isConnected && !host.contains(previousFocus)) previousFocus.focus({ preventScroll: true });
+        const active = document.activeElement;
+        if (!wanted && active instanceof HTMLElement && host.contains(active)) {
+          let from = stolenFrom as Element | null;
+          for (let hops = 0; from && takenFrom.has(from) && hops < 16; hops++) from = takenFrom.get(from) ?? null;
+          // Traced back to this terminal itself: it was asked for before its init began, and keeps the keys.
+          if (from && host.contains(from)) { /* stays */ }
+          else if (from instanceof HTMLElement && from.isConnected) from.focus({ preventScroll: true });
+          else active.blur();
+        }
+        if (--initializing === 0) takenFrom.clear();
       }
       if (disposed) {
         view.destroy();

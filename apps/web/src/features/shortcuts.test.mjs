@@ -69,7 +69,7 @@ test('a repeatable key keeps the prefix for itself, and anything else is typed a
   assert.equal(prefixKey(key('a'), true, true), 'cancel-pass');
   assert.equal(prefixKey(key('z'), true, true), 'cancel-pass', 'only the repeatable keys');
   assert.equal(prefixKey(key('Escape'), true, true), 'cancel', 'Esc is not passed on to interrupt a turn');
-  assert.equal(prefixKey(key('b', { ctrlKey: true }), true, true), 'pass');
+  assert.equal(prefixKey(key('b', { ctrlKey: true }), true, true), 'prefix', 'Ctrl+B starts a new prefix, as in tmux, rather than reaching the terminal');
 });
 
 test('Ctrl+B is the prefix everywhere, so the sidebar chord exists only where ⌘ is not Ctrl', () => {

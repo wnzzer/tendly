@@ -364,7 +364,7 @@ const insights = computed(() => report.value ? usageInsights(report.value, t, we
 .legend i{width:8px;height:8px;border-radius:50%}
 .segmented{display:inline-flex;padding:2px;border-radius:var(--radius-full);background:var(--fill)}
 .segmented.push{margin-left:auto}
-.segmented button{height:24px;padding:0 10px;border:0;border-radius:var(--radius-full);background:none;color:var(--muted);font-size:var(--text-xs);cursor:pointer}
+.segmented button{height:24px;padding:0 10px;border:0;border-radius:var(--radius-full);background:none;color:var(--ink-soft);font-size:var(--text-xs);cursor:pointer}
 .segmented button.selected{background:var(--surface);color:var(--ink);box-shadow:var(--shadow-sm)}
 .day-chart{position:relative}
 .day-chart svg{display:block;width:100%;height:auto;overflow:visible}

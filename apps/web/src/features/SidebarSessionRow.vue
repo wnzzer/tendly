@@ -82,13 +82,24 @@ function escapeMenu(event: KeyboardEvent) {
   event.preventDefault(); event.stopPropagation(); void closeMenu(true);
 }
 function leaveMenu(event: FocusEvent) {
-  if (event.relatedTarget instanceof Node && event.currentTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+  const menu = event.currentTarget;
+  if (event.relatedTarget instanceof Node && menu instanceof Node && menu.contains(event.relatedTarget)) return;
+  // A focused button the menu replaces (Delete… by its confirmation) loses
+  // focus to nothing; the menu has not been left, so look again once settled.
+  if (!event.relatedTarget) { requestAnimationFrame(() => { if (!(menu instanceof Node && menu.contains(document.activeElement))) menuOpen.value = false; }); return; }
   menuOpen.value = false;
+}
+/** Asking first; the question takes the focus the Delete… button had. */
+async function askDelete() {
+  confirmDelete.value = true;
+  await nextTick();
+  document.querySelector<HTMLElement>(`[data-sidebar-session-id="${CSS.escape(props.session.id)}"] .session-delete-confirm + .session-delete-action`)?.focus();
 }
 function archiveSession() {
   if (!props.archiveSupported || props.archiveBusy) return;
   emit("archive", props.session, !isSessionArchived(props.session));
-  void closeMenu(true);
+  // The row leaves the list, its menu button with it: focus is the list's to move on, not this row's to keep.
+  void closeMenu();
 }
 /**
  * Archiving, one gesture away. On a pointer it is a button beside ···; on a
@@ -220,7 +231,7 @@ function submitRename() {
           <button class="session-delete-action" role="menuitem" :disabled="deleteBusy" :aria-busy="deleteBusy" @click="deleteSession"><Icon name="close" :size="13" />{{ t(deleteBusy ? 'Deleting…' : 'Delete permanently') }}</button>
           <button role="menuitem" @click="confirmDelete = false">{{ t('Cancel') }}</button>
         </template>
-        <button v-else class="session-delete-action" role="menuitem" :disabled="deleteBusy" @click="confirmDelete = true"><Icon name="close" :size="13" />{{ t('Delete session…') }}</button>
+        <button v-else class="session-delete-action" role="menuitem" :disabled="deleteBusy" @click="askDelete"><Icon name="close" :size="13" />{{ t('Delete session…') }}</button>
       </template>
     </div>
     <Teleport to="body"><SessionRunInfo v-if="showInfo" :session="session" @close="showInfo = false" /></Teleport>

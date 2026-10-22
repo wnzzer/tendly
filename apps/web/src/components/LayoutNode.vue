@@ -17,6 +17,7 @@ import SessionCommonActions from "../features/SessionCommonActions.vue";
 import { SESSION_ACTIONS } from "../features/session-actions-context";
 import { sessionStatuses } from "../features/attention";
 import { DEFAULT_CLIENT, PROVIDER_KINDS, providerLabel } from "../features/clients";
+import { firstAppearance } from "./pane-entrance";
 const { t } = useI18n();
 
 const props = defineProps<{ node: LayoutNode; selected?: string | null; maximized?: string | null; locatedPaneId?: string | null; workspaceLabels?: Record<string, string>; mixedWorkspaces?: boolean; workspaceBranches?: Record<string, string>; sessionBranches?: Record<string, string>; checkoutBranches?: Record<string, string>; sessionProviders?: Record<string, ProviderKind>; ephemeralSessionIds?: string[]; ephemeralSupported?: boolean }>();
@@ -89,6 +90,18 @@ const activePane = computed(() => {
   return node.type === "pane" ? node : node.type === "stack" ? node.panes.find((pane) => pane.id === node.activePaneId) ?? node.panes[0] : undefined;
 });
 const tabs = computed(() => props.node.type === "pane" ? [props.node] : props.node.type === "stack" ? props.node.panes : []);
+/** A pane enters once: not again when this component's section is rebuilt by
+ * a split or a maximize, nor when a new instance shows a pane already seen. */
+const entering = ref(false);
+// By the pane shown, not the instance: one instance may draw a split first and
+// a pane later (the canvas root, when a pane is maximized).
+// A tab brought forward in a group already on screen is not an entrance either.
+watch(() => activePane.value?.id, (id, previous) => {
+  if (!id) return;
+  const fresh = firstAppearance(id);
+  for (const pane of tabs.value) firstAppearance(pane.id);
+  entering.value = previous === undefined && fresh;
+}, { immediate: true });
 async function revealActiveTab() {
   await nextTick();
   const active = paneElement.value?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
@@ -258,7 +271,7 @@ onBeforeUnmount(() => { cleanupResize?.(); window.removeEventListener('resize', 
       </LayoutNode>
     </div>
   </div>
-  <section v-else ref="paneElement" class="dock-pane" :class="{ 'is-selected': activePane?.id === selected, 'is-collapsed': node.type === 'stack' && node.collapsedFrom, 'is-located': !!locatedPaneId && activePane?.id === locatedPaneId }" :data-pane-id="activePane?.id" :data-node-id="targetId" @pointerdown="activePane && select(activePane)" @focusin="activePane && activePane.id !== selected && select(activePane)" @dragover="dragOver" @dragleave="dragLeave" @drop="drop">
+  <section v-else ref="paneElement" class="dock-pane" @animationend.self="entering = false" :class="{ 'is-entering': entering, 'is-selected': activePane?.id === selected, 'is-collapsed': node.type === 'stack' && node.collapsedFrom, 'is-located': !!locatedPaneId && activePane?.id === locatedPaneId }" :data-pane-id="activePane?.id" :data-node-id="targetId" @pointerdown="activePane && select(activePane)" @focusin="activePane && activePane.id !== selected && select(activePane)" @dragover="dragOver" @dragleave="dragLeave" @drop="drop">
     <header class="dock-header" @contextmenu="openPaneMenu">
       <div class="dock-tabs" role="tablist" :aria-label="t('Pane tabs')">
         <div v-for="pane in tabs" :key="pane.id" :id="`dock-tab-${pane.id}`" :data-pane-tab-id="pane.id" role="tab" class="dock-tab" :class="{ 'is-active': pane.id === activePane?.id, 'is-ephemeral': isEphemeral(pane) }" :aria-selected="pane.id === activePane?.id" :aria-controls="`dock-panel-${pane.id}`" :aria-label="tabLabel(pane)" :tabindex="pane.id === activePane?.id ? 0 : -1" :title="t(isEphemeral(pane) ? '{title} · temporary window · discarded when closed' : '{title} · drag to arrange', { title: qualifiedTitle(pane) })" draggable="true" @contextmenu="openTabMenu($event, pane)" @dragstart="dragStart($event, pane)" @click.stop="select(pane)" @keydown="tabKey($event, pane)" @keydown.enter.prevent="select(pane)" @keydown.space.prevent="select(pane)">
@@ -351,12 +364,17 @@ onBeforeUnmount(() => { cleanupResize?.(); window.removeEventListener('resize', 
 .is-vertical>.dock-separator { cursor:row-resize; }
 .dock-separator::after { content:"";position:absolute;border-radius:var(--radius-xs);inset:1px;background:transparent;transition:background .12s; }
 .dock-separator:hover::after,.dock-separator:focus-visible::after { background:var(--focus); }
-.dock-pane { position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;width:100%;height:100%;overflow:hidden;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface);box-sizing:border-box;box-shadow:var(--shadow-card),inset 0 1px 0 var(--card-highlight);container:dock-pane / inline-size;animation:rise var(--duration-slow) var(--ease-out) backwards;transition:border-color var(--duration-normal),box-shadow var(--duration-normal); }
+.dock-pane { position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;width:100%;height:100%;overflow:hidden;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface);box-sizing:border-box;box-shadow:var(--shadow-card),inset 0 1px 0 var(--card-highlight);container:dock-pane / inline-size;transition:border-color var(--duration-normal),box-shadow var(--duration-normal); }
 .dock-pane.is-selected { border-color:color-mix(in srgb, var(--accent) 45%, var(--border));box-shadow:var(--shadow-lg),0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent),inset 0 1px 0 var(--card-highlight); }
-@media(prefers-reduced-motion:reduce) { .dock-pane { animation:none; } }
-.dock-pane.is-located { border-color:var(--ok);box-shadow:inset 0 0 0 1px #46b29d,0 0 0 1px #b6e3dd60;animation:dock-locate 1.4s ease-out; }.dock-pane.is-located .dock-tab.is-active { background:var(--accent-soft); }
-@keyframes dock-locate { from { box-shadow:inset 0 0 0 3px #70cabb,0 0 0 1px #b6e3dd60; } to { box-shadow:inset 0 0 0 1px #46b29d,0 0 0 1px #b6e3dd60; } }
-@media(prefers-reduced-motion:reduce) { .dock-pane.is-located { animation:none; } }
+.dock-pane.is-entering { animation:rise var(--duration-slow) var(--ease-out) backwards; }
+@media(prefers-reduced-motion:reduce) { .dock-pane.is-entering { animation:none; } }
+/* The pulse runs on an overlay: animating the pane itself would replace its
+   entrance animation, which then played again, from transparent, when the
+   pulse ended -- a flash on the pane just moved to. */
+.dock-pane.is-located { border-color:var(--ok);box-shadow:inset 0 0 0 1px #46b29d,0 0 0 1px #b6e3dd60; }.dock-pane.is-located .dock-tab.is-active { background:var(--accent-soft); }
+.dock-pane.is-located::after { content:"";position:absolute;inset:0;z-index:3;border-radius:inherit;pointer-events:none;animation:dock-locate 1.4s ease-out forwards; }
+@keyframes dock-locate { from { box-shadow:inset 0 0 0 3px #70cabb; } to { box-shadow:inset 0 0 0 1px transparent; } }
+@media(prefers-reduced-motion:reduce) { .dock-pane.is-located::after { animation:none; } }
 .dock-header { display:flex;align-items:center;gap:3px;min-width:0;height:38px;min-height:38px;padding:0 5px 0 0;background:linear-gradient(180deg,var(--sunken),color-mix(in srgb, var(--sunken) 55%, var(--surface)));border-bottom:1px solid var(--border);box-shadow:inset 0 1px 0 var(--card-highlight); }
 .dock-tabs { display:flex;align-items:stretch;flex:1;min-width:0;height:100%;overflow-x:auto; }
 /* Tabs are reached by clicking, not by dragging a bar, so this one only has to

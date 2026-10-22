@@ -29,8 +29,8 @@ async function poll() {
     try { usage.value = await request<HostUsage>('/host/resources'); }
     catch (cause) {
       if (cause instanceof ApiError && [404, 501].includes(cause.status)) { unsupported.value = true; return; }
-      // Turned off from another browser: hide, and check again now and then.
-      if (cause instanceof ApiError && cause.status === 409) { usage.value = undefined; timer = setTimeout(poll, 30_000); return; }
+      // Turned off from another browser, or signed out: hide, and check again now and then.
+      if (cause instanceof ApiError && [401, 409].includes(cause.status)) { usage.value = undefined; timer = setTimeout(poll, 30_000); return; }
     }
   }
   timer = setTimeout(poll, 4000);

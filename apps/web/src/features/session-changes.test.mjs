@@ -26,6 +26,11 @@ test('a delete goes ahead only for temporary and archived sessions not already b
 
 test('closing a temporary window asks first only while its conversation is mid-turn', () => {
   for (const status of ['running', 'starting', 'waiting']) assert.equal(asksBeforeDiscard(session('s', { status })), true, status);
+  // A client stays up between turns: what the view last held says whether one is open.
+  const turn = status => ({ type: 'turn', status, seq: 2 });
+  assert.equal(asksBeforeDiscard(session('s', { status: 'running' }), [{ type: 'ready', seq: 1 }, turn('completed')]), false, 'idle between turns');
+  assert.equal(asksBeforeDiscard(session('s', { status: 'running' }), [{ type: 'ready', seq: 1 }, turn('running')]), true, 'mid-turn');
+  assert.equal(asksBeforeDiscard(session('s', { status: 'running' }), [{ type: 'ready', seq: 1 }, { type: 'approval', id: 'a', title: 'Run?', text: 'ls', choices: ['accept'], seq: 2 }]), true, 'a question is open');
   assert.equal(asksBeforeDiscard(session('s', { status: 'idle' })), false);
   assert.equal(asksBeforeDiscard(session('s', { status: 'running', provider: 'terminal', interaction_mode: 'terminal' })), false, 'a terminal is running for as long as it is open');
 });

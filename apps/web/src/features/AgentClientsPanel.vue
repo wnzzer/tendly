@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { AgentProviderKind } from '@tendly/protocol';
 import { backendCapabilities } from './backend-capabilities';
 import { ApiError, errorMessage, json, providerLabel, request } from './api';
@@ -67,6 +67,8 @@ function sourceLabel(client: ClientView) {
     : t('Not found');
 }
 onMounted(() => { void load(); });
+// The backend's capabilities can arrive after this panel opens (a reload straight onto it).
+watch(supported, ready => { if (ready && !clients.value.length) void load(); });
 onBeforeUnmount(() => { disposed = true; controller?.abort(); });
 </script>
 

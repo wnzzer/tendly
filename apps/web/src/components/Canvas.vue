@@ -226,6 +226,14 @@ function replaceWith(id: string, pane: PaneNode) {
   if (maximized.value === id) maximized.value = pane.id;
   selectPane(pane);
 }
+/** Point the pane `id` at what `pane` shows -- a file renamed -- leaving selection and focus where they are. */
+function retarget(id: string, pane: PaneNode) {
+  if (findNode(working.value.root, pane.id)) { if (id !== pane.id) close(id); return; }
+  if (findNode(working.value.root, id)?.type !== "pane") return;
+  commit(replacePane(working.value.root, id, pane));
+  if (maximized.value === id) maximized.value = pane.id;
+  if (selected.value === id) selectPane(pane);
+}
 async function focusPane(id: string): Promise<boolean> {
   const pane = findNode(working.value.root, id);
   if (pane?.type !== "pane") return false;
@@ -251,14 +259,20 @@ async function cyclePane(step: number) {
   focusContent(pane.id);
 }
 /** Into the pane's own input -- the composer, the terminal, the editor, the
- * commit message -- which each pane marks with data-pane-input. */
-function focusContent(id: string) {
-  const panel = document.getElementById(`dock-panel-${id}`);
-  const own = panel?.querySelector<HTMLElement>('[data-pane-input]:not([disabled])');
-  if (own) { own.focus({ preventScroll: true }); return; }
-  const terminal = panel?.querySelector<HTMLElement>('.terminal-host');
-  if (terminal) { terminal.focus({ preventScroll: true }); return; }
-  panel?.querySelector<HTMLElement>('textarea:not([disabled]), .cm-content, [contenteditable="true"], input:not([disabled])')?.focus({ preventScroll: true });
+ * commit message -- which each pane marks with data-pane-input. A pane just
+ * brought forward may not have drawn its input yet (a terminal mounts once
+ * attached), so it is looked for again for a moment while the pane stays selected. */
+let contentFrame = 0;
+function focusContent(id: string, frames = 60, from: Element | null = document.activeElement) {
+  cancelAnimationFrame(contentFrame);
+  const panel = document.getElementById(`dock-panel-${id}`), active = document.activeElement;
+  // Waiting, it gives way to anything focused meanwhile outside the pane itself.
+  if (active !== from && active !== document.body && !panel?.contains(active)) return;
+  const target = panel?.querySelector<HTMLElement>('[data-pane-input]:not([disabled])')
+    ?? panel?.querySelector<HTMLElement>('.terminal-host')
+    ?? panel?.querySelector<HTMLElement>('textarea:not([disabled]), .cm-content, [contenteditable="true"], input:not([disabled])');
+  if (target) { target.focus({ preventScroll: true }); return; }
+  if (frames > 0 && selected.value === id) contentFrame = requestAnimationFrame(() => focusContent(id, frames - 1, document.activeElement === from ? from : document.body));
 }
 async function focusAndEnter(id: string | undefined) { if (id && await focusPane(id)) focusContent(id); }
 const currentId = () => selected.value && findNode(working.value.root, selected.value) ? selected.value : panes.value[0]?.id;
@@ -266,7 +280,16 @@ const currentId = () => selected.value && findNode(working.value.root, selected.
 function focusSelected() { const id = currentId(); if (id) focusContent(id); }
 /** The pane used before this one, as tmux's last-pane. */
 function focusLast() { void focusAndEnter([...recent].reverse().find(id => id !== selected.value && findNode(working.value.root, id))); }
-function closeSelected() { const id = currentId(); if (id) void close(id); }
+/** The pane with focus, or the selected one. An empty pane is never selected, so the one focused is closed by its node. */
+async function closeSelected() {
+  const empty = document.activeElement?.closest<HTMLElement>(".dock-pane:not([data-pane-id])")?.dataset.nodeId;
+  const id = empty && stage.value?.contains(document.activeElement) ? empty : currentId();
+  if (!id) return;
+  await close(id);
+  // What the close left in front gets the keys, as moving to it would.
+  const next = currentId();
+  if (next && (!document.activeElement || document.activeElement === document.body)) focusContent(next);
+}
 /** The tabs grouped with the selected pane, and where it is among them. */
 function selectedTabs() {
   const id = currentId();
@@ -324,7 +347,7 @@ async function focusDirection(direction: "left" | "right" | "up" | "down") {
   else target?.element.querySelector<HTMLElement>(".dock-empty button")?.focus();
 }
 
-defineExpose({ focusDirection, splitSelected, cyclePane, openPane, openPaneAt, replaceWith, focusPane, closePane: close, maximizePane: maximize, focusSelected, focusLast, closeSelected, cycleTab, selectTab, swapSelected, nudgeSelected, nextPreset, createHere, prefixContext });
+defineExpose({ focusDirection, splitSelected, cyclePane, openPane, openPaneAt, replaceWith, retarget, focusPane, closePane: close, maximizePane: maximize, focusSelected, focusLast, closeSelected, cycleTab, selectTab, swapSelected, nudgeSelected, nextPreset, createHere, prefixContext });
 
 /**
  * Sideways swipe between open views on a phone, in the order the view
@@ -394,6 +417,7 @@ onMounted(() => {
   document.addEventListener("pointerdown", layoutPointerDown);
 });
 onBeforeUnmount(() => {
+  cancelAnimationFrame(contentFrame);
   observer?.disconnect();
   clearTimeout(locateTimer);
   clearTimeout(swipeSettle);

@@ -41,7 +41,8 @@ const attachCount=ref(0);
 watch(running,(live)=>{if(live){attachCount.value++;exitedInPlace.value=false;}});
 watch(()=>props.session?.id,()=>{exitedInPlace.value=false;});
 function reopenFromView(){if(exitedInPlace.value&&!running.value)void retry();}
-function reopenFromKey(event:KeyboardEvent){if(!exitedInPlace.value||running.value)return;if(event.key.length===1||event.key==="Enter"){event.preventDefault();void retry();}}
+// Taken on the way down: the terminal's input consumes keys before they would bubble here.
+function reopenFromKey(event:KeyboardEvent){if(!exitedInPlace.value||running.value||event.ctrlKey||event.metaKey||event.altKey)return;if(event.key.length===1||event.key==="Enter"){event.preventDefault();event.stopPropagation();void retry();}}
 const streamConnected=ref(false);
 watch([()=>props.session?.id,running],()=>{streamConnected.value=false;},{flush:"sync"});
 const terminalStatus=computed(()=>{const id=props.session?.id;return(connected:boolean)=>{if(props.session?.id===id)streamConnected.value=connected;};});
@@ -79,7 +80,7 @@ function reconnect(){closeSessionMenu();terminalView.value?.reconnect();}
     <button class="primary-button" @click="emit('create',terminal?'terminal':DEFAULT_CLIENT)"><Icon name="plus" :size="15" />{{ t(terminal?'New terminal':'New agent session') }}</button>
     <div v-if="choices.length" class="session-choices"><small>{{ t('OR OPEN AN EXISTING SESSION') }}</small><button v-for="s in choices" :key="s.id" @click="emit('select',s)"><ProviderIcon :provider="s.provider" :size="15" /><span>{{ s.title }}</span><span :class="['state-dot',s.status]" /></button></div>
   </section>
-  <section v-else :class="['agent-session-pane',{'is-exited':exitedInPlace&&!running}]" @pointerdown="reopenFromView" @keydown="reopenFromKey">
+  <section v-else :class="['agent-session-pane',{'is-exited':exitedInPlace&&!running}]" @pointerdown="reopenFromView" @keydown.capture="reopenFromKey">
     <div v-if="!paneId" class="session-control">
       <div class="session-identity"><span :class="['provider-mark',session.provider]"><ProviderIcon :provider="session.provider" /></span><div><strong>{{ session.provider==='terminal'?t('Terminal'):providerLabel(session.provider) }}</strong><small :title="nativeConfig?.config_dir">{{ session.native_source_id?t('Original client configuration'):nativeConfig?t('{name} · shared host configuration',{name:profile?.name??providerLabel(session.provider)}):profile?.name||t(session.provider==='terminal'?'Host shell':'Isolated native profile') }}</small></div></div>
       <div class="session-actions">
