@@ -20,9 +20,11 @@
     "typecheck:bridge": "pnpm --dir packages/native-bridge typecheck",
     "test": "node --no-experimental-webstorage --import tsx --test --test-timeout=30000 \"apps/web/src/**/*.test.mjs\" \"packages/native-bridge/**/*.test.mjs\" \"npm/**/*.test.mjs\" \"scripts/**/*.test.mjs\"",
     "check": "pnpm typecheck:web && pnpm typecheck:bridge && pnpm test",
+    "test:e2e": "pnpm build:web && cargo build -p tendly-server && node --test --test-concurrency=3 --test-timeout=180000 \"tests/e2e/*.e2e.mjs\"",
     "init": "cargo run -p tendly-server -- init"
   },
   "devDependencies": {
+    "playwright-core": "1.64.1",
     "tsx": "4.23.13"
   }
 }
