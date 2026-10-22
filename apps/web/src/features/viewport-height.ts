@@ -11,7 +11,7 @@ import { onMounted, onUnmounted } from "vue";
  * The visual viewport does know, so it is what the shell is sized from while a
  * keyboard is open, and `dvh` is left alone the rest of the time.
  */
-export interface Visual { height: number; scale: number }
+export interface Visual { height: number; scale: number; offsetTop?: number }
 
 /** A keyboard, as distinct from the several other things that move this number. */
 const KEYBOARD = 80;
@@ -27,6 +27,18 @@ export function shellHeight(visual: Visual | undefined, innerHeight: number): nu
 }
 
 /**
+ * Where the visible part of the page starts, while the shell is fitted to it.
+ *
+ * Under a keyboard iOS does not resize the page: it pans what is visible down
+ * the page to the caret. A shell sized to the visible height but left at the
+ * top of the page then ends that far above the keyboard, with empty page
+ * below it, and the composer floats halfway up the screen.
+ */
+export function shellTop(visual: Visual | undefined, height: number | undefined): number {
+  return height && visual?.offsetTop ? Math.max(0, Math.round(visual.offsetTop)) : 0;
+}
+
+/**
  * Give way to a phone keyboard, for as long as the calling component is
  * mounted. Whatever lives at the bottom of the page goes under a keyboard with
  * it: in a terminal that is the prompt, and the command list a client draws
@@ -34,8 +46,12 @@ export function shellHeight(visual: Visual | undefined, innerHeight: number): nu
  */
 export function useKeyboardFit() {
   function fitToKeyboard() {
-    const height = shellHeight(window.visualViewport ?? undefined, window.innerHeight);
-    document.documentElement.style.setProperty("--app-height", height ? `${height}px` : "");
+    const visual = window.visualViewport ?? undefined, root = document.documentElement;
+    const height = shellHeight(visual, window.innerHeight), top = shellTop(visual, height);
+    root.style.setProperty("--app-height", height ? `${height}px` : "");
+    root.style.setProperty("--app-top", top ? `${top}px` : "");
+    // What sits at the very bottom only needs the home indicator's inset while no keyboard covers it.
+    root.toggleAttribute("data-keyboard", !!height);
   }
   onMounted(() => {
     // The visual viewport also scrolls under a keyboard, which is the other way

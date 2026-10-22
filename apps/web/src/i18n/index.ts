@@ -1948,6 +1948,7 @@ export const zhCN: Readonly<Record<string, string>> = {
   "Session name": "会话名称",
   "What are you working on?": "你准备做什么？",
   "Endpoint profile": "端点配置",
+  "Current endpoint": "当前端点",
   "Native · isolated configuration": "原生 · 独立配置",
   "default model": "默认模型",
   "Official endpoint": "官方端点",

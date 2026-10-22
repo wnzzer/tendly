@@ -64,6 +64,7 @@ import { layoutInTrouble, useCanvasPersistence } from "./features/canvas-persist
 import { opensOnArrival, useSessionChanges } from "./features/session-changes";
 import { paletteItems as buildPaletteItems, shortcutHint } from "./features/palette-items";
 import { useWorkspaceGit } from "./features/workspace-git";
+import { headerBranches } from "./features/session-header";
 import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
 
@@ -75,6 +76,8 @@ const layout = ref<LayoutDocument>(createDefaultLayoutDocument());
 const canvas = ref<InstanceType<typeof Canvas>>(), explorer = ref<InstanceType<typeof FileExplorer>>();
 const workspaceSidebar = ref<InstanceType<typeof WorkspaceSidebar>>();
 const focusedPane = computed(() => flattenPanes(layout.value.root).find(pane => pane.id === selectedPaneId.value));
+/** The branch the focused session works on, named in a phone's top bar (session-header.ts). */
+const focusedBranch = computed(() => focusedPane.value ? headerBranches.get(focusedPane.value.id) : undefined);
 const focusedWorkspace = computed(() => focusedPane.value ? paneWorkspace(focusedPane.value, workspaces.value, sessions.value) : undefined);
 const contextWorkspace = computed(() => focusedWorkspace.value ?? selectedWorkspace.value);
 /** The worktree the focused pane looks at, when it is one: the status bar, the drawer and the file panel follow it there. */
@@ -781,6 +784,8 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
         <span class="mobile-title-copy"><strong>{{ focusedPane ? paneTitle(focusedPane) : (contextWorkspace?.name || 'Tendly') }}</strong><small v-if="focusedPane && paneDetail(focusedPane)">{{ paneDetail(focusedPane) }}</small></span>
         <span v-if="openPanes.length > 1" class="mobile-title-count">{{ openPanes.length }}</span><Icon name="chevron" :size="14" class="mobile-title-chevron" />
       </button>
+      <!-- Its own pointerdown stays here: the open card would otherwise take it as a tap outside, close, and be reopened by the click. -->
+      <button v-if="mobile && focusedBranch" v-show="!page" type="button" :class="['mobile-branch', { worktree: focusedBranch.worktree }]" :disabled="focusedBranch.disabled" :aria-label="t('Branch for this session')" :title="focusedBranch.label" @pointerdown.stop @click="focusedBranch.toggle()"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M5 3v7M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm0-7a2 2 0 1 0 0-.01M11 5a2 2 0 1 0 0-.01M11 7c0 2-2 3-6 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>{{ focusedBranch.label }}</span></button>
       <span v-if="mobile && focusedPane?.metadata?.session_id" v-show="!page" class="mobile-session-actions" :id="`session-actions-${focusedPane.id}`" />
       <div class="top-crumb"><span>{{ t('Shared workspace canvas') }}</span><Icon name="chevron" :size="13"/><strong>{{ contextWorkspace?.name || t('Your next workspace') }}</strong></div>
       <div class="top-actions">
