@@ -6,7 +6,8 @@ const { t } = useI18n();
 /** `embedded` renders the content alone, for a dialog shown as one page inside
  * another dialog. The outer shell then owns the backdrop, heading and focus. */
 /** `dirty` makes Esc, the close button and a click outside ask before throwing edits away. */
-const props = withDefaults(defineProps<{ title: string; wide?: boolean; closable?: boolean; embedded?: boolean; dirty?: boolean }>(), { closable: true, dirty: false });
+/** `hidden` takes the dialog off screen without closing it, so what it holds survives until it is shown again. */
+const props = withDefaults(defineProps<{ title: string; wide?: boolean; closable?: boolean; embedded?: boolean; dirty?: boolean; hidden?: boolean }>(), { closable: true, dirty: false });
 const emit = defineEmits<{ close: [] }>();
 const dialog = ref<HTMLElement>();
 const confirming = ref(false);
@@ -26,6 +27,6 @@ onUnmounted(() => { if (!props.embedded) previousFocus?.focus(); });
 </script>
 <template>
   <div v-if="embedded" class="dialog-content embedded"><slot /></div>
-  <Teleport v-else to="body"><div class="modal-backdrop" @mousedown.self="requestClose"><section ref="dialog" :class="['dialog', { wide }]" role="dialog" aria-modal="true" :aria-label="title" @keydown="onKey"><header class="dialog-header"><h2>{{ title }}</h2><button v-if="closable" class="icon-button" :aria-label="t('Close {title}', { title })" @click="requestClose"><Icon name="close" /></button></header><div v-if="confirming" class="confirmation-bar dialog-discard" role="alertdialog"><span>{{ t('Discard your changes?') }}</span><span class="flex-spacer" /><button type="button" class="small-button" @click="confirming = false">{{ t('Keep editing') }}</button><button type="button" class="small-button danger" @click="emit('close')">{{ t('Discard') }}</button></div><div class="dialog-content"><slot /></div></section></div></Teleport>
+  <Teleport v-else to="body"><div v-show="!hidden" class="modal-backdrop" @mousedown.self="requestClose"><section ref="dialog" :class="['dialog', { wide }]" role="dialog" aria-modal="true" :aria-label="title" @keydown="onKey"><header class="dialog-header"><h2>{{ title }}</h2><button v-if="closable" class="icon-button" :aria-label="t('Close {title}', { title })" @click="requestClose"><Icon name="close" /></button></header><div v-if="confirming" class="confirmation-bar dialog-discard" role="alertdialog"><span>{{ t('Discard your changes?') }}</span><span class="flex-spacer" /><button type="button" class="small-button" @click="confirming = false">{{ t('Keep editing') }}</button><button type="button" class="small-button danger" @click="emit('close')">{{ t('Discard') }}</button></div><div class="dialog-content"><slot /></div></section></div></Teleport>
 </template>
 <style>.dialog-content.embedded{padding:0;overflow:visible}.dialog .dialog-discard{margin:8px 22px 0}</style>

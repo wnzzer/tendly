@@ -1964,6 +1964,8 @@ export const zhCN: Readonly<Record<string, string>> = {
   "This override affects only the new session, not the profile or other sessions.": "此设置仅影响新会话，不会修改端点配置或其他会话。",
   "The client uses a session-specific configuration directory. Sign in through the native client; existing global credentials are not copied.": "客户端使用会话专属配置目录。请在原生客户端中登录，不会复制已有的全局凭证。",
   "Manage endpoint profiles": "管理端点配置",
+  "More settings": "更多设置",
+  "Shares sign-in with {path}": "与 {path} 共享登录",
   "Creating…": "创建中…",
   "Create session": "创建会话",
   "Session library": "会话列表",

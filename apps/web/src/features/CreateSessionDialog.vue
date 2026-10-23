@@ -14,11 +14,17 @@ import ModalDialog from "./ModalDialog.vue";
 import SessionDraftShell from "./SessionDraftShell.vue";
 import ProviderIcon from "./ProviderIcon.vue";
 import ModelPicker from "./ModelPicker.vue";
+import Icon from "./Icon.vue";
 import { offeredModels, resolveModel } from "./model-choices";
-import { AGENT_CLIENTS, DEFAULT_CLIENT, agentClient, clientLabel, nativeCatalogNote } from "./clients";
+import { DEFAULT_CLIENT, PROVIDER_KINDS, agentClient, clientLabel, nativeCatalogNote } from "./clients";
 const { t }=useI18n();
-/** `inline` draws the form as a draft tab on the canvas instead of a dialog over it. */
-const props = defineProps<{ workspace: Workspace; profiles: EndpointProfile[]; initialProvider?: ProviderKind; inline?: boolean }>();
+/**
+ * `inline` draws the form as a draft tab on the canvas instead of a dialog
+ * over it, for a draft tab a layout saved before the dialog still holds.
+ * `hidden` keeps the dialog, and what was typed into it, through a detour to
+ * the settings page.
+ */
+const props = defineProps<{ workspace: Workspace; profiles: EndpointProfile[]; initialProvider?: ProviderKind; inline?: boolean; hidden?: boolean }>();
 const emit = defineEmits<{ close: []; created: [session: Session]; profiles: [] }>();
 const provider = ref<ProviderKind>(props.initialProvider ?? DEFAULT_CLIENT);
 /** Preferences choose the account and depth a new session starts with; the form can still change both. */
@@ -88,35 +94,38 @@ const dirty = computed(() => title.value !== t('{provider} session', { provider:
   || [...environmentDrafts.value.values()].some(rows => rows.some(row => row.name || row.value)));
 </script>
 <template>
-  <component :is="inline ? SessionDraftShell : ModalDialog" :title="t('New session')" :closable="!busy" :dirty="dirty" @close="!busy && emit('close')">
+  <component :is="inline ? SessionDraftShell : ModalDialog" :title="t('New session')" :closable="!busy" :dirty="dirty" :hidden="hidden" @close="!busy && emit('close')">
+    <!-- The four choices most sessions differ by, and the rest folded under "More settings". -->
     <form class="form-stack" @submit.prevent="create">
-      <p class="form-description">{{ t('Create a session in {workspace}. It connects when opened.',{workspace:workspace.name}) }}</p>
-      <p v-if="backendCapabilities.structuredChat && provider!=='terminal'" class="inline-notice">{{ t('Chat UI · mobile ready. The official CLI runs the agent and handles permissions; no prompt is sent until you press Send.') }}</p>
-      <label>{{ t('Provider') }}<select v-model="provider" :disabled="busy"><option v-for="client in AGENT_CLIENTS" :key="client" :value="client">{{ clientLabel(client) }}</option><option value="terminal">{{ t('Terminal · optional host shell') }}</option></select></label>
+      <div class="session-kinds" role="radiogroup" :aria-label="t('Provider')">
+        <label v-for="kind in PROVIDER_KINDS" :key="kind" :class="{ selected: provider === kind }"><input v-model="provider" type="radio" name="session-provider" :value="kind" :disabled="busy" /><Icon v-if="kind === 'terminal'" name="terminal" :size="15" /><ProviderIcon v-else :provider="kind" :size="15" />{{ kind === 'terminal' ? t('Terminal') : clientLabel(kind) }}</label>
+      </div>
       <label>{{ t('Session name') }}<input v-model="title" autofocus required :disabled="busy" maxlength="120" :placeholder="t('What are you working on?')" /></label>
       <template v-if="provider!=='terminal'">
-        <label>{{ t('Endpoint profile') }}<select v-model="profileId" :disabled="busy" @change="profileTouched=true"><option v-if="profileId===PROFILE_CHOICE_REQUIRED" :value="PROFILE_CHOICE_REQUIRED" disabled>{{ t('Choose a session configuration') }}</option><option value="">{{ t('Isolated configuration · separate sign-in may be required') }}</option><option v-for="profile in available" :key="profile.id" :value="profile.id">{{ profile.name }} · {{ profile.native_config ? t('Host configuration · shared sign-in') : profile.model || t('default model') }}</option></select></label>
+        <label>{{ t('Endpoint profile') }}<select v-model="profileId" :disabled="busy" @change="profileTouched=true"><option v-if="profileId===PROFILE_CHOICE_REQUIRED" :value="PROFILE_CHOICE_REQUIRED" disabled>{{ t('Choose a session configuration') }}</option><option value="">{{ t('Isolated configuration · separate sign-in may be required') }}</option><option v-for="profile in available" :key="profile.id" :value="profile.id">{{ profile.name }} · {{ profile.native_config ? t('Host configuration · shared sign-in') : profile.model || t('default model') }}</option></select>
+          <small v-if="nativeConfig" class="form-help">{{ t('Shares sign-in with {path}', { path: nativeConfig.config_dir }) }}</small>
+          <small v-else-if="selectedProfile" class="form-help">{{ selectedProfile.endpoint_url || t('Official endpoint') }} · {{ t(selectedProfile.permission_mode) }}</small>
+        </label>
         <p v-if="!validProfile" class="inline-notice">{{ t('Choose a configuration explicitly when several host accounts are available. No account will be selected silently.') }}</p>
-                <div v-if="nativeConfig" class="inline-notice native-session-notice"><strong><ProviderIcon :provider="provider" :size="15" />{{ t('Shared host configuration') }}</strong><code>{{ nativeConfig.config_dir }}</code><p>{{ t('Sign-in, model and permissions come from this directory, shared with the host; Tendly never copies or rewrites it. The directory being there does not mean it is signed in.') }}</p></div>
-        <template v-else-if="validProfile">
-        <div v-if="selectedProfile" class="inline-notice"><ProviderIcon :provider="provider" :size="15" /> {{ selectedProfile.endpoint_url || t('Official endpoint') }}<br />{{ t('Permission intent') }}: {{ t(selectedProfile.permission_mode) }} · {{ t('This session keeps a configuration snapshot.') }}<br v-if="selectedProfile.proxy_url" /><span v-if="selectedProfile.proxy_url">{{ t('Proxy URL') }}: {{ selectedProfile.proxy_url }}</span></div>
-        <div class="session-model-bar"><label>{{ t('Session model') }}<ModelPicker v-model="model" :models="choices" :placeholder="selectedProfile?.model || t('Use profile or native default')" /></label><button v-if="selectedProfile || agentClient(provider)?.nativeCatalog" type="button" class="small-button" :disabled="discovering||!backendCapabilities.models" :title="!backendCapabilities.models?t('Backend upgrade required'):undefined" @click="discover">{{ discovering?t('Loading models…'):t('Load models') }}</button></div>
-        <p v-if="nativeCatalogNote(catalog?.source_url)" class="form-help">{{ t(nativeCatalogNote(catalog?.source_url)!) }}</p>
-        <div v-if="modelError" class="inline-error" role="alert">{{ modelError }}</div>
-        <p v-if="effectiveModel" class="form-help">{{ t('Effective model') }}: <code>{{ effectiveModel }}</code></p>
-        <label v-if="!nativeConfig && effortOptions.length" :title="selectedProfile && !nativeConfig ? t('Actual effort support depends on the endpoint and model.') : undefined">{{ t('Thinking depth') }}<select v-model="effort"><option value="">{{ t('Automatic · provider default') }}</option><option v-for="level in effortOptions" :key="level" :value="level">{{ effortLabel(level) }}</option></select></label>
-        <p v-if="!nativeConfig && !effortOptions.length" class="form-help">{{ t('Thinking depth is unavailable until this model advertises supported reasoning levels.') }}</p>
-        <p class="form-help">{{ t('This override affects only the new session, not the profile or other sessions.') }}</p>
-        <p v-if="!selectedProfile" class="form-help">{{ t('The client uses a session-specific configuration directory. Sign in through the native client; existing global credentials are not copied.') }}</p>
-        </template>
-        <button type="button" class="text-button" :disabled="busy" @click="emit('profiles')">{{ t('Manage endpoint profiles') }}</button>
+        <div class="session-place"><span>{{ t('Works in') }}</span><div class="session-place-options"><label><input v-model="place" type="radio" value="here" :disabled="busy" />{{ t('This checkout') }}</label><label><input v-model="place" type="radio" value="worktree" :disabled="busy" />{{ t('Its own worktree') }}</label></div>
+          <template v-if="place==='worktree'"><input v-model="worktreeBranch" list="session-worktree-branches" :disabled="busy" maxlength="200" spellcheck="false" autocomplete="off" :placeholder="t('Branch name, new or existing')" /><datalist id="session-worktree-branches"><option v-for="name in repo?.branches??[]" :key="name" :value="name" /></datalist><small>{{ worktreeBranch.trim() ? t(worktreeExisting ? 'Opens a worktree on the existing branch {branch}.' : 'Creates branch {branch} from {current} in a new worktree.', { branch: worktreeBranch.trim(), current: repo?.current ?? 'HEAD' }) : t('The session gets its own directory and branch, beside this repository.') }}</small></template></div>
       </template>
-      <div v-if="provider!=='terminal'" class="session-place"><span>{{ t('Works in') }}</span><div class="session-place-options"><label><input v-model="place" type="radio" value="here" :disabled="busy" />{{ t('This checkout') }}</label><label><input v-model="place" type="radio" value="worktree" :disabled="busy" />{{ t('Its own worktree') }}</label></div>
-        <template v-if="place==='worktree'"><input v-model="worktreeBranch" list="session-worktree-branches" :disabled="busy" maxlength="200" spellcheck="false" autocomplete="off" :placeholder="t('Branch name, new or existing')" /><datalist id="session-worktree-branches"><option v-for="name in repo?.branches??[]" :key="name" :value="name" /></datalist><small>{{ worktreeBranch.trim() ? t(worktreeExisting ? 'Opens a worktree on the existing branch {branch}.' : 'Creates branch {branch} from {current} in a new worktree.', { branch: worktreeBranch.trim(), current: repo?.current ?? 'HEAD' }) : t('The session gets its own directory and branch, beside this repository.') }}</small></template></div>
-      <label v-if="ephemeralSupported" class="session-ephemeral-choice"><input v-model="ephemeral" type="checkbox" :disabled="busy" /><span><strong>{{ t('Temporary window') }}</strong><small>{{ t('Discarded when its window is closed, and cleared on restart. It still appears in its workspace, marked temporary, so you can keep it at any time.') }}</small></span></label>
-      <EnvironmentEditor v-model="environmentDraft" :inherited="selectedProfile?.environment" :supported="backendCapabilities.environment" :disabled="busy||!validProfile" />
-      <p class="form-help">{{ t('Environment drafts stay with this provider and profile. Switching accounts does not carry overrides across.') }}</p>
-      <p class="form-help">{{ t('Environment overrides affect only the launched process, not the native configuration files.') }}</p>
+      <details class="session-more">
+        <summary><Icon name="chevron" :size="12" class="session-more-caret" />{{ t('More settings') }}</summary>
+        <div class="form-stack">
+          <template v-if="provider!=='terminal' && validProfile && !nativeConfig">
+            <div class="session-model-bar"><label>{{ t('Session model') }}<ModelPicker v-model="model" :models="choices" :placeholder="selectedProfile?.model || t('Use profile or native default')" /></label><button v-if="selectedProfile || agentClient(provider)?.nativeCatalog" type="button" class="small-button" :disabled="discovering||!backendCapabilities.models" :title="!backendCapabilities.models?t('Backend upgrade required'):undefined" @click="discover">{{ discovering?t('Loading models…'):t('Load models') }}</button></div>
+            <p v-if="nativeCatalogNote(catalog?.source_url)" class="form-help">{{ t(nativeCatalogNote(catalog?.source_url)!) }}</p>
+            <div v-if="modelError" class="inline-error" role="alert">{{ modelError }}</div>
+            <p v-if="effectiveModel" class="form-help">{{ t('Effective model') }}: <code>{{ effectiveModel }}</code></p>
+            <label v-if="effortOptions.length" :title="selectedProfile ? t('Actual effort support depends on the endpoint and model.') : undefined">{{ t('Thinking depth') }}<select v-model="effort"><option value="">{{ t('Automatic · provider default') }}</option><option v-for="level in effortOptions" :key="level" :value="level">{{ effortLabel(level) }}</option></select></label>
+          </template>
+          <label v-if="ephemeralSupported" class="session-ephemeral-choice"><input v-model="ephemeral" type="checkbox" :disabled="busy" /><span><strong>{{ t('Temporary window') }}</strong><small>{{ t('Discarded when its window is closed, and cleared on restart. It still appears in its workspace, marked temporary, so you can keep it at any time.') }}</small></span></label>
+          <EnvironmentEditor v-model="environmentDraft" :inherited="selectedProfile?.environment" :supported="backendCapabilities.environment" :disabled="busy||!validProfile" />
+          <button v-if="provider!=='terminal'" type="button" class="text-button" :disabled="busy" @click="emit('profiles')">{{ t('Manage endpoint profiles') }}</button>
+        </div>
+      </details>
+      <!-- Outside the fold: whatever keeps Create disabled has to be in sight. -->
       <div v-for="message in environmentErrors" :key="message" class="inline-error" role="alert">{{ t(message) }}</div>
       <div v-if="unsupportedEnvironment" class="inline-notice" role="alert">{{ t('Environment overrides require an updated backend. Your draft has not been discarded.') }}<button v-if="environmentDraft.length" type="button" class="text-button" :disabled="busy" @click="environmentDraft=[]">{{ t('Discard environment draft') }}</button></div>
       <div v-if="error" class="inline-error" role="alert">{{ error }}</div>
@@ -124,5 +133,7 @@ const dirty = computed(() => title.value !== t('{provider} session', { provider:
     </form>
   </component>
 </template>
-<style scoped>.session-place{display:flex;flex-direction:column;gap:7px;padding:10px 11px;border:1px solid var(--border);border-radius:var(--radius-md);font-size:var(--text-sm)}.session-place>span{font-weight:550;color:var(--ink-soft)}.session-place-options{display:flex;gap:16px}.session-place-options label{flex-direction:row;align-items:center;gap:6px;font-size:var(--text-sm);color:var(--ink);white-space:nowrap}.session-place-options input[type=radio]{display:inline-block;width:auto;margin:0;padding:0;accent-color:var(--teal)}.session-place input[type=text],.session-place input:not([type]){height:34px;padding:0 9px;border:1px solid var(--line);border-radius:var(--radius-sm);font:var(--text-sm) var(--mono)}.session-place small{font-size:var(--text-xs);color:var(--muted);line-height:1.5}.session-ephemeral-choice{flex-direction:row;align-items:flex-start;gap:9px;padding:9px 11px;border:1px solid var(--violet-soft);border-radius:var(--radius-sm);background:var(--bg)}.session-ephemeral-choice input[type=checkbox]{width:14px;height:14px;min-width:14px;margin:2px 0 0;flex:0 0 14px;accent-color:var(--violet)}.session-ephemeral-choice strong{display:block;font-size:var(--text-xs);font-weight:550;color:#6f5c93}.session-ephemeral-choice small{display:block;margin-top:3px;font-size:var(--text-xs);line-height:15px;color:var(--muted);font-weight:400}
-.session-model-bar{display:flex;align-items:end;gap:8px}.session-model-bar>label{flex:1;min-width:0}.session-model-bar>button{margin-bottom:1px;white-space:nowrap}.native-session-notice>strong{display:flex;align-items:center;gap:6px;font-weight:550;color:var(--accent-ink)}.native-session-notice>code{display:block;margin:8px 0;font-size:var(--text-xs);overflow-wrap:anywhere}.native-session-notice p{margin:7px 0 0;line-height:18px}</style>
+<style scoped>.session-kinds{display:flex;flex-wrap:wrap;gap:6px}.session-kinds label{flex:1 0 auto;flex-direction:row;align-items:center;justify-content:center;gap:7px;min-height:36px;padding:0 10px;border:1px solid var(--line);border-radius:var(--radius-md);font-size:var(--text-sm);color:var(--ink-soft);cursor:pointer;white-space:nowrap}.session-kinds label:hover{background:var(--fill)}.session-kinds label.selected{border-color:var(--accent);background:var(--accent-soft);color:var(--ink);font-weight:550}.session-kinds label:has(:focus-visible){box-shadow:0 0 0 2px var(--focus)}.session-kinds input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+.session-place{display:flex;flex-direction:column;gap:7px;font-size:var(--text-sm)}.session-place>span{font-weight:550;color:var(--ink-soft)}.session-place-options{display:flex;gap:16px}.session-place-options label{flex-direction:row;align-items:center;gap:6px;font-size:var(--text-sm);color:var(--ink);white-space:nowrap}.session-place-options input[type=radio]{display:inline-block;width:auto;margin:0;padding:0;accent-color:var(--teal)}.session-place input[type=text],.session-place input:not([type]){height:34px;padding:0 9px;border:1px solid var(--line);border-radius:var(--radius-sm);font:var(--text-sm) var(--mono)}.session-place small{font-size:var(--text-xs);color:var(--muted);line-height:1.5}.session-ephemeral-choice{flex-direction:row;align-items:flex-start;gap:9px;padding:9px 11px;border:1px solid var(--violet-soft);border-radius:var(--radius-sm);background:var(--bg)}.session-ephemeral-choice input[type=checkbox]{width:14px;height:14px;min-width:14px;margin:2px 0 0;flex:0 0 14px;accent-color:var(--violet)}.session-ephemeral-choice strong{display:block;font-size:var(--text-xs);font-weight:550;color:#6f5c93}.session-ephemeral-choice small{display:block;margin-top:3px;font-size:var(--text-xs);line-height:15px;color:var(--muted);font-weight:400}
+.session-model-bar{display:flex;align-items:end;gap:8px}.session-model-bar>label{flex:1;min-width:0}.session-model-bar>button{margin-bottom:1px;white-space:nowrap}label>small.form-help{font-weight:400;overflow-wrap:anywhere}
+.session-more>summary{display:flex;align-items:center;gap:6px;width:max-content;list-style:none;font-size:var(--text-sm);font-weight:550;color:var(--ink-soft);cursor:pointer}.session-more>summary::-webkit-details-marker{display:none}.session-more-caret{transition:transform var(--duration-fast,.12s)}.session-more[open]>summary .session-more-caret{transform:rotate(90deg)}.session-more>.form-stack{margin-top:12px}</style>

@@ -18,12 +18,12 @@ after(async () => { await server?.close(); });
 const workspace = { id: 'w1', name: 'tendly', root_path: '/srv/tendly' };
 const render = pane => renderToString(createSSRApp(WorkspacePane, { pane, workspaces: [workspace], sessions: [], profiles: [], gitRefresh: {} }));
 
-test('a draft pane holds the new-session form in the tab, not a dialog over the canvas', async () => {
+test('a draft tab a saved layout still holds keeps its form in the tab', async () => {
   const html = await render({ type: 'pane', id: 'draft-1', kind: 'agent_chat', title: 'New session', metadata: { workspace_id: 'w1', draft: true, provider: 'codex' } });
   assert.match(html, /class="session-draft"/);
   assert.match(html, /<form class="form-stack"/);
   assert.doesNotMatch(html, /modal-backdrop/);
-  assert.match(html, /<option value="codex"[^>]*selected>/);
+  assert.match(html, /<input checked type="radio" name="session-provider" value="codex"/);
 });
 
 test('an unbound agent pane without the draft mark keeps its old picker', async () => {

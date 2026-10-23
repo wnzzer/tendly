@@ -3,13 +3,13 @@ import { computed, nextTick, onMounted, onUnmounted, provide, reactive, ref, wat
 import { useKeyboardFit } from "./features/viewport-height";
 import type { EndpointProfile, FileEntry, LayoutDocument, PaneNode, ProviderKind, Session, Workspace } from "@tendly/protocol";
 import Canvas from "./components/Canvas.vue";
-import { randomId } from "./features/random-id";
 import { createDefaultLayoutDocument, flattenPanes } from "./layout/layout-engine";
 import WorkspaceSidebar from "./features/WorkspaceSidebar.vue";
 import WorkspacePane from "./features/WorkspacePane.vue";
 import FileExplorer from "./features/FileExplorer.vue";
 import LoadHistoryDialog from "./features/LoadHistoryDialog.vue";
 import WorkspaceDialog from "./features/WorkspaceDialog.vue";
+import CreateSessionDialog from "./features/CreateSessionDialog.vue";
 import SettingsPage from "./features/SettingsPage.vue";
 import SessionsPage from "./features/SessionsPage.vue";
 import SystemPage from "./features/SystemPage.vue";
@@ -394,20 +394,32 @@ function openFiles(id = selectedWorkspaceId.value, checkout: string | null = nul
   explorerWorkspaceId.value = id; explorerCheckout.value = checkout; explorerPinned.value = false; explorerOpen.value = true; sidebarOpen.value = false;
 }
 /**
- * The configured way to start a session: a draft tab on the canvas holding the
- * form. Nothing exists on the server until Create, and the draft survives a
- * detour to settings, which a dialog closed to make way for it could not.
+ * The configured way to start a session: a dialog over the canvas, not a tab
+ * among the sessions. Nothing exists on the server until Create. The dialog
+ * only hides on the settings page, so an account added there can be picked
+ * on the way back.
  */
+const newSessionTarget = ref<{ workspaceId: string; provider: ProviderKind }>();
+const newSessionWorkspace = computed(() => workspaces.value.find(workspace => workspace.id === newSessionTarget.value?.workspaceId));
 function newSession(id = selectedWorkspaceId.value, provider: ProviderKind = DEFAULT_CLIENT) {
   if (!workspaces.value.some(workspace => workspace.id === id)) return;
   if (route.name !== "canvas") void router.push({ name: "canvas" });
   sidebarOpen.value = false;
-  // One draft per workspace: asking again returns to the form already started.
+  // A draft tab a layout saved before the dialog still holds is that form, already started.
   const existing = flattenPanes(layout.value.root).find(pane => pane.metadata?.draft === true && paneString(pane, "workspace_id") === id);
   if (existing) { void canvas.value?.focusPane(existing.id); return; }
-  canvas.value?.openPane({ type: "pane", id: `draft-${randomId()}`, kind: "agent_chat", title: t("New session"), metadata: { workspace_id: id, draft: true, provider } });
+  // Asking again for the same workspace returns to the form already started.
+  if (newSessionTarget.value?.workspaceId !== id) newSessionTarget.value = { workspaceId: id, provider };
 }
-/** The draft tab becomes the session it created, in the same place. */
+async function newSessionCreated(session: Session) {
+  newSessionTarget.value = undefined;
+  sessionsRevision++;
+  sessions.value = [session, ...sessions.value.filter(item => item.id !== session.id)];
+  if (opensOnArrival(session)) sessionConnections.requestOpen(session.id);
+  canvas.value?.openPane(sessionPane(session));
+  await nextTick(); canvas.value?.focusSelected();
+}
+/** A draft tab becomes the session it created, in the same place. */
 function draftCreated(paneId: string, session: Session) {
   sessionsRevision++;
   sessions.value = [session, ...sessions.value.filter(item => item.id !== session.id)];
@@ -907,6 +919,7 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
   <SessionRunInfo v-if="runInfoSession" :session="runInfoSession" @close="runInfoSessionId=undefined"/>
   <SessionEnvironmentDialog v-if="environmentSession" :key="environmentSession.id" :session="environmentSession" @close="environmentSessionId=undefined" @saved="sessionEnvironmentSaved"/>
   <SessionRenameDialog v-if="renameSessionTarget" :key="renameSessionTarget.id" :session="renameSessionTarget" @close="renameSessionId=undefined" @save="saveRenameSession"/>
+  <CreateSessionDialog v-if="newSessionWorkspace" :key="newSessionWorkspace.id" :workspace="newSessionWorkspace" :profiles="profiles" :initial-provider="newSessionTarget?.provider" :hidden="route.name === 'settings'" @close="newSessionTarget=undefined" @created="newSessionCreated" @profiles="openSettings('endpoints')"/>
   <LoadHistoryDialog v-if="historyWorkspace && backendCapabilities.nativeHistory" :workspace="historyWorkspace" @close="historyWorkspaceId=undefined" @loaded="historyLoaded"/>
   <AuthDialog v-if="showAuth" :via-tailnet="authViaTailnet" :link-failed="linkSignInFailed" @authenticated="bootstrap"/>
 </template>
