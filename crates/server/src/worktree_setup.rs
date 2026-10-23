@@ -24,6 +24,8 @@ use tokio::{io::AsyncReadExt, process::Command, sync::watch};
 
 const MAX_COPY_PATHS: usize = 32;
 const MAX_COMMAND: usize = 4000;
+/// Windows copies in-process, without `cp`, and so without this bound.
+#[cfg(unix)]
 const COPY_TIMEOUT: Duration = Duration::from_secs(600);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(1200);
 /// How much of what the copies and the command said is kept: the end of it.

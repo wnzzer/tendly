@@ -57,7 +57,7 @@ async fn an_isolated_task_gets_a_new_branch_and_worktree_of_its_own() {
     assert_eq!(moved["checkout_base"], "main");
     let tree = moved["checkout_path"].as_str().unwrap().to_owned();
     assert!(
-        tree.ends_with("repo.worktrees/tendly-fix-the-login-page"),
+        std::path::Path::new(&tree).ends_with("repo.worktrees/tendly-fix-the-login-page"),
         "{tree}"
     );
     assert_eq!(

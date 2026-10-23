@@ -902,10 +902,7 @@ async fn an_isolated_child_works_in_a_worktree_of_its_own() {
     let session = fixture.state.store.get_session(child).unwrap().unwrap();
     assert_eq!(session.checkout_base.as_deref(), Some("main"));
     assert!(
-        session
-            .checkout_path
-            .as_deref()
-            .unwrap()
+        std::path::Path::new(session.checkout_path.as_deref().unwrap())
             .ends_with("repo.worktrees/tendly-side-fix")
     );
 
