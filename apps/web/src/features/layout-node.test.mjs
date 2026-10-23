@@ -5,16 +5,26 @@ import { paneDisplayTitle } from './pane-context.ts';
 import { SPLIT_GAP } from '../layout/layout-engine.ts';
 
 test('a dragged pane docks beside the nearest edge within its margin, else as a tab', () => {
-  // 400 x 300: margins are 76 across (a quarter would be 92) and 58 down (69).
-  assert.equal(dockPosition(10, 150, 400, 300), 'left');
-  assert.equal(dockPosition(390, 150, 400, 300), 'right');
-  assert.equal(dockPosition(200, 10, 400, 300), 'top');
-  assert.equal(dockPosition(200, 295, 400, 300), 'bottom');
-  assert.equal(dockPosition(200, 150, 400, 300), 'center');
-  assert.equal(dockPosition(76, 150, 400, 300), 'center', 'the margin edge itself is the middle');
-  // A small pane's margins shrink with it.
-  assert.equal(dockPosition(20, 50, 100, 100), 'left');
-  assert.equal(dockPosition(30, 50, 100, 100), 'center');
+  // 600 x 300 with no header: margins are a third, 200 across and 100 down.
+  assert.equal(dockPosition(10, 150, 600, 300), 'left');
+  assert.equal(dockPosition(190, 150, 600, 300), 'left', 'a third of the way in still splits');
+  assert.equal(dockPosition(590, 150, 600, 300), 'right');
+  assert.equal(dockPosition(300, 10, 600, 300), 'top');
+  assert.equal(dockPosition(300, 295, 600, 300), 'bottom');
+  assert.equal(dockPosition(300, 150, 600, 300), 'center');
+  assert.equal(dockPosition(200, 150, 600, 300), 'center', 'the margin edge itself is the middle');
+  // In a corner the edge nearer for its side's margin wins.
+  assert.equal(dockPosition(20, 50, 600, 300), 'left');
+  assert.equal(dockPosition(150, 5, 600, 300), 'top');
+});
+
+test('over the tab strip a dragged pane joins the tabs, and the edges are measured below it', () => {
+  // 600 x 338 with a 38 header: the content is 600 x 300.
+  assert.equal(dockPosition(5, 20, 600, 338, 38), 'center', 'even at the strip\'s edge');
+  assert.equal(dockPosition(300, 40, 600, 338, 38), 'top');
+  assert.equal(dockPosition(300, 137, 600, 338, 38), 'top');
+  assert.equal(dockPosition(300, 188, 600, 338, 38), 'center');
+  assert.equal(dockPosition(300, 330, 600, 338, 38), 'bottom');
 });
 
 test('a split lays out its sides around the divider, along its direction', () => {

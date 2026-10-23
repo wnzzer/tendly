@@ -227,9 +227,12 @@ function dragStart(event: DragEvent, pane: PaneNode) {
   event.dataTransfer.setData("application/tendly-pane", JSON.stringify(pane));
 }
 function isPaneDrag(event: DragEvent) { return event.dataTransfer?.types.includes("application/tendly-pane"); }
+/** An empty pane only ever takes a drop into itself; splitting it would leave it empty beside the drop. */
 function detectPosition(event: DragEvent): DockPosition {
   const bounds = paneElement.value?.getBoundingClientRect();
-  return bounds ? dockPosition(event.clientX - bounds.left, event.clientY - bounds.top, bounds.width, bounds.height) : "center";
+  if (!bounds || !tabs.value.length) return "center";
+  const header = paneElement.value?.querySelector<HTMLElement>(".dock-header")?.offsetHeight ?? 0;
+  return dockPosition(event.clientX - bounds.left, event.clientY - bounds.top, bounds.width, bounds.height, header);
 }
 function dragOver(event: DragEvent) {
   if (!isPaneDrag(event)) return;

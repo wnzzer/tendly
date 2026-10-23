@@ -9,17 +9,21 @@ import type { PaneNode, SplitDirection } from "@tendly/protocol/layout";
  */
 
 /**
- * Where a pane dropped at (`x`, `y`) inside a pane `width` by `height` docks:
- * beside the nearest edge when within its margin (a quarter of the side, at
- * most 76 across and 58 down), otherwise into the middle as a tab.
+ * Where a pane dropped at (`x`, `y`) inside a pane `width` by `height` docks.
+ * Over the tab strip (the top `header` pixels) it joins the tabs. Below it,
+ * the outer third of the content beside each edge splits that way, the
+ * nearest edge winning in a corner, and only the middle joins the tabs: a
+ * split has to be easy to hit, since the tab strip already takes a tab.
  */
-export function dockPosition(x: number, y: number, width: number, height: number): DockPosition {
-  const marginX = Math.min(76, width * 0.23);
-  const marginY = Math.min(58, height * 0.23);
-  const candidates: [DockPosition, number][] = [["left", x / marginX], ["right", (width - x) / marginX], ["top", y / marginY], ["bottom", (height - y) / marginY]];
+export function dockPosition(x: number, y: number, width: number, height: number, header = 0): DockPosition {
+  if (y < header) return "center";
+  const top = y - header, body = height - header;
+  const marginX = width * DOCK_EDGE, marginY = body * DOCK_EDGE;
+  const candidates: [DockPosition, number][] = [["left", x / marginX], ["right", (width - x) / marginX], ["top", top / marginY], ["bottom", (body - top) / marginY]];
   const nearest = candidates.sort((a, b) => a[1] - b[1])[0]!;
   return nearest[1] < 1 ? nearest[0] : "center";
 }
+const DOCK_EDGE = 1 / 3;
 
 /** The CSS grid a split lays its two sides out on, the divider between them. */
 export function splitGrid(direction: SplitDirection, ratio: number): Record<string, string> {
