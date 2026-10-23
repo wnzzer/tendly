@@ -16,6 +16,7 @@ POST /api/auth {token}         -> HttpOnly SameSite=Strict session cookie
 GET  /api/workspaces
 POST /api/workspaces {name,root_path}
 GET  /api/workspaces/:id
+PATCH /api/workspaces/:id {worktree_setup}
 GET  /api/sessions?workspace_id=:id
 POST /api/workspaces/:id/sessions {provider,title,endpoint_profile_id?,model?,effort?,environment?,interaction_mode?,ephemeral?,handoff_source_id?}
 GET  /api/sessions/:id
@@ -247,6 +248,25 @@ POST /api/workspaces/:id/git/tags/delete {name}
 Status includes `branch`, `files[{index,worktree,path,original_path?}]`, optional ahead/behind counts, `upstream` (`origin/main`) and `operation` when a merge, rebase, cherry-pick or revert stopped part-way. Branches add `local` and `remote` with each tip's hash, subject, date and, for local branches, upstream and ahead/behind. Diff supports staged, deleted and untracked files. No shell interpolation, external diff or textconv; output is bounded at 8 MiB per command and timeouts are enforced. Git hooks/signing remain native for explicit commits. No editor is ever opened: continuing an operation keeps the message Git prepared.
 
 Every revision, branch, tag and remote name is checked by Git (`rev-parse --verify`, `check-ref-format`) before use, and nothing shaped like an option reaches a command line as one. Remote URLs using `ext::` or `fd::` are refused. `apply` takes one hunk of a diff the client showed, for exactly one named file. Merge, rebase, cherry-pick, revert, pull, stash apply and continue return `{conflicts,message}`: conflicts are an outcome, not an error, and the conflicted files appear in status to resolve. Stash apply and drop name both the index and the hash the client saw, and are refused if the stash list moved. Fetch, pull and push use the host's Git credentials (SSH agent or credential helper); with prompts disabled, a remote that needs a password fails with Git's message instead of waiting.
+
+## Checkouts and isolated tasks
+
+```text
+POST /api/sessions/:id/checkout {branch?,create?,path?}          (move by hand)
+POST /api/sessions/:id/checkout {isolated:true,branch?,base?}    (isolated task)
+GET  /api/sessions/:id/task
+GET  /api/sessions/:id/task/diff?path=
+POST /api/sessions/:id/task/merge {squash?,message?}
+POST /api/sessions/:id/task/close {discard?}
+```
+
+A session works in the workspace directory or in a Git worktree of the same repository beside it (`<repo>.worktrees/<branch>`), recorded as `checkout_path`/`checkout_branch`. Moving a session stops it if it is idle and starts a new native context there; a turn in progress refuses. A move by hand goes to the branch's existing checkout -- the workspace directory, or a worktree other sessions may share -- or makes a worktree.
+
+`isolated:true` is the one way to a directory nobody else uses: a **new** worktree on a branch checked out nowhere else, named `branch` or, when absent, `tendly/<title>` (numbered on when taken; a piece of the session id when the title spells nothing). A new branch starts at `base`, a local branch, by default the one the session is on. A branch already checked out anywhere -- the workspace directory's included -- is refused with 409. The session records `checkout_base`; any later move by hand clears it.
+
+`worktree_setup` on a workspace, `{copy:[relative paths], command?}` or `null`, is set only by the person. When Tendly makes a worktree for a session, each `copy` path present in the workspace directory is copied in (as a clone on APFS and reflink file systems), then `command` runs in the worktree through the user's shell (`TENDLY_SHELL`, else `$SHELL` as a login, interactive shell) with `TENDLY_WORKSPACE_ROOT`, `TENDLY_WORKTREE` and `TENDLY_BRANCH` set, stdin closed, a 20-minute limit and Tendly's own secrets removed from its environment. Progress is one conversation event, `{type:"setup",id,status:"running"|"completed"|"failed",copy,command,log?}`, sent again under the same id when it ends, with the last 16 KiB of output. Starting the session's client waits for the setup; a failed setup does not keep it from starting.
+
+`task` reports `{branch,base,worktree,ahead,behind,uncommitted,files[{path,added?,removed?,untracked?}],files_truncated,base_checkout,base_is_workspace,upstream,compare_url,preparing}`; `files` and `task/diff` cover everything since the merge base, committed or not (untracked files are listed, not diffed). `merge` requires an idle session and a clean worktree. It checks with `git merge-tree` first and refuses conflicts with 409 before anything changes. Where the base is checked out it merges there (`--squash` plus a commit with `message`, default the session title, when `squash`; a squash refuses if changes are staged there); where it is checked out nowhere it writes the merge from trees alone and moves the base ref only if it has not moved. Then, like `close`, it removes the worktree and branch, moves the session (and any other stopped session bound there) back to the workspace directory and archives it. `close` without `discard` refuses while commits or uncommitted changes are not on the base. Discarding a temporary isolated session removes its worktree and branch only when they hold nothing.
 
 ## Profiles
 

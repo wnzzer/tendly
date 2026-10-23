@@ -256,12 +256,15 @@ impl Store {
     /// itself with `None`. The next start is a different process in a different
     /// directory, so like an endpoint change it is a new native context: the
     /// revision is bumped, the native id cleared, and a boundary recorded.
+    /// `base` is set only for an isolated task, whose worktree Tendly made for
+    /// this session alone; any other move clears it.
     /// Returns false when the session is not stopped.
     pub fn set_session_checkout(
         &self,
         id: SessionId,
         path: Option<&str>,
         branch: Option<&str>,
+        base: Option<&str>,
         label: &str,
     ) -> Result<bool> {
         let mut connection = self.connection.lock().expect("sqlite lock");
@@ -278,8 +281,8 @@ impl Store {
             return Ok(false);
         }
         tx.execute(
-            "UPDATE sessions SET checkout_path=?1,checkout_branch=?2,provider_session_id=NULL,native_source_id=NULL,native_config_dir=NULL,resume_source_id=NULL,resume_configuration_revision=NULL,configuration_revision=configuration_revision+1,updated_at=?3,error=NULL WHERE id=?4",
-            params![path, branch, Utc::now().to_rfc3339(), id.to_string()],
+            "UPDATE sessions SET checkout_path=?1,checkout_branch=?2,checkout_base=?3,provider_session_id=NULL,native_source_id=NULL,native_config_dir=NULL,resume_source_id=NULL,resume_configuration_revision=NULL,configuration_revision=configuration_revision+1,updated_at=?4,error=NULL WHERE id=?5",
+            params![path, branch, base, Utc::now().to_rfc3339(), id.to_string()],
         )?;
         append(
             &tx,

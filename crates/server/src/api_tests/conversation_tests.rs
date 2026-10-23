@@ -852,6 +852,86 @@ async fn a_session_starts_another_follows_its_reply_and_only_its_own() {
     fixture.state.chats.shutdown().await;
 }
 
+#[tokio::test]
+async fn an_isolated_child_works_in_a_worktree_of_its_own() {
+    let fixture = chat_fixture();
+    let repo = fixture.path.join("repo");
+    for args in [
+        vec!["checkout", "-qb", "main"],
+        vec!["commit", "-q", "--allow-empty", "-m", "start"],
+    ] {
+        assert!(
+            Command::new("git")
+                .args(args)
+                .current_dir(&repo)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    let (parent, token) = agent_chat(&fixture).await;
+    let mut events = fixture.state.activity.subscribe();
+    let app = fixture.app();
+    let spawn = {
+        let token = token.clone();
+        tokio::spawn(async move {
+            agent_request(app, "POST", "/api/agent/call", Some(&token), Some("agent"), json!({"name":"tendly_spawn","arguments":{"provider":"codex","prompt":"Fix it on the side","title":"Side fix","isolated":true}})).await.1
+        })
+    };
+    let request = next_event(&mut events, "request").await;
+    assert!(
+        request["rows"].to_string().contains("Worktree"),
+        "the person sees that it gets a worktree: {request}"
+    );
+    call(
+        fixture.app(),
+        "POST",
+        &format!(
+            "/api/agent-activity/requests/{}",
+            request["id"].as_str().unwrap()
+        ),
+        json!({"approve":true}),
+    )
+    .await;
+    let started = spawn.await.unwrap();
+    assert_eq!(started["isError"], false, "{started}");
+    let started = tool_text(&started)["started"].clone();
+    assert_eq!(started["branch"], "tendly/side-fix");
+    assert_eq!(started["base"], "main");
+    let child: Uuid = started["id"].as_str().unwrap().parse().unwrap();
+    let session = fixture.state.store.get_session(child).unwrap().unwrap();
+    assert_eq!(session.checkout_base.as_deref(), Some("main"));
+    assert!(
+        session
+            .checkout_path
+            .as_deref()
+            .unwrap()
+            .ends_with("repo.worktrees/tendly-side-fix")
+    );
+
+    // Each side knows where it works and with whom.
+    let child_token = launch::build(
+        &fixture.state,
+        &session,
+        PathBuf::from(session.checkout_path.clone().unwrap()),
+    )
+    .unwrap()
+    .env["TENDLY_AGENT_TOKEN"]
+        .clone();
+    let theirs = tool_text(&tool(&fixture, &child_token, "tendly_status", json!({})).await);
+    assert_eq!(
+        theirs["you"]["checkout"]["isolated_from"], "main",
+        "{theirs}"
+    );
+    assert_eq!(theirs["you"]["checkout"]["branch"], "tendly/side-fix");
+    let mine = tool_text(&tool(&fixture, &token, "tendly_status", json!({})).await);
+    assert_eq!(mine["you"]["checkout"]["branch"], "main", "{mine}");
+    assert_eq!(mine["you"]["checkout"]["worktree"], false);
+    assert!(mine["you"]["checkout"]["isolated_from"].is_null());
+    let _ = parent;
+    fixture.state.chats.shutdown().await;
+}
+
 /// A client that is ready at once and takes the adapter's full shutdown
 /// allowance (NativeAdapter waits up to 6 s for its task) to stop.
 struct SlowToStop {

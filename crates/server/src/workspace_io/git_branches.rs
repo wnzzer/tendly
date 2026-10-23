@@ -329,6 +329,21 @@ pub fn worktree_path(main_checkout: &Path, branch: &str) -> Result<PathBuf, IoEr
 /// Add a worktree for `branch` (created from HEAD when `create`), returning
 /// its directory. An existing directory is never reused or overwritten.
 pub async fn git_worktree_add(root: &Path, branch: &str, create: bool) -> Result<PathBuf, IoError> {
+    worktree_add(root, branch, create.then_some("HEAD")).await
+}
+
+/// Add a worktree on a new `branch` that starts at `start`, a local branch.
+pub async fn git_worktree_add_from(
+    root: &Path,
+    branch: &str,
+    start: &str,
+) -> Result<PathBuf, IoError> {
+    valid_branch(root, start).await?;
+    worktree_add(root, branch, Some(start)).await
+}
+
+/// `start`: make the branch, from there; `None` checks out an existing one.
+async fn worktree_add(root: &Path, branch: &str, start: Option<&str>) -> Result<PathBuf, IoError> {
     let root = dunce::canonicalize(root).map_err(IoError::from)?;
     valid_branch(&root, branch).await?;
     let listing = git_text(&root, &["worktree", "list", "--porcelain"])
@@ -349,11 +364,12 @@ pub async fn git_worktree_add(root: &Path, branch: &str, create: bool) -> Result
         tokio::fs::create_dir_all(parent).await?;
     }
     let mut args: Vec<String> = vec!["worktree".into(), "add".into()];
-    if create {
+    if let Some(start) = start {
         args.extend([
             "-b".into(),
             branch.to_owned(),
             target.to_string_lossy().into_owned(),
+            start.to_owned(),
         ]);
     } else {
         args.extend([target.to_string_lossy().into_owned(), branch.to_owned()]);

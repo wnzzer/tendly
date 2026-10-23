@@ -231,7 +231,7 @@ pub fn tools() -> Vec<Value> {
     let mut tools = vec![
         tool(
             "tendly_status",
-            "Who you are in Tendly: the calling session, its workspace and directory, its endpoint profile and model, and the Tendly version.",
+            "Who you are in Tendly: the calling session, its workspace, its directory and branch and which other sessions share that directory, its endpoint profile and model, and the Tendly version.",
             json!({ "type": "object", "properties": {}, "additionalProperties": false }),
         ),
         tool(
@@ -366,6 +366,54 @@ fn session_view(session: &Session) -> Value {
     })
 }
 
+/// Where a session works and who else works there: what it must know before
+/// it switches a branch or rewrites history in that directory.
+async fn checkout_view(
+    state: &AppState,
+    session: &Session,
+    workspace: &tendly_domain::Workspace,
+) -> Result<Value, ApiError> {
+    let directory = session
+        .checkout_path
+        .clone()
+        .unwrap_or_else(|| workspace.root_path.clone());
+    let branch = match &session.checkout_path {
+        Some(_) => session.checkout_branch.clone(),
+        None => crate::workspace_io::git_branches(std::path::Path::new(&workspace.root_path))
+            .await
+            .ok()
+            .and_then(|listed| listed.current),
+    };
+    let (id, place, workspace_id) = (
+        session.id,
+        session.checkout_path.clone(),
+        session.workspace_id,
+    );
+    let shared: Vec<Value> = db(state, move |store| store.list_sessions(Some(workspace_id)))
+        .await?
+        .into_iter()
+        .filter(|other| {
+            other.id != id && other.archived_at.is_none() && other.checkout_path == place
+        })
+        .map(|other| json!({ "id": other.id, "title": other.title, "status": other.status }))
+        .collect();
+    let note = match (&session.checkout_base, shared.is_empty()) {
+        (Some(base), _) => format!(
+            "An isolated task: this worktree and branch are yours alone, started from {base}. Commit your work here; the person reviews it and merges it into {base}."
+        ),
+        (None, false) => "Other sessions work in this same directory and see every change you make. Do not switch branches, stash or rewrite history here.".to_owned(),
+        (None, true) => "No other session works in this directory now.".to_owned(),
+    };
+    Ok(json!({
+        "directory": directory,
+        "worktree": session.checkout_path.is_some(),
+        "branch": branch,
+        "isolated_from": session.checkout_base,
+        "shared_with": shared,
+        "note": note,
+    }))
+}
+
 async fn status(state: &AppState, caller: Caller) -> Result<Value, ApiError> {
     let session = session_of(state, caller).await?;
     let you = match &session {
@@ -375,11 +423,16 @@ async fn status(state: &AppState, caller: Caller) -> Result<Value, ApiError> {
         Some(session) => {
             let workspace_id = session.workspace_id;
             let workspace = db(state, move |store| store.get_workspace(workspace_id)).await?;
+            let checkout = match &workspace {
+                Some(workspace) => checkout_view(state, session, workspace).await?,
+                None => Value::Null,
+            };
             json!({
                 "kind": "session",
                 "session": session_view(session),
                 "workspace": workspace.map(|w| json!({ "id": w.id, "name": w.name, "root_path": w.root_path })),
                 "working_directory": session.checkout_path,
+                "checkout": checkout,
                 "endpoint": session.endpoint_snapshot.as_ref().map(|profile| endpoint_view(&state.state_dir, profile)),
             })
         }

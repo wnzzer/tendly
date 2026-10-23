@@ -305,7 +305,7 @@ fn version_eighteen_pins_legacy_terminal_revision_once() {
             [source.id.to_string()],
         )
         .unwrap();
-        conn.execute_batch("ALTER TABLE sessions DROP COLUMN resume_configuration_revision; ALTER TABLE sessions DROP COLUMN preview; ALTER TABLE endpoint_profiles DROP COLUMN key_header; PRAGMA user_version=18;").unwrap();
+        conn.execute_batch("ALTER TABLE sessions DROP COLUMN resume_configuration_revision; ALTER TABLE sessions DROP COLUMN preview; ALTER TABLE endpoint_profiles DROP COLUMN key_header; ALTER TABLE sessions DROP COLUMN checkout_base; ALTER TABLE workspaces DROP COLUMN worktree_setup; PRAGMA user_version=18;").unwrap();
         (source.id, terminal.id)
     };
     {
@@ -938,7 +938,7 @@ fn version_three_migration_preserves_profiles_and_legacy_snapshots() {
                 .unwrap()
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            22
+            23
         );
         let current = store.get_endpoint_profile(profile.id).unwrap().unwrap();
         assert!(current.native_config.is_none());
@@ -1328,7 +1328,7 @@ fn version_four_shared_canvas_migration_leaves_legacy_resources_unchanged() {
                 .unwrap()
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            22
+            23
         );
         assert!(matches!(
             store.get_session(session_id).unwrap().unwrap().status,

@@ -48,6 +48,31 @@ pub(super) async fn create_workspace(
     ))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct UpdateWorkspace {
+    /// How new worktrees are prepared; `null` prepares nothing.
+    worktree_setup: Option<tendly_domain::WorktreeSetup>,
+}
+
+/// Change a workspace's settings: for now, how a worktree Tendly makes for
+/// one of its sessions is prepared.
+pub(super) async fn update_workspace(
+    State(state): State<AppState>,
+    Path(id): Path<WorkspaceId>,
+    Json(input): Json<UpdateWorkspace>,
+) -> Result<Json<Workspace>> {
+    let setup = input
+        .worktree_setup
+        .map(crate::worktree_setup::validate)
+        .transpose()?
+        .flatten();
+    if !db(&state, move |s| s.set_worktree_setup(id, setup.as_ref())).await? {
+        return Err(ApiError::missing("Workspace"));
+    }
+    Ok(Json(workspace(&state, id).await?))
+}
+
 /// The routes this module serves.
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
@@ -55,5 +80,8 @@ pub(super) fn routes() -> Router<AppState> {
             "/api/workspaces",
             get(list_workspaces).post(create_workspace),
         )
-        .route("/api/workspaces/{id}", get(get_workspace))
+        .route(
+            "/api/workspaces/{id}",
+            get(get_workspace).patch(update_workspace),
+        )
 }

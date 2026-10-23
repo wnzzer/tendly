@@ -32,13 +32,14 @@ pub fn tools() -> Vec<Value> {
     vec![
         crate::agent::tool(
             "tendly_spawn",
-            "Start another Claude Code or Codex session in your workspace, with a first message, optionally on its own Git branch (a separate worktree). It runs on its own; follow it with tendly_session. Use it for independent work worth doing in parallel, not for quick questions. The first start is confirmed by the person; a started session cannot start more.",
+            "Start another Claude Code or Codex session in your workspace, with a first message. It runs on its own; follow it with tendly_session. Use it for independent work worth doing in parallel, not for quick questions. If it will change files while you or anyone else also does, make it isolated: it then works in a new Git worktree on a new branch started from yours, so neither of you overwrites the other, and the person reviews and merges that branch when it is done. Do not make worktrees or switch branches yourself for this. The first start is confirmed by the person; a started session cannot start more.",
             object(
                 json!({
                     "provider": { "type": "string", "enum": ProviderKind::AGENTS.map(|kind| kind.as_str()) },
                     "prompt": { "type": "string", "description": "The first message: a complete, self-contained task." },
                     "title": { "type": "string" },
-                    "branch": { "type": "string", "description": "Work on this branch in its own worktree, creating it if needed. Omit to share your directory." },
+                    "isolated": { "type": "boolean", "description": "Work in a new worktree of its own, on a new branch started from the one you are on. Default false: it shares your directory and sees your uncommitted changes." },
+                    "branch": { "type": "string", "description": "With isolated: the new branch's name. Default: one named for the title. It must not be checked out anywhere already." },
                     "endpoint_id": { "type": "string", "description": "Endpoint profile id; default is the person's default for that client." },
                     "model": { "type": "string" },
                     "keep": { "type": "boolean", "description": "Keep it in the session list afterwards. Default false: a temporary session." }
@@ -220,6 +221,11 @@ pub async fn spawn(state: &AppState, caller: Caller, arguments: &Value) -> Resul
             format!("↳ {first}")
         });
     let branch = text(arguments, "branch").map(str::to_owned);
+    let isolated = branch.is_some()
+        || arguments
+            .get("isolated")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
     let keep = arguments
         .get("keep")
         .and_then(Value::as_bool)
@@ -229,8 +235,13 @@ pub async fn spawn(state: &AppState, caller: Caller, arguments: &Value) -> Resul
         let label = provider.label();
         let excerpt: String = prompt.chars().take(300).collect();
         let mut rows = vec![("Task", excerpt)];
-        if let Some(branch) = &branch {
-            rows.push(("Branch", branch.clone()));
+        if isolated {
+            rows.push((
+                "Worktree",
+                branch
+                    .clone()
+                    .unwrap_or_else(|| "A new branch named for the task".into()),
+            ));
         }
         let answer = state
             .activity
@@ -267,11 +278,54 @@ pub async fn spawn(state: &AppState, caller: Caller, arguments: &Value) -> Resul
     .await?;
     let id = created.id;
     db(state, move |s| s.set_agent_parent(id, parent_id)).await?;
-    if let Some(branch) = branch.clone() {
-        crate::checkouts::move_to_branch(state, id, branch).await?;
+    let mut checkout = (None, None, None);
+    if isolated {
+        // From the branch this session is on, wherever that is checked out.
+        let base = if parent.checkout_path.is_some() {
+            parent.checkout_branch.clone()
+        } else {
+            None
+        };
+        let moved = match crate::checkouts::isolate_child(state, id, branch, base).await {
+            Ok(moved) => moved,
+            Err(error) => {
+                let _ = db(state, move |s| s.delete_session(id)).await;
+                return Err(error);
+            }
+        };
+        checkout = (
+            moved.checkout_path,
+            moved.checkout_branch,
+            moved.checkout_base,
+        );
     }
-    crate::conversations::open(state, id).await?;
-    crate::conversations::say(state, id, prompt).await?;
+    let preparing = checkout
+        .0
+        .as_deref()
+        .is_some_and(|path| crate::worktree_setup::preparing(state, path));
+    if preparing {
+        // The worktree's setup may take minutes; the task is sent once it is
+        // done rather than holding this call open that long.
+        let (state, path) = (state.clone(), checkout.0.clone());
+        tokio::spawn(async move {
+            crate::worktree_setup::ready(&state, path.as_deref()).await;
+            let started = async {
+                crate::conversations::open(&state, id).await?;
+                crate::conversations::say(&state, id, prompt).await
+            };
+            if let Err(error) = started.await {
+                let _ = crate::conversations::persist(
+                    &state,
+                    id,
+                    json!({ "type": "error", "message": error.message }),
+                )
+                .await;
+            }
+        });
+    } else {
+        crate::conversations::open(state, id).await?;
+        crate::conversations::say(state, id, prompt).await?;
+    }
     state.activity.notify_with(
         who,
         "Started session “{title}”",
@@ -280,8 +334,16 @@ pub async fn spawn(state: &AppState, caller: Caller, arguments: &Value) -> Resul
         Some(json!({ "session_id": id })),
     );
     Ok(json!({
-        "started": { "id": id, "title": created.title, "provider": created.provider, "branch": branch, "temporary": !keep },
-        "next": "Call tendly_session with action wait or result and this id to follow it.",
+        "started": {
+            "id": id, "title": created.title, "provider": created.provider, "temporary": !keep,
+            "worktree": checkout.0, "branch": checkout.1, "base": checkout.2,
+            "preparing": preparing,
+        },
+        "next": if preparing {
+            "Its worktree is being prepared; the task is sent when that is done. Call tendly_session with action wait or result and this id to follow it."
+        } else {
+            "Call tendly_session with action wait or result and this id to follow it."
+        },
     }))
 }
 

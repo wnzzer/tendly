@@ -672,3 +672,21 @@ test('HTML blocks are read as such only when asked, and a message keeps them as 
   assert.equal(markdownBlocks(text)[0].type, 'paragraph');
   assert.deepEqual(markdownBlocks('Generic <T> stays prose', { html: true }), [{ type: 'paragraph', text: 'Generic <T> stays prose' }]);
 });
+
+test('a worktree setup is one card, running and then done in the same place', () => {
+  const running = { seq: 2, type: 'setup', id: 's1', status: 'running', copy: ['.env'], command: 'pnpm install' };
+  const done = { seq: 4, type: 'setup', id: 's1', status: 'failed', copy: ['.env'], command: 'pnpm install', log: 'Copied .env.\nERR_PNPM' };
+  assert.equal(isChatEvent(running), true);
+  assert.equal(isChatEvent({ type: 'setup', id: 's1', status: 'maybe' }), false);
+  assert.equal(isChatEvent({ type: 'setup', id: 's1', status: 'running', copy: [1] }), false);
+  const view = conversationView([
+    { seq: 1, type: 'configuration', id: 'c1', profile_name: 'tendly/x', text: 'moved' },
+    running,
+    { seq: 3, type: 'message', id: 'm1', role: 'user', text: 'go' },
+    done,
+  ]);
+  assert.deepEqual(view.items.map(item => item.type), ['configuration', 'setup', 'message']);
+  assert.equal(view.items[1].status, 'failed');
+  assert.equal(view.items[1].log, 'Copied .env.\nERR_PNPM');
+  assert.equal('seq' in view.items[1], false);
+});

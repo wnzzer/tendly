@@ -12,6 +12,7 @@ mod launch_tests;
 mod profile_tests;
 mod pty_tests;
 mod session_tests;
+mod task_tests;
 mod workflow_tests;
 use axum::{
     body::{Body, to_bytes},
@@ -95,6 +96,7 @@ impl Fixture {
             operations: Arc::new(tokio::sync::Mutex::new(())),
             agents: agent::AgentRegistry::default(),
             activity: activity::Activity::default(),
+            setups: worktree_setup::Setups::default(),
             metrics: None,
         };
         Self { state, path }

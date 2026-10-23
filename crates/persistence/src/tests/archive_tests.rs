@@ -260,7 +260,7 @@ fn version_seven_archive_migration_preserves_existing_data_and_is_reopen_safe() 
                 .unwrap()
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            22
+            23
         );
         let session = store.get_session(session_id).unwrap().unwrap();
         assert!(session.archived_at.is_none());

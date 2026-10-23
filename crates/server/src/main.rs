@@ -59,10 +59,12 @@ mod sensors;
 mod session_routes;
 mod settings;
 mod tailscale;
+mod tasks;
 mod update;
 mod usage;
 mod workspace_io;
 mod workspace_routes;
+mod worktree_setup;
 
 use axum::{
     Json, Router,
@@ -301,6 +303,7 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
         operations: Arc::new(tokio::sync::Mutex::new(())),
         agents: agent::AgentRegistry::default(),
         activity: activity::Activity::default(),
+        setups: worktree_setup::Setups::default(),
         metrics: open_metrics(&database),
     };
     usage::warm(state.clone());
@@ -385,6 +388,7 @@ fn router(state: AppState) -> Router {
         .merge(usage::routes())
         .merge(host_grants::routes())
         .merge(checkouts::routes())
+        .merge(tasks::routes())
         .merge(git_ops::routes())
         .merge(preferences::routes())
         .merge(secrets::routes())

@@ -59,7 +59,7 @@ It is a workspace, not another agent. Codex runs through its official `app-serve
 ### 🧩 One canvas for every project
 - **Split, tab and dock** with recursive splits, drag-to-edge docking and `1:1` / `2×2` / `1:2:1` presets.
 - **Panes don't own processes**: closing a pane never ends its session, and the layout is saved on the server so any browser sees the same canvas.
-- **One branch per session**: give a session its own branch and it works in a Git worktree, so two agents can build two features at once.
+- **Isolated tasks**: start a session as an isolated task and it gets a new Git worktree and branch of its own, prepared with your dependencies and `.env`, so two agents can build two features at once. Review what it changed and merge it back in one step.
 
 ### 🔑 Accounts, endpoints and models
 - **Official accounts** with the remaining 5-hour and weekly quota at a glance.
@@ -173,7 +173,7 @@ Sessions run on the server, so the agent keeps working. Open Tendly again from a
 <details>
 <summary><b>Can two agents work on the same repository at once?</b></summary>
 <br>
-Yes. Give each session its own branch and Tendly creates a Git worktree for it, so the two agents don't change the same files.
+Yes. Start each one as an isolated task: Tendly makes a new Git worktree and branch for it alone, so the two agents never change the same files. When one is done, review its changes and merge them back, or throw them away.
 </details>
 
 ## 🧱 How it works

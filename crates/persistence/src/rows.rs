@@ -64,6 +64,10 @@ pub(crate) fn workspace_row(r: &rusqlite::Row<'_>) -> Result<Workspace> {
         name: r.get(1)?,
         root_path: r.get(2)?,
         created_at: parse_time(r.get(3)?)?,
+        worktree_setup: r
+            .get::<_, Option<String>>(4)?
+            .map(|text| serde_json::from_str(&text).map_err(conversion_error))
+            .transpose()?,
     })
 }
 pub(crate) fn profile_row(r: &rusqlite::Row<'_>) -> Result<EndpointProfile> {
@@ -139,6 +143,7 @@ pub(crate) fn session_row(r: &rusqlite::Row<'_>) -> Result<Session> {
             .transpose()?,
         checkout_path: r.get(19)?,
         checkout_branch: r.get(20)?,
+        checkout_base: r.get(23)?,
         resume_configuration_revision: r.get(21)?,
         preview: r
             .get::<_, Option<String>>(22)?

@@ -217,6 +217,7 @@ impl Store {
             resume_configuration_revision: None,
             checkout_path: None,
             checkout_branch: None,
+            checkout_base: None,
             preview: None,
             ephemeral,
         };

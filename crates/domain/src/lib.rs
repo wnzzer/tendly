@@ -148,6 +148,22 @@ pub struct Workspace {
     pub name: String,
     pub root_path: String,
     pub created_at: DateTime<Utc>,
+    /// How a worktree Tendly makes for a session of this workspace is prepared.
+    #[serde(default)]
+    pub worktree_setup: Option<WorktreeSetup>,
+}
+
+/// What a new worktree gets that Git does not give it: files and directories
+/// copied from the workspace directory (dependencies, `.env`), then a command
+/// run inside it. Chosen by the person, never by the repository.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorktreeSetup {
+    /// Paths relative to the workspace directory, copied when present there.
+    #[serde(default)]
+    pub copy: Vec<String>,
+    #[serde(default)]
+    pub command: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -265,6 +281,11 @@ pub struct Session {
     /// The branch that checkout was on when it was chosen, for labels.
     #[serde(default)]
     pub checkout_branch: Option<String>,
+    /// Set when Tendly made the worktree for this session alone -- an
+    /// isolated task: the branch its work started from, measured against and
+    /// merged back into.
+    #[serde(default)]
+    pub checkout_base: Option<String>,
     /// The last thing the user said here, one short line, so sessions that
     /// share a default name can be told apart in a list.
     #[serde(default)]

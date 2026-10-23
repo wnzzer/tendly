@@ -23,12 +23,12 @@ Turn it off for every session under **Settings → Preferences → Tendly tools 
 
 | Tool | What it does | Asks you first |
 | --- | --- | --- |
-| `tendly_status` | Which session, workspace, directory and endpoint is calling | — |
+| `tendly_status` | Which session, workspace, directory, branch and endpoint is calling, and which other sessions share that directory | — |
 | `tendly_list` | Workspaces, sessions (metadata only), endpoint profiles (whether a key is set, never the key), installed clients | — |
 | `tendly_endpoint` | Create, change, delete, test, or import a host configuration as an endpoint profile | Yes, except `test` |
 | `tendly_preferences` | New-session defaults per client: endpoint, effort, permission; the interface and terminal theme | Only a switch to running tools without asking |
 | `tendly_workspace` | Add a directory as a workspace | — |
-| `tendly_spawn` | Start a Claude Code or Codex session with a first message, optionally on its own branch | The first time per session |
+| `tendly_spawn` | Start a Claude Code or Codex session with a first message, optionally as an isolated task | The first time per session |
 | `tendly_session` | Follow sessions it started (`list`, `result`, `wait`, `message`); rename or keep its own | — |
 | `tendly_show` | Open a file at a line, the Git changes, or a session in your window | — |
 | `tendly_usage` | The quota its official account last reported | — |
@@ -41,6 +41,12 @@ A change that asks you first appears in the Tendly window as a card: who is aski
 When an endpoint needs an API key, the card has a key field. The key goes from that field to Tendly's key store (see [Configuration](configuration.md#state-and-credentials)) and never through the agent or its conversation. Agents are told never to ask for a key in chat.
 
 Everything an agent changes without asking is shown as a notice, with **Undo** for endpoint profiles and defaults, and **Open** for a session it started.
+
+## Isolated tasks
+
+`tendly_spawn` with `isolated: true` (or a `branch` name) gives the new session a worktree and branch of its own, started from the branch the caller is on: the two never edit the same files. The card asking you says so. The worktree is prepared as the workspace's setup says before the task is sent (the call returns at once and says it is preparing). The new branch must be checked out nowhere else; agents are told not to make worktrees or switch branches themselves for this. Merging the task back, or throwing it away, is yours: the session's branch chip opens **Review and finish**.
+
+`tendly_status` reports `checkout`: the directory, branch, `isolated_from` (the base, for an isolated task) and `shared_with`, the other sessions working in the same directory, with a note on what not to do there.
 
 ## Limits
 

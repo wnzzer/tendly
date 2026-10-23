@@ -6,6 +6,12 @@
 //! directory itself. Worktrees stay part of their workspace -- they are not
 //! workspaces of their own -- so switching is a property of one session and
 //! never moves the others.
+//!
+//! An isolated task is the one way to be sure of a directory of one's own:
+//! Tendly names a new branch, makes a new worktree for it from a base branch,
+//! prepares it (`worktree_setup.rs`) and records the base on the session, so
+//! the work can be measured against it and merged back (`tasks.rs`). Moving a
+//! session onto a branch by hand may land it beside others; this never does.
 use crate::{ApiError, AppState, Result, db, directories, root, session_record, workspace_io};
 use axum::{
     Json, Router,
@@ -22,11 +28,19 @@ use tendly_domain::{Session, SessionId, WorkspaceId};
 pub struct CheckoutChoice {
     /// A branch: its existing worktree, the workspace itself if it is checked
     /// out there, or a new worktree (creating the branch when `create`).
+    /// With `isolated`, the new branch's name; absent names one for the session.
     pub branch: Option<String>,
     #[serde(default)]
     pub create: bool,
     /// An existing worktree of this repository.
     pub path: Option<String>,
+    /// A new worktree on a branch checked out nowhere else, for this session
+    /// alone: an isolated task.
+    #[serde(default)]
+    pub isolated: bool,
+    /// With `isolated`: the local branch the task starts from and goes back
+    /// to. Absent is the branch the session is on now.
+    pub base: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -34,6 +48,51 @@ pub struct Checkout {
     /// None for the workspace directory itself.
     pub path: Option<String>,
     pub branch: Option<String>,
+    /// Whether this resolution made the worktree, so it is new and unprepared.
+    #[serde(skip)]
+    pub made: bool,
+}
+
+/// Where a new worktree for `branch` would go is bounded exactly as where a
+/// new workspace may: this decides what the server can write to.
+fn may_make(state: &AppState, listed: &workspace_io::GitBranches, branch: &str) -> Result<PathBuf> {
+    let main = listed
+        .worktrees
+        .iter()
+        .find(|w| w.main)
+        .ok_or_else(|| ApiError::bad("Not a Git repository"))?;
+    let planned = workspace_io::worktree_path(std::path::Path::new(&main.path), branch)?;
+    let parent = planned.parent().and_then(|p| p.parent()).map(PathBuf::from);
+    if !parent.is_some_and(|p| directories::within_roots(&state.workspace_roots, &p)) {
+        return Err(ApiError::bad(
+            "The worktree would sit outside the roots this server may use. Set TENDLY_WORKSPACE_ROOTS to allow it.",
+        ));
+    }
+    Ok(planned)
+}
+
+/// A worktree directory as the session records it: canonical, inside the
+/// roots, and `None` when it is the workspace directory after all.
+async fn recorded(
+    state: &AppState,
+    repo: &std::path::Path,
+    path: PathBuf,
+) -> Result<Option<String>> {
+    let canonical = crate::paths::canonicalize_async(&path)
+        .await
+        .map_err(|_| ApiError::conflict("Worktree directory is unavailable"))?;
+    if canonical == repo
+        || dunce::canonicalize(&canonical).is_ok_and(|p| p == repo)
+        || canonical.to_string_lossy() == repo.to_string_lossy()
+    {
+        return Ok(None);
+    }
+    if !directories::within_roots(&state.workspace_roots, &canonical) {
+        return Err(ApiError::bad(
+            "That worktree is outside the roots this server may use. Set TENDLY_WORKSPACE_ROOTS to allow it.",
+        ));
+    }
+    Ok(Some(canonical.to_string_lossy().into_owned()))
 }
 
 /// Resolve a choice to a checkout, making the worktree when there is none.
@@ -43,20 +102,20 @@ pub async fn resolve(
     workspace_id: WorkspaceId,
     choice: CheckoutChoice,
 ) -> Result<Checkout> {
+    if choice.isolated || choice.base.is_some() {
+        return Err(ApiError::bad(
+            "An isolated worktree is made for a session; choose it there",
+        ));
+    }
     let repo = root(state, workspace_id).await?;
     let listed = workspace_io::git_branches(&repo).await?;
-    let repo_text = repo.to_string_lossy().into_owned();
-    let is_repo = |path: &str| {
-        dunce::canonicalize(path)
-            .map(|p| p == repo)
-            .unwrap_or(false)
-            || path == repo_text
-    };
+    let mut made = false;
     let (path, branch) = match (choice.path, choice.branch.map(|b| b.trim().to_owned())) {
         (None, None) => {
             return Ok(Checkout {
                 path: None,
                 branch: listed.current,
+                made,
             });
         }
         (Some(path), None) => {
@@ -72,6 +131,7 @@ pub async fn resolve(
                 return Ok(Checkout {
                     path: None,
                     branch: Some(branch),
+                    made,
                 });
             }
             if let Some(found) = listed
@@ -81,22 +141,9 @@ pub async fn resolve(
             {
                 (PathBuf::from(&found.path), Some(branch))
             } else {
-                let main = listed
-                    .worktrees
-                    .iter()
-                    .find(|w| w.main)
-                    .ok_or_else(|| ApiError::bad("Not a Git repository"))?;
-                let planned =
-                    workspace_io::worktree_path(std::path::Path::new(&main.path), &branch)?;
-                // Where a new worktree may go is bounded exactly as where a new
-                // workspace may: this decides what the server can write to.
-                let parent = planned.parent().and_then(|p| p.parent()).map(PathBuf::from);
-                if !parent.is_some_and(|p| directories::within_roots(&state.workspace_roots, &p)) {
-                    return Err(ApiError::bad(
-                        "The worktree would sit outside the roots this server may use. Set TENDLY_WORKSPACE_ROOTS to allow it.",
-                    ));
-                }
+                may_make(state, &listed, &branch)?;
                 let create = choice.create && !listed.branches.contains(&branch);
+                made = true;
                 (
                     workspace_io::git_worktree_add(&repo, &branch, create).await?,
                     Some(branch),
@@ -105,21 +152,141 @@ pub async fn resolve(
         }
         _ => return Err(ApiError::bad("Name a branch or a worktree, not both")),
     };
-    let canonical = crate::paths::canonicalize_async(&path)
-        .await
-        .map_err(|_| ApiError::conflict("Worktree directory is unavailable"))?;
-    if canonical == repo || is_repo(&canonical.to_string_lossy()) {
-        return Ok(Checkout { path: None, branch });
-    }
-    if !directories::within_roots(&state.workspace_roots, &canonical) {
-        return Err(ApiError::bad(
-            "That worktree is outside the roots this server may use. Set TENDLY_WORKSPACE_ROOTS to allow it.",
-        ));
-    }
     Ok(Checkout {
-        path: Some(canonical.to_string_lossy().into_owned()),
+        path: recorded(state, &repo, path).await?,
         branch,
+        made,
     })
+}
+
+/// Where `branch` is checked out now, if anywhere: a worktree's directory, or
+/// the workspace directory's.
+fn checked_out_at(listed: &workspace_io::GitBranches, branch: &str) -> Option<String> {
+    listed
+        .worktrees
+        .iter()
+        .find(|w| w.branch.as_deref() == Some(branch))
+        .map(|w| w.path.clone())
+}
+
+/// The branch an isolated task gets when it is not given one: `tendly/` and
+/// the session's title, as far as that spells something in a branch name,
+/// else a piece of its id; numbered on until neither the branch nor its
+/// worktree directory exists yet.
+fn task_branch(listed: &workspace_io::GitBranches, title: &str, id: SessionId) -> Result<String> {
+    let mut slug = String::new();
+    for c in title.chars() {
+        if c.is_ascii_alphanumeric() {
+            slug.push(c.to_ascii_lowercase());
+        } else if !slug.is_empty() && !slug.ends_with('-') {
+            slug.push('-');
+        }
+        if slug.len() >= 40 {
+            break;
+        }
+    }
+    let slug = slug.trim_matches('-');
+    let stem = if slug.len() >= 3 {
+        format!("tendly/{slug}")
+    } else {
+        format!("tendly/task-{}", &id.simple().to_string()[..8])
+    };
+    let main = listed
+        .worktrees
+        .iter()
+        .find(|w| w.main)
+        .map(|w| PathBuf::from(&w.path));
+    let free = |name: &str| {
+        !listed.branches.iter().any(|b| b == name)
+            && main.as_ref().is_none_or(|main| {
+                workspace_io::worktree_path(main, name).is_ok_and(|path| !path.exists())
+            })
+    };
+    if free(&stem) {
+        return Ok(stem);
+    }
+    (2..100)
+        .map(|n| format!("{stem}-{n}"))
+        .find(|name| free(name))
+        .ok_or_else(|| ApiError::conflict("Name the branch for this task"))
+}
+
+/// An isolated checkout made for `session`: a new worktree on a branch
+/// checked out nowhere else, started from `base`.
+struct Isolated {
+    checkout: Checkout,
+    base: String,
+    /// The branch did not exist before.
+    created: bool,
+}
+
+async fn isolate(
+    state: &AppState,
+    session: &Session,
+    branch: Option<String>,
+    base: Option<String>,
+) -> Result<Isolated> {
+    let repo = root(state, session.workspace_id).await?;
+    let listed = workspace_io::git_branches(&repo).await?;
+    let base = match base.map(|b| b.trim().to_owned()).filter(|b| !b.is_empty()) {
+        Some(base) => base,
+        None => if session.checkout_path.is_some() {
+            session.checkout_branch.clone()
+        } else {
+            listed.current.clone()
+        }
+        .ok_or_else(|| {
+            ApiError::bad("This checkout is on no branch. Name the branch the task starts from.")
+        })?,
+    };
+    if !listed.branches.contains(&base) {
+        return Err(ApiError::bad(format!("{base} is not a local branch")));
+    }
+    let branch = match branch
+        .map(|b| b.trim().to_owned())
+        .filter(|b| !b.is_empty())
+    {
+        Some(branch) => {
+            if let Some(holder) = checked_out_at(&listed, &branch) {
+                return Err(ApiError::conflict(format!(
+                    "{branch} is already checked out in {holder}. An isolated task needs a branch checked out nowhere else."
+                )));
+            }
+            branch
+        }
+        None => task_branch(&listed, &session.title, session.id)?,
+    };
+    may_make(state, &listed, &branch)?;
+    let created = !listed.branches.contains(&branch);
+    let path = if created {
+        workspace_io::git_worktree_add_from(&repo, &branch, &base).await?
+    } else {
+        workspace_io::git_worktree_add(&repo, &branch, false).await?
+    };
+    let path = recorded(state, &repo, path).await?;
+    Ok(Isolated {
+        checkout: Checkout {
+            path,
+            branch: Some(branch),
+            made: true,
+        },
+        base,
+        created,
+    })
+}
+
+/// Undo an isolated worktree a session could not be moved into after all:
+/// the worktree goes, and the branch too when it was made just now.
+async fn unmake(repo: &std::path::Path, made: &Isolated) {
+    let Some(path) = &made.checkout.path else {
+        return;
+    };
+    let _ = workspace_io::git_worktree_remove(repo, path, true).await;
+    if made.created
+        && let Some(branch) = &made.checkout.branch
+    {
+        let _ = workspace_io::git_branch_delete(repo, branch, true).await;
+    }
 }
 
 /// Bring the branch each session in this workspace shows back in line with
@@ -162,6 +329,11 @@ pub async fn session_cwd(state: &AppState, session: &Session) -> Result<PathBuf>
     let Some(path) = session.checkout_path.as_deref() else {
         return Ok(repo);
     };
+    if crate::worktree_setup::preparing(state, path) {
+        return Err(ApiError::conflict(
+            "This session's worktree is still being prepared. It starts when that is done.",
+        ));
+    }
     let listed = workspace_io::git_branches(&repo).await.ok();
     let valid = listed.is_some_and(|l| l.worktrees.iter().any(|w| w.path == path));
     let canonical = crate::paths::canonicalize_async(path)
@@ -196,40 +368,75 @@ async fn set_checkout(
             "End the native terminal before moving it to another branch",
         ));
     }
-    let checkout = resolve(&state, session.workspace_id, choice).await?;
-    if checkout.path == session.checkout_path {
-        return Ok(Json(session));
-    }
-    crate::conversations::stop_if_idle(&state, id).await?;
+    let (checkout, isolated) = if choice.isolated {
+        // Stopped before anything is made, so a session that cannot move
+        // leaves no worktree behind.
+        crate::conversations::stop_if_idle(&state, id).await?;
+        let made = isolate(&state, &session, choice.branch, choice.base).await?;
+        (made.checkout.clone(), Some(made))
+    } else {
+        let checkout = resolve(&state, session.workspace_id, choice).await?;
+        if checkout.path == session.checkout_path && session.checkout_base.is_none() {
+            return Ok(Json(session));
+        }
+        crate::conversations::stop_if_idle(&state, id).await?;
+        (checkout, None)
+    };
+    let base = isolated.as_ref().map(|made| made.base.clone());
     let label = checkout
         .branch
         .clone()
         .unwrap_or_else(|| "Detached HEAD".into());
-    let (path, branch) = (checkout.path.clone(), checkout.branch.clone());
+    let (path, branch, recorded_base) = (checkout.path.clone(), checkout.branch.clone(), base);
     if !db(&state, move |s| {
-        s.set_session_checkout(id, path.as_deref(), branch.as_deref(), &label)
+        s.set_session_checkout(
+            id,
+            path.as_deref(),
+            branch.as_deref(),
+            recorded_base.as_deref(),
+            &label,
+        )
     })
     .await?
     {
+        if let Some(made) = &isolated {
+            unmake(&root(&state, session.workspace_id).await?, made).await;
+        }
         return Err(ApiError::conflict(
             "The session must be idle or stopped before it moves",
         ));
     }
     crate::conversations::publish_snapshot(&state, id).await;
+    if checkout.made
+        && let (Some(path), Some(branch)) = (&checkout.path, &checkout.branch)
+    {
+        let workspace = crate::workspace(&state, session.workspace_id).await?;
+        crate::worktree_setup::start(
+            &state,
+            id,
+            workspace.worktree_setup,
+            PathBuf::from(workspace.root_path),
+            PathBuf::from(path),
+            branch.clone(),
+        );
+    }
     Ok(Json(session_record(&state, id).await?))
 }
 
-/// For the agent tools: move a session that has not started onto a branch's
-/// worktree, making the branch when it does not exist yet.
-pub(crate) async fn move_to_branch(
+/// For the agent tools: give a session that has not started an isolated
+/// task's worktree, on `branch` or one named for it, started from the branch
+/// its parent is on.
+pub(crate) async fn isolate_child(
     state: &AppState,
     id: SessionId,
-    branch: String,
+    branch: Option<String>,
+    base: Option<String>,
 ) -> Result<Session> {
     let choice = CheckoutChoice {
-        branch: Some(branch),
-        create: true,
-        path: None,
+        branch,
+        isolated: true,
+        base,
+        ..CheckoutChoice::default()
     };
     set_checkout(State(state.clone()), Path(id), Json(choice))
         .await
@@ -328,7 +535,7 @@ async fn send_home(
         let branch = listed.current.clone();
         let label = branch.clone().unwrap_or_else(|| "Detached HEAD".into());
         db(state, move |s| {
-            s.set_session_checkout(sid, None, branch.as_deref(), &label)
+            s.set_session_checkout(sid, None, branch.as_deref(), None, &label)
         })
         .await?;
         crate::conversations::publish_snapshot(state, sid).await;

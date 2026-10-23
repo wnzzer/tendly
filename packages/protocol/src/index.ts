@@ -10,7 +10,12 @@ export interface Workspace {
   name: string;
   root_path: string;
   created_at: string;
+  /** How a worktree Tendly makes for one of its sessions is prepared; absent prepares nothing. */
+  worktree_setup?: WorktreeSetup | null;
 }
+
+/** Paths copied from the workspace directory (as clones where the file system can), then a command run in the new worktree. */
+export interface WorktreeSetup { copy: string[]; command?: string | null }
 
 export interface Session {
   interaction_mode?: "pty" | "structured";
@@ -42,6 +47,8 @@ export interface Session {
   /** A worktree of the workspace's repository this session runs in; absent means the workspace itself. */
   checkout_path?: string | null;
   checkout_branch?: string | null;
+  /** Set on an isolated task -- a worktree Tendly made for this session alone: the branch it started from and merges back into. */
+  checkout_base?: string | null;
   /** The last thing the user said here, one short line, for telling sessions apart in a list. */
   preview?: string | null;
   error: string | null;
@@ -91,6 +98,20 @@ export interface GitCleanupCandidate { name: string; reason: 'merged' | 'squashe
 export interface GitCleanup { base?: string | null; branches: GitCleanupCandidate[]; }
 export interface GitCleanupOutcome { results: Array<{ name: string; removed: boolean; reason?: string }>; branches: GitBranches; }
 export interface GitBranches { current?: string | null; branches: string[]; worktrees: GitWorktree[]; local?: GitRef[]; remote?: GitRef[]; }
+/** One file an isolated task changed since it left its base; counts are absent for binary and untracked files. */
+export interface TaskFile { path: string; added?: number; removed?: number; untracked?: boolean }
+/** Where an isolated task stands against its base (`/sessions/:id/task`). */
+export interface TaskState {
+  branch: string; base: string; worktree: string;
+  ahead: number; behind: number;
+  /** Files changed in the worktree and not committed yet. */
+  uncommitted: number;
+  files: TaskFile[]; files_truncated: boolean;
+  /** The directory the base is checked out in, if anywhere. */
+  base_checkout: string | null; base_is_workspace: boolean;
+  upstream: string | null; compare_url: string | null;
+  preparing: boolean;
+}
 export interface GitRemote { name: string; url: string; push_url?: string; }
 export interface GitStash { index: number; hash: string; message: string; date: number; untracked: boolean; }
 export interface GitTag { name: string; hash: string; annotated: boolean; subject: string; date: number; }

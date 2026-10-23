@@ -35,6 +35,7 @@ impl Fixture {
             operations: Arc::new(tokio::sync::Mutex::new(())),
             agents: crate::agent::AgentRegistry::default(),
             activity: crate::activity::Activity::default(),
+            setups: crate::worktree_setup::Setups::default(),
             metrics: None,
         };
         Self { state, root }

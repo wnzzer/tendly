@@ -919,7 +919,7 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
   <SessionRunInfo v-if="runInfoSession" :session="runInfoSession" @close="runInfoSessionId=undefined"/>
   <SessionEnvironmentDialog v-if="environmentSession" :key="environmentSession.id" :session="environmentSession" @close="environmentSessionId=undefined" @saved="sessionEnvironmentSaved"/>
   <SessionRenameDialog v-if="renameSessionTarget" :key="renameSessionTarget.id" :session="renameSessionTarget" @close="renameSessionId=undefined" @save="saveRenameSession"/>
-  <CreateSessionDialog v-if="newSessionWorkspace" :key="newSessionWorkspace.id" :workspace="newSessionWorkspace" :profiles="profiles" :initial-provider="newSessionTarget?.provider" :hidden="route.name === 'settings'" @close="newSessionTarget=undefined" @created="newSessionCreated" @profiles="openSettings('endpoints')"/>
+  <CreateSessionDialog v-if="newSessionWorkspace" :key="newSessionWorkspace.id" :workspace="newSessionWorkspace" :profiles="profiles" :initial-provider="newSessionTarget?.provider" :hidden="route.name === 'settings'" @close="newSessionTarget=undefined" @created="newSessionCreated" @profiles="openSettings('endpoints')" @workspace="worktreeWorkspace"/>
   <LoadHistoryDialog v-if="historyWorkspace && backendCapabilities.nativeHistory" :workspace="historyWorkspace" @close="historyWorkspaceId=undefined" @loaded="historyLoaded"/>
   <AuthDialog v-if="showAuth" :via-tailnet="authViaTailnet" :link-failed="linkSignInFailed" @authenticated="bootstrap"/>
 </template>

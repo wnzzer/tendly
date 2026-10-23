@@ -236,6 +236,7 @@ pub(super) async fn start_session(
     State(state): State<AppState>,
     Path(id): Path<SessionId>,
 ) -> Result<Json<Session>> {
+    crate::worktree_setup::ready_for(&state, id).await;
     let _guard = state.operations.lock().await;
     let session = session_record(&state, id).await?;
     if session.interaction_mode == InteractionMode::Structured {
@@ -390,6 +391,8 @@ pub(super) async fn discard_session(
     if !db(&state, move |store| store.delete_session(id)).await? {
         return Err(ApiError::missing("Session"));
     }
+    // An isolated task's worktree with nothing in it goes with the session.
+    crate::tasks::forget(&state, &session).await;
     Ok(Json(serde_json::json!({ "id": id })))
 }
 

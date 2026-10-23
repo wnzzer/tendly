@@ -48,6 +48,7 @@ async fn open_conversation(
     State(state): State<AppState>,
     Path(id): Path<SessionId>,
 ) -> Result<Json<Session>> {
+    crate::worktree_setup::ready_for(&state, id).await;
     let _guard = state.operations.lock().await;
     let session = session_record(&state, id).await?;
     if session.provider == ProviderKind::Terminal {
@@ -112,6 +113,7 @@ async fn message(
             "A message needs a UUID and 1–32768 bytes of text without NUL",
         ));
     }
+    crate::worktree_setup::ready_for(&state, id).await;
     let _guard = state.operations.lock().await;
     let session = session_record(&state, id).await?;
     let mid = input.id.clone();

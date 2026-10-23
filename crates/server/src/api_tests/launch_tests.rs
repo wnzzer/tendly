@@ -218,6 +218,7 @@ async fn terminal_launch_keeps_the_sources_worktree() {
                 created.id,
                 checkout.to_str(),
                 Some("continuation-fixture"),
+                None,
                 "fixture"
             )
             .unwrap()
@@ -229,7 +230,7 @@ async fn terminal_launch_keeps_the_sources_worktree() {
     assert!(
         f.state
             .store
-            .set_session_checkout(source.id, None, None, "workspace")
+            .set_session_checkout(source.id, None, None, None, "workspace")
             .unwrap()
     );
     assert_eq!(
@@ -355,7 +356,7 @@ async fn choosing_a_new_context_detaches_a_terminal_from_its_original_home() {
             assert!(
                 f.state
                     .store
-                    .set_session_checkout(terminal.id, None, None, "workspace")
+                    .set_session_checkout(terminal.id, None, None, None, "workspace")
                     .unwrap()
             );
         }

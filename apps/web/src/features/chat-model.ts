@@ -25,6 +25,7 @@ export type ChatEvent = ({ seq?: number } & (
   | { type: 'turn'; id?: string; status: 'running' | 'completed' | 'failed' | 'interrupted' }
   | { type: 'usage'; input_tokens?: number; output_tokens?: number; context_tokens?: number; context_window?: number; turn?: TurnUsage; message_id?: string }
   | { type: 'configuration'; id: string; profile_name?: string; text: string }
+  | SetupEvent
   | { type: 'error'; message: string }
   | { type: 'exit' }
   | { type: 'cleared' }
@@ -37,7 +38,11 @@ export type ChatItem =
   | ToolItem
   | { type: 'approval'; id: string; title: string; text: string; choices: string[]; questions: ApprovalQuestion[]; scope?: ApprovalScope; resolved: boolean }
   | { type: 'configuration'; id: string; profile_name?: string; text: string }
+  | SetupEvent
   | { type: 'error'; id: string; text: string };
+
+/** A new worktree being prepared (`worktree_setup.rs`): reported running, then again under the same id when it is done, with the end of what it printed. */
+export interface SetupEvent { type: 'setup'; id: string; status: 'running' | 'completed' | 'failed'; copy?: string[]; command?: string | null; log?: string }
 
 /** A tool call; `children` are the calls a subagent made inside it, nested as deep as they went. */
 export interface ToolItem { type: 'tool'; id: string; name: string; status: 'running' | 'completed' | 'failed'; text: string; activity?: string; parent?: string; stats?: ToolStats; at?: number; ms_at?: number; since?: number; label?: string; ended?: boolean; background?: boolean; result_tokens?: number; children?: ToolItem[] }
@@ -166,6 +171,11 @@ export function conversationView(events: readonly ChatEvent[], running?: boolean
     // /clear look like it had done nothing.
     else if (event.type === 'cleared') { items.length = 0; turnStart = 0; indexes.clear(); nested.clear(); childrenOf.clear(); usage = {}; }
     else if (event.type === 'error') items.push({ type: 'error', id: 'error:' + (event.seq ?? items.length), text: event.message });
+    // Running, then done: the same card, in the place it first took.
+    else if (event.type === 'setup') {
+      const key = 'setup:' + event.id, index = indexes.get(key), { seq: _seq, ...setup } = event;
+      if (index === undefined) { indexes.set(key, items.length); items.push(setup); } else items[index] = setup;
+    }
     else if (event.type === 'exit') { endRunning(); exited = true; ready = false; if (turn === 'running') turn = 'interrupted'; for (const item of items) if (item.type === 'approval') item.resolved = true; }
   }
   // Runtime state outranks stale display history after server restart. Old
@@ -280,6 +290,7 @@ export function isChatEvent(value: unknown): value is ChatEvent {
     case 'error': return text('message');
     // Earlier cross-client handoffs stored their boundary without a name; those are still read.
     case 'configuration': return text('id') && (v.profile_name === undefined || text('profile_name')) && text('text');
+    case 'setup': return text('id') && ['running', 'completed', 'failed'].includes(String(v.status)) && (v.copy === undefined || Array.isArray(v.copy) && v.copy.every(path => typeof path === 'string')) && (v.command === undefined || v.command === null || typeof v.command === 'string') && (v.log === undefined || typeof v.log === 'string');
     default: return false;
   }
 }

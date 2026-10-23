@@ -26,6 +26,8 @@ pub(super) struct AppState {
     pub(super) operations: Arc<tokio::sync::Mutex<()>>,
     pub(super) agents: agent::AgentRegistry,
     pub(super) activity: activity::Activity,
+    /// Worktrees being prepared for the sessions they were made for.
+    pub(super) setups: worktree_setup::Setups,
     /// Resource history; absent when its database could not be opened.
     pub(super) metrics: Option<Arc<tendly_persistence::metrics::MetricsStore>>,
 }
