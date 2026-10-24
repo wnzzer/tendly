@@ -1,4 +1,5 @@
-// Render docs/assets/banner-{light,dark}.png from docs/assets/banner.html.
+// Render docs/assets/banner-{light,dark}.png from docs/assets/banner.html, and
+// docs/assets/wordmark-{light,dark}.png (the README header) from wordmark.html.
 // Fonts come from apps/web/node_modules; the contour artwork is drawn here so
 // the banner and the app share one backdrop. Run from the repository root:
 //   node scripts/render-banner.mjs
@@ -36,5 +37,16 @@ for (const theme of ["light", "dark"]) {
   await page.locator(".wrap").screenshot({ path: resolve(root, `docs/assets/banner-${theme}.png`), omitBackground: true });
   await page.close();
 }
+const wordmark = readFileSync(resolve(root, "docs/assets/wordmark.html"), "utf8").replaceAll("FONT_DIR", fontDir);
+for (const theme of ["light", "dark"]) {
+  const page = await browser.newPage({ viewport: { width: 800, height: 200 }, deviceScaleFactor: 2 });
+  const file = resolve(mkdtempSync(resolve(tmpdir(), "wordmark-")), `${theme}.html`);
+  writeFileSync(file, wordmark.replace('class="wrap THEME"', `class="wrap ${theme}"`));
+  await page.goto("file://" + file, { waitUntil: "networkidle" });
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(300);
+  await page.locator(".wrap").screenshot({ path: resolve(root, `docs/assets/wordmark-${theme}.png`), omitBackground: true });
+  await page.close();
+}
 await browser.close();
-console.log("rendered banner-light.png and banner-dark.png");
+console.log("rendered banner-{light,dark}.png and wordmark-{light,dark}.png");
