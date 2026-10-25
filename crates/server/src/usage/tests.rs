@@ -486,3 +486,44 @@ fn speed_and_failures_come_from_what_each_client_logs() {
     assert_eq!(glm.calls, 2, "a stopped reply still spent its tokens");
     std::fs::remove_dir_all(home).ok();
 }
+
+#[test]
+fn a_short_window_never_has_more_left_than_the_week() {
+    let row = |window, minutes, remaining: u64, cost: f64, low| Allowance {
+        account_id: "a".into(),
+        account: "a".into(),
+        provider: ProviderKind::ClaudeCode,
+        plan: None,
+        window,
+        window_minutes: minutes,
+        used_percent: 2.0,
+        window_start: 0,
+        resets_at: Some(1),
+        used_tokens: 1,
+        used_cost: 0.0,
+        estimated_total_tokens: None,
+        estimated_remaining_tokens: Some(remaining),
+        estimated_total_cost: None,
+        estimated_remaining_cost: Some(cost),
+        low_confidence: low,
+        observed_at: None,
+    };
+    // Five hours extrapolated from 2% comes out larger than the week holds.
+    let mut rows = [
+        row("primary", 300.0, 552_000_000, 123.0, true),
+        row("secondary", 10_080.0, 95_800_000, 57.31, false),
+    ];
+    bound_by_longer(&mut rows);
+    assert_eq!(rows[0].estimated_remaining_tokens, Some(95_800_000));
+    assert_eq!(rows[0].estimated_remaining_cost, Some(57.31));
+    assert!(!rows[0].low_confidence);
+    assert_eq!(rows[1].estimated_remaining_tokens, Some(95_800_000));
+    // Within the week, the short window keeps its own figure.
+    let mut rows = [
+        row("primary", 300.0, 20_000_000, 12.0, false),
+        row("secondary", 10_080.0, 95_800_000, 57.31, false),
+    ];
+    bound_by_longer(&mut rows);
+    assert_eq!(rows[0].estimated_remaining_tokens, Some(20_000_000));
+    assert_eq!(rows[0].estimated_remaining_cost, Some(12.0));
+}

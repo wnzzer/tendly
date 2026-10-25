@@ -214,6 +214,37 @@ pub(crate) fn estimate(
     )
 }
 
+/// No window can give more than a longer one still has: the week's limit
+/// binds the five hours as well. A short window extrapolated from a few
+/// percent can come out far larger, so it is held to what the longest has left.
+pub(super) fn bound_by_longer(rows: &mut [Allowance]) {
+    let Some(longest) = rows
+        .iter()
+        .filter(|row| row.estimated_remaining_tokens.is_some())
+        .max_by(|a, b| a.window_minutes.total_cmp(&b.window_minutes))
+    else {
+        return;
+    };
+    let (minutes, tokens, cost, low) = (
+        longest.window_minutes,
+        longest.estimated_remaining_tokens.unwrap_or(0),
+        longest.estimated_remaining_cost,
+        longest.low_confidence,
+    );
+    for row in rows.iter_mut().filter(|row| row.window_minutes < minutes) {
+        if let Some(remaining) = row.estimated_remaining_tokens
+            && remaining > tokens
+        {
+            row.estimated_remaining_tokens = Some(tokens);
+            row.estimated_remaining_cost = cost.or(row.estimated_remaining_cost);
+            row.low_confidence = low;
+        }
+        if let (Some(left), Some(cap)) = (row.estimated_remaining_cost, cost) {
+            row.estimated_remaining_cost = Some(left.min(cap));
+        }
+    }
+}
+
 pub(super) async fn allowance(State(state): State<AppState>) -> Result<Json<Vec<Allowance>>> {
     let Json(accounts) = crate::accounts::list(State(state.clone())).await?;
     let prices = load_prices(&state.state_dir);
@@ -264,6 +295,7 @@ pub(super) async fn allowance(State(state): State<AppState>) -> Result<Json<Vec<
                 continue;
             };
             let limits = &limits;
+            let first_row = rows.len();
             let calls = collect(&[(PathBuf::from(&account.storage_path), None)]);
             let plan = logged_plan.or_else(|| account.plan.clone());
             let tier = if provider == ProviderKind::ClaudeCode {
@@ -356,6 +388,7 @@ pub(super) async fn allowance(State(state): State<AppState>) -> Result<Json<Vec<
                     observed_at,
                 });
             }
+            bound_by_longer(&mut rows[first_row..]);
         }
         learned.retain(|_, history| !history.is_empty());
         if learned != before

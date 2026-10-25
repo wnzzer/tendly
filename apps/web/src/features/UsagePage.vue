@@ -97,7 +97,9 @@ const quotaBusy = ref(''), quotaNotice = ref(''), quotaNow = ref(Date.now());
 const accountViews = ref<AccountView[]>([]);
 const quotaSource = (id: string): 'usage' | 'refresh' | undefined => {
   const view = accountViews.value.find(item => item.id === id);
-  return view?.capabilities.usage ? 'usage' : view?.capabilities.quota ? 'refresh' : undefined;
+  // `quota` is only known after the account was refreshed once; a card read
+  // from the session log has its limits already, and the refresh reads them.
+  return view?.capabilities.usage ? 'usage' : view?.capabilities.quota || view?.capabilities.refresh_token ? 'refresh' : undefined;
 };
 const canRefreshQuota = (id: string) => quotaSource(id) !== undefined;
 const quotaCooldown = reactive<Record<string, number>>({}), quotaRefusals = reactive<Record<string, number>>({});
