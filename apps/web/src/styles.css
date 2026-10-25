@@ -768,6 +768,17 @@ svg { flex-shrink: 0; vertical-align: middle; }
 .drawer-git>button { flex: none; border: 0; background: none; color: var(--warn-ink); font: inherit; font-size: var(--text-md); padding: 8px 4px; }
 .drawer-host { justify-content: space-between; }
 .drawer-host>.icon-button { width: 44px; height: 44px; margin-left: auto; }
+/* The phone's text size, beside Settings: the page itself does not zoom
+   (appearance.ts), so this is what makes things larger. */
+.drawer-text-size { display: flex; gap: 2px; margin-left: auto; }
+/* Short of room, the host figures give way, not the buttons. */
+.drawer-host>.host-usage { min-width: 0; overflow: hidden; }
+.drawer-text-size, .drawer-host>.icon-button { flex: none; }
+.drawer-text-size + .icon-button { margin-left: 0; }
+.drawer-text-size>.icon-button { width: 44px; height: 44px; font-weight: 600; font-size: var(--text-md); color: var(--ink-soft); }
+.drawer-text-size small { font-size: .78em; }
+/* A double tap selects a word or presses a button twice; it does not zoom. */
+@media (pointer: coarse) { html { touch-action: manipulation; } }
 .switcher-list { display: flex; flex-direction: column; gap: 2px; }
 .switcher-item { display: flex; align-items: center; }
 .switcher-item>.sheet-row { flex: 1; min-width: 0; }

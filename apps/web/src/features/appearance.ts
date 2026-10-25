@@ -14,13 +14,13 @@ import { ref, watch } from "vue";
 export type Palette = "dock" | "slate" | "ember";
 export type InterfaceFont = "instrument-sans" | "inter" | "geist" | "dm-sans" | "system";
 export type ChatFont = "interface" | "lora" | "serif";
-export type TextScale = "small" | "default" | "large" | "larger";
+export type TextScale = "small" | "default" | "large" | "larger" | "largest";
 
 export const PALETTES: readonly Palette[] = ["dock", "slate", "ember"];
 export const INTERFACE_FONTS: readonly InterfaceFont[] = ["instrument-sans", "inter", "geist", "dm-sans", "system"];
 export const CHAT_FONTS: readonly ChatFont[] = ["interface", "lora", "serif"];
-export const TEXT_SCALES: readonly TextScale[] = ["small", "default", "large", "larger"];
-const SCALE_VALUES: Record<TextScale, number> = { small: 0.92, default: 1, large: 1.08, larger: 1.16 };
+export const TEXT_SCALES: readonly TextScale[] = ["small", "default", "large", "larger", "largest"];
+const SCALE_VALUES: Record<TextScale, number> = { small: 0.92, default: 1, large: 1.08, larger: 1.16, largest: 1.28 };
 
 const KEYS = { palette: "tendly.palette", font: "tendly.font", chatFont: "tendly.chat-font", textScale: "tendly.text-scale" } as const;
 
@@ -80,3 +80,23 @@ export function setPalette(value: Palette) { palette.value = value; }
 export function setInterfaceFont(value: InterfaceFont) { interfaceFont.value = value; }
 export function setChatFont(value: ChatFont) { chatFont.value = value; }
 export function setTextScale(value: TextScale) { textScale.value = value; }
+/** One step larger or smaller, stopping at either end: the phone's A− / A+. */
+export function stepTextScale(by: 1 | -1) {
+  const next = TEXT_SCALES[TEXT_SCALES.indexOf(textScale.value) + by];
+  if (next) textScale.value = next;
+}
+
+/**
+ * On a touch screen the page itself does not zoom; text size does instead.
+ *
+ * A zoomed page fights a layout built to fit the screen: a focused input
+ * zoomed it in uninvited, and a pinch left it somewhere it would not come
+ * back from. The viewport's maximum-scale stops the first; Safari ignores it
+ * for a pinch, so its gesture is refused here, and a double tap is declined
+ * by touch-action in the stylesheet. A− / A+ in the drawer, or Text size in
+ * Settings, is what makes things larger, and the layout reflows to it.
+ */
+export function holdPageScale() {
+  if (typeof document === "undefined" || !matchMedia("(pointer: coarse)").matches) return;
+  for (const name of ["gesturestart", "gesturechange"]) document.addEventListener(name, event => event.preventDefault(), { passive: false });
+}

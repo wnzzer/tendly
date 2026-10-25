@@ -27,7 +27,7 @@ const PERMISSION_LABELS: Record<string, string> = { ask: 'Ask every time', plan:
 const PALETTE_LABELS: Record<Palette, string> = { dock: 'Dock · warm paper, teal', slate: 'Slate · cool grey, blue', ember: 'Ember · charcoal, coral' };
 const FONT_LABELS: Record<InterfaceFont, string> = { 'instrument-sans': 'Instrument Sans', inter: 'Inter', geist: 'Geist', 'dm-sans': 'DM Sans', system: 'System' };
 const CHAT_FONT_LABELS: Record<ChatFont, string> = { interface: 'Match interface', lora: 'Lora · serif', serif: 'System serif' };
-const SCALE_LABELS: Record<TextScale, string> = { small: 'Small', default: 'Default', large: 'Large', larger: 'Larger' };
+const SCALE_LABELS: Record<TextScale, string> = { small: 'Small', default: 'Default', large: 'Large', larger: 'Larger', largest: 'Largest' };
 const loaded = ref(false), saving = ref(false), error = ref('');
 // Every choice saves as it is made, anywhere down the page: say so where
 // every save does rather than at the top, which may be scrolled away.
