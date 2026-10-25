@@ -531,7 +531,8 @@ mod tests {
         assert!(unit.contains("Environment=\"TENDLY_STATE_DIR=/home/me/.tendly\"\n"));
         // `%` and `$` would otherwise be specifiers and expansions.
         assert!(unit.contains("Environment=\"PATH=/usr/bin:/home/me/100%%/bin:$$odd\"\n"));
-        assert!(unit.contains("StandardOutput=append:/home/me/.tendly/tendly.log\n"));
+        let log = daemon::log_file(Path::new("/home/me/.tendly"));
+        assert!(unit.contains(&format!("StandardOutput=append:{}\n", log.display())));
         // What brings it back after an update's exit 75.
         assert!(unit.contains("Restart=on-failure\n"));
         assert!(unit.contains("WantedBy=default.target\n"));
