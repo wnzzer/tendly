@@ -12,6 +12,9 @@ Commands, state directory, credentials, host-configuration reuse, per-session en
 | `tendly logs`    | Print the background server's log                              |
 | `tendly restart` | Stop, then start again                                         |
 | `tendly stop`    | Stop the background server                                     |
+| `tendly service install` | Start Tendly with this computer (see below)            |
+| `tendly service uninstall` | Stop starting it with this computer, and stop it     |
+| `tendly service status` | Whether the service is installed and answering           |
 | `tendly serve`   | Run in the foreground (for systemd or another supervisor)      |
 | `tendly init`    | Create the state directory without starting anything           |
 | `tendly mcp`     | Tendly's [agent tools](agent-tools.md) as a stdio MCP server |
@@ -19,6 +22,18 @@ Commands, state directory, credentials, host-configuration reuse, per-session en
 | `tendly update --check` | Only say whether a newer release exists                 |
 
 If a start fails, the command prints the reason from the log and exits with a non-zero code. On Windows, `tendly stop` ends the gateway and its agents at once, since Windows has no gentler signal to send a background console program.
+
+### Starting with the computer
+
+`tendly start` is gone after a reboot. `tendly service install` registers Tendly with the system's own per-user mechanism, so no administrator is needed, and starts it now:
+
+- **Linux**: a systemd user unit, `~/.config/systemd/user/tendly.service`, running `tendly serve` with `Restart=on-failure`. Lingering is switched on (`loginctl enable-linger`) so it starts at boot rather than at sign-in; where that is refused, the command prints the `sudo` line to run.
+- **macOS**: a launch agent, `~/Library/LaunchAgents/com.wnzzer.tendly.plist`, kept alive after a failed exit. It starts when you sign in.
+- **Windows**: a `Tendly` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` that runs `tendly start` at sign-in.
+
+The service is written with this binary's path, the state directory, the `--lan`/`--tailscale` flags given to `install`, and the `PATH` of the shell that ran it, since a service manager would not otherwise find `claude`, `codex` or `node`. Run `install` again after changing any of those. Port, token and other settings stay in `config.toml`. The log is the same `tendly.log`, so `tendly logs` still works. On Linux and macOS, once the service is installed, `tendly start`, `stop` and `restart` go through the service manager, and an update restart works through it (exit 75).
+
+A unit or agent at that path that `tendly service install` did not write is left alone: `install` and `uninstall` refuse and say so, unless given `--force`.
 
 ### Updating
 

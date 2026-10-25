@@ -56,6 +56,7 @@ mod resume;
 mod secrets;
 mod security;
 mod sensors;
+mod service;
 mod session_routes;
 mod settings;
 mod tailscale;
@@ -144,6 +145,13 @@ fn main() {
 /// be resolved is not reported here: `run` says the same thing better, and
 /// saying it twice from two places would be worse than once.
 fn apply_settings() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    // What a service entry passes where it cannot set the environment.
+    if let Some(dir) =
+        env::args().find_map(|argument| argument.strip_prefix("--state-dir=").map(str::to_owned))
+    {
+        // Sound here and nowhere later: no other thread exists yet.
+        unsafe { env::set_var("TENDLY_STATE_DIR", dir) };
+    }
     let Ok(state_dir) = installation::state_directory() else {
         return Ok(());
     };
@@ -201,7 +209,7 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
     }
     if !matches!(
         action.as_str(),
-        "serve" | "init" | "start" | "stop" | "restart" | "status" | "logs"
+        "serve" | "init" | "start" | "stop" | "restart" | "status" | "logs" | "service"
     ) {
         return Err(format!("Unknown command {action:?}; use --help").into());
     }
@@ -238,6 +246,13 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .parse()?,
         Err(_) => DEFAULT_ADDRESS.parse()?,
     };
+    if action == "service" {
+        return service::command(&state_dir, address).await;
+    }
+    // Installed as a service, the gateway is the service manager's to run.
+    if matches!(action.as_str(), "start" | "stop" | "restart") && service::manages_gateway() {
+        return service_control(&state_dir, address, &action).await;
+    }
     match action.as_str() {
         "stop" => return gateway_stop(&state_dir).await,
         "status" => return gateway_status(&state_dir, address).await,

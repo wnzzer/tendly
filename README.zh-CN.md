@@ -44,6 +44,7 @@ tendly
 | `tendly logs` | 查看服务日志 |
 | `tendly update` | 升级到最新版 |
 | `tendly stop` / `restart` | 停止或重启服务 |
+| `tendly service install` | 开机自启（systemd、launchd 或 Windows 登录项）；`uninstall` 取消 |
 | `tendly serve` | 前台运行，给 systemd 用 |
 
 提供 macOS（arm64、x64）、Linux（x64、arm64）和 Windows（x64）预编译包。状态都在`~/.tendly/`，没有任何遥测。全部选项见[配置](docs/configuration.md)。

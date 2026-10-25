@@ -411,7 +411,13 @@ fn supervised() -> bool {
         }
         name == "node" && parent(ppid).is_some_and(|(pid, name)| name == "systemd" || pid == 1)
     }
-    #[cfg(not(target_os = "linux"))]
+    // launchd is pid 1, and the agent `tendly service install` writes keeps a
+    // failed exit alive; a `serve` in a terminal has a shell for a parent.
+    #[cfg(target_os = "macos")]
+    {
+        std::os::unix::process::parent_id() == 1
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         false
     }

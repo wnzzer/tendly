@@ -44,6 +44,7 @@ Open <http://127.0.0.1:28789/>, pick a directory as the workspace, import your e
 | `tendly logs` | Show the server log |
 | `tendly update` | Install the latest release |
 | `tendly stop` / `restart` | Stop or restart the server |
+| `tendly service install` | Start with the computer (systemd, launchd or a Windows sign-in entry); `uninstall` undoes it |
 | `tendly serve` | Run in the foreground, for systemd |
 
 Prebuilt for macOS (arm64, x64), Linux (x64, arm64) and Windows (x64). State lives in `~/.tendly/` and Tendly sends no telemetry. See [Configuration](docs/configuration.md) for every option.

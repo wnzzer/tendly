@@ -116,6 +116,37 @@ pub(super) async fn gateway_stop(
     Ok(())
 }
 
+/// `start`, `stop` and `restart` handed to the service manager that runs the
+/// gateway, reported as the background gateway's would be.
+pub(super) async fn service_control(
+    state_dir: &std::path::Path,
+    address: SocketAddr,
+    action: &str,
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    if action == "start" && daemon::healthy(address).await {
+        println!("Tendly is already running at http://{address}/");
+        return Ok(());
+    }
+    service::control(action)?;
+    if action == "stop" {
+        println!(
+            "Stopped Tendly; it starts again with this computer (`tendly service uninstall` to stop that)"
+        );
+        return Ok(());
+    }
+    if !daemon::wait_until_ready(address, Duration::from_secs(30)).await {
+        return Err(format!(
+            "Tendly did not become ready on {address}.\n\n{}\n\nFull log: {}",
+            daemon::tail(state_dir, 20),
+            daemon::log_file(state_dir).display()
+        )
+        .into());
+    }
+    println!("Tendly {} (service)\n", env!("CARGO_PKG_VERSION"));
+    print_access(state_dir, address, true).await;
+    Ok(())
+}
+
 pub(super) async fn gateway_status(
     state_dir: &std::path::Path,
     address: SocketAddr,
@@ -132,7 +163,13 @@ pub(super) async fn gateway_status(
         (Some(pid), false) => println!("Process {pid} is up but {address} is not answering"),
         // Something else owns the port: reporting "not running" alone would be
         // true and useless when a start is about to fail on the bind.
-        (None, true) => println!("Not started from this state directory, but {address} answers"),
+        (None, true) => match service::installed() {
+            Some(place) => {
+                println!("Running as a service ({place})\n");
+                print_access(state_dir, address, false).await;
+            }
+            None => println!("Not started from this state directory, but {address} answers"),
+        },
         (None, false) => println!("Not running"),
     }
     Ok(())
@@ -171,6 +208,11 @@ pub(super) const HELP: &str = r#"Tendly — a host workspace for Claude Code and
   tendly restart            Stop it, then start it again
   tendly status             Whether it is running, and where
   tendly logs               What the background gateway has said
+  tendly service install    Start Tendly with this computer (systemd user unit,
+                            launchd agent, or a Windows sign-in entry); takes
+                            --lan / --tailscale like `tendly`
+  tendly service uninstall  Stop doing that
+  tendly service status     Whether it is installed and answering
   tendly update             Install the latest version (npm installs); the
                             gateway keeps running the old one until restarted
   tendly update --check     Only say whether a newer version exists
