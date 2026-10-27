@@ -45,6 +45,7 @@ mod native_chat;
 mod native_config;
 mod native_history;
 mod paths;
+mod peers;
 mod pi_chat;
 mod preferences;
 mod price_list;
@@ -298,6 +299,7 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // Before anything resolves a bridge path: a single-file release carries the
     // Node modules inside it and has to place them first.
     installation::place_native_bridge(&state_dir)?;
+    let paired = peers::Peers::new(&state_dir);
     let state = AppState {
         store,
         runtime: RuntimeManager::new(),
@@ -314,6 +316,7 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
         native_sources: native_history::sources(),
         security,
         tailnet,
+        peers: paired,
         claude_manual_mode,
         operations: Arc::new(tokio::sync::Mutex::new(())),
         agents: agent::AgentRegistry::default(),
@@ -413,6 +416,7 @@ fn router(state: AppState) -> Router {
         .merge(file_watch::routes())
         .merge(update::routes())
         .merge(tailscale::routes())
+        .merge(peers::routes())
         .merge(host_routes::routes())
         .merge(workspace_routes::routes())
         .merge(session_routes::routes())
@@ -484,7 +488,7 @@ fn compressible(
 async fn health() -> Json<Value> {
     Json(
         json!({"ok":true,"service":"tendly-server","platform":env::consts::OS,"mode":"trusted-single-user","api_version":2,"capabilities":["shared_canvas","native_configurations","native_history","host_directories","endpoint_models","model_probe",
-            "model_probe_plan","session_environment","structured_chat","official_accounts","session_configuration","session_archive","account_import_native","agent_clients","ephemeral_sessions","session_model","workspace_file_search","session_terminal_escape","stored_secrets","custom_balances","agent_tools","self_update","resource_monitoring","tailnet"],"instance_label":env::var("TENDLY_INSTANCE_LABEL").ok(),"version":env!("CARGO_PKG_VERSION")}),
+            "model_probe_plan","session_environment","structured_chat","official_accounts","session_configuration","session_archive","account_import_native","agent_clients","ephemeral_sessions","session_model","workspace_file_search","session_terminal_escape","stored_secrets","custom_balances","agent_tools","self_update","resource_monitoring","tailnet","peers"],"instance_label":env::var("TENDLY_INSTANCE_LABEL").ok(),"version":env!("CARGO_PKG_VERSION")}),
     )
 }
 

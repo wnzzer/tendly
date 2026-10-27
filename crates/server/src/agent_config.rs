@@ -78,6 +78,7 @@ pub fn tools() -> Vec<Value> {
 pub(crate) async fn who(state: &AppState, caller: Caller) -> Value {
     match caller {
         Caller::External => json!({ "kind": "external" }),
+        Caller::Peer(id) => state.peers.who(id),
         Caller::Session(id) => {
             let session = db(state, move |s| s.get_session(id)).await.ok().flatten();
             json!({

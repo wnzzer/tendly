@@ -26,8 +26,12 @@ async function fixture(dir, name) {
   return path;
 }
 
-/** Starts a gateway; `stop()` ends it and removes what it wrote. */
-export async function startGateway() {
+/**
+ * Starts a gateway; `stop()` ends it and removes what it wrote. `host` is the
+ * name it is opened at (two gateways on one machine need two, or their cookies
+ * would be one), and `env(base)` adds to its environment.
+ */
+export async function startGateway({ host = '127.0.0.1', env = () => ({}) } = {}) {
   const home = await mkdtemp(join(tmpdir(), 'tendly-e2e-'));
   const bin = join(home, 'bin'), workspace = join(home, 'workspace');
   await mkdir(bin); await mkdir(workspace); await mkdir(join(home, 'home'));
@@ -39,7 +43,7 @@ export async function startGateway() {
   const git = (...args) => execFileSync('git', args, { cwd: workspace, stdio: 'ignore' });
   git('init', '-q', '-b', 'main'); await writeFile(join(workspace, 'README.md'), '# Fixture\n');
   git('add', '.'); git('-c', 'user.name=e2e', '-c', 'user.email=e2e@example.invalid', 'commit', '-qm', 'Initial');
-  const port = await freePort(), base = `http://127.0.0.1:${port}`;
+  const port = await freePort(), base = `http://${host}:${port}`;
   const server = process.env.TENDLY_E2E_SERVER ?? join(ROOT, 'target/debug/tendly-server');
   const output = [];
   const child = spawn(server, ['serve'], {
@@ -61,6 +65,7 @@ export async function startGateway() {
       TENDLY_CHAT_TEST_LOG: join(home, 'clients.log'),
       TENDLY_CHAT_TEST_INHERITED: 'kept',
       TENDLY_NO_FANS: '1',
+      ...env(base),
     },
   });
   child.stdout.on('data', chunk => output.push(String(chunk)));

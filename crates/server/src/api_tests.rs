@@ -9,6 +9,7 @@ mod git_ops_tests;
 mod history_tests;
 mod host_tests;
 mod launch_tests;
+mod peer_tests;
 mod profile_tests;
 mod pty_tests;
 mod session_tests;
@@ -92,6 +93,7 @@ impl Fixture {
             accounts: accounts::AccountManager::default(),
             security: security::Security::for_test(address, token),
             tailnet: crate::tailscale::Tailnet::disabled(),
+            peers: crate::peers::Peers::new(&path.join("state")),
             claude_manual_mode: true,
             operations: Arc::new(tokio::sync::Mutex::new(())),
             agents: agent::AgentRegistry::default(),

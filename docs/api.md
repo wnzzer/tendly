@@ -394,6 +394,21 @@ The preferred source is the official Claude OAuth usage response (`five_hour`, `
 
 Recording that payload requires adding a status line command to the Claude sessions Tendly starts, which overrides the account's own configuration for those sessions, so it is opt-in: set `TENDLY_CLAUDE_USAGE_CAPTURE=1` on the server. The overlay is passed per launch with `--settings` — no settings file belonging to the user is written — and a status line the account already configured is run with the same payload and its output passed through unchanged. Sessions started outside Tendly are never modified and record nothing.
 
+## Paired machines
+
+```text
+GET    /api/peers                      this machine's name; each paired machine and whether it answers now
+POST   /api/peers                      { invite, grant } redeem another machine's invite link
+POST   /api/peers/invite               { grant } a one-time invite link to this machine
+PUT    /api/peers/{id}                 { grant } what that machine may do here
+DELETE /api/peers/{id}                 unpair, on both sides
+GET    /api/peers/{id}/sessions        its workspaces and sessions
+POST   /api/peers/{id}/open            { session_id? } a link to its window, signed in once
+GET    /api/peers/discover             machines on the tailnet and whether they run Tendly
+```
+
+Requires `peers`. `grant` is `view`, `spawn` or `control`; `granted` in a listing is what the other machine allows this one. Machines call each other under `/api/peer/` (`pair`, `hello`, `granted`, `unpair`, `sessions`, `ticket`, `call`) with `X-Tendly-Client: peer` and the key the called machine issued; nothing else accepts that key. `POST /api/auth` takes `{ ticket }` as well as `{ token }`. See [Security → Paired machines](security.md#paired-machines).
+
 ## Updates
 
 ```text

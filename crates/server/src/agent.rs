@@ -32,6 +32,8 @@ use tendly_domain::{Session, SessionId};
 pub enum Caller {
     Session(SessionId),
     External,
+    /// A machine paired with this one, calling through `/api/peer/call` (peers.rs).
+    Peer(uuid::Uuid),
 }
 
 #[derive(Clone, Default)]
@@ -221,6 +223,7 @@ Tendly is the workspace this agent may be running in: a local web app that runs 
 - tendly_show opens a file at a line, your Git changes, or a session in the person's Tendly window: use it to point at what you changed instead of describing where it is.
 - tendly_usage reports the quota your official account last reported.
 - tendly_canvas lists the tabs open on the canvas and closes some or all of them. Closing a tab never ends a session, except a temporary one.
+- tendly_machines lists other machines running Tendly that this one is paired with. Give tendly_list, tendly_spawn or tendly_session a `machine` to run that call there: to run tests on a Linux box, say, or to use another machine's quota. A session there works in that machine's copy of the workspace, so commit and push what it must see, or describe it in the prompt.
 - Changes that matter are confirmed by the person in the Tendly window, and a call waits up to 5 minutes for that answer. If they decline, do not retry the same change unasked.";
 
 pub(crate) fn tool(name: &str, description: &str, schema: Value) -> Value {
@@ -253,6 +256,19 @@ pub fn tools() -> Vec<Value> {
     tools.extend(crate::agent_config::tools());
     tools.extend(crate::agent_sessions::tools());
     tools.extend(crate::agent_canvas::tools());
+    tools.push(crate::peers::tool());
+    // These run on another paired machine when the call names one.
+    for tool in &mut tools {
+        if matches!(
+            tool["name"].as_str(),
+            Some("tendly_list" | "tendly_spawn" | "tendly_session")
+        ) {
+            tool["inputSchema"]["properties"]["machine"] = crate::peers::machine_property();
+            if tool["name"] == "tendly_spawn" {
+                tool["inputSchema"]["properties"]["workspace"] = json!({ "type": "string", "description": "Only with machine: the workspace there, by name or id." });
+            }
+        }
+    }
     tools
 }
 
@@ -294,7 +310,16 @@ async fn call_tool(
     } else {
         input.arguments
     };
+    if text(&arguments, "machine").is_some()
+        && matches!(
+            input.name.as_str(),
+            "tendly_list" | "tendly_spawn" | "tendly_session"
+        )
+    {
+        return result(crate::peers::forward(&state, caller, &input.name, &arguments).await);
+    }
     result(match input.name.as_str() {
+        "tendly_machines" => crate::peers::machines(&state).await,
         "tendly_status" => status(&state, caller).await,
         "tendly_list" => list(&state, caller, &arguments).await,
         "tendly_balance" => crate::balances::call(&state, caller, &arguments).await,
@@ -320,7 +345,7 @@ pub(crate) fn text<'a>(arguments: &'a Value, key: &str) -> Option<&'a str> {
 
 async fn session_of(state: &AppState, caller: Caller) -> Result<Option<Session>, ApiError> {
     match caller {
-        Caller::External => Ok(None),
+        Caller::External | Caller::Peer(_) => Ok(None),
         Caller::Session(id) => db(state, move |store| store.get_session(id)).await,
     }
 }
@@ -353,7 +378,7 @@ pub(crate) fn endpoint_view(
     })
 }
 
-fn session_view(session: &Session) -> Value {
+pub(crate) fn session_view(session: &Session) -> Value {
     json!({
         "id": session.id,
         "title": session.title,
@@ -440,7 +465,11 @@ async fn status(state: &AppState, caller: Caller) -> Result<Value, ApiError> {
     Ok(json!({ "tendly": { "version": env!("CARGO_PKG_VERSION") }, "you": you }))
 }
 
-async fn list(state: &AppState, _caller: Caller, arguments: &Value) -> Result<Value, ApiError> {
+pub(crate) async fn list(
+    state: &AppState,
+    _caller: Caller,
+    arguments: &Value,
+) -> Result<Value, ApiError> {
     match text(arguments, "what") {
         Some("workspaces") => {
             let workspaces = db(state, |store| store.list_workspaces()).await?;

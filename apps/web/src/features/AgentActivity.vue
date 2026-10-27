@@ -15,7 +15,7 @@ import ProviderIcon from "./ProviderIcon.vue";
 import Icon from "./Icon.vue";
 import { useI18n } from "../i18n";
 
-interface Who { kind: "session" | "external"; session_id?: string; title?: string | null; provider?: ProviderKind | null }
+interface Who { kind: "session" | "external" | "machine"; session_id?: string; title?: string | null; provider?: ProviderKind | null }
 interface Row { label: string; value: string }
 interface AgentRequest { id: string; who: Who; title: string; values: Record<string, string>; rows: Row[]; notes: string[]; key: { label: string; optional: boolean } | null }
 interface Notice { id: string; who: Who; message: string; values: Record<string, string>; undoable: boolean; undone?: boolean; open?: { session_id: string } | null }
@@ -33,6 +33,7 @@ let socket: WebSocket | undefined, retry: ReturnType<typeof setTimeout> | undefi
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function who(entry: Who) {
+  if (entry.kind === "machine") return entry.title ? t("{name}, another machine", { name: entry.title }) : t("Another machine");
   return entry.kind === "session" ? entry.title || t("A session") : t("An agent outside Tendly");
 }
 function dismiss(id: string) {

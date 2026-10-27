@@ -364,27 +364,35 @@ pub async fn guard(State(state): State<AppState>, request: Request, next: Next) 
     {
         return error(StatusCode::FORBIDDEN, "Untrusted Origin");
     }
+    let path = request.uri().path();
     if headers
         .get("sec-fetch-site")
         .is_some_and(|v| v == "cross-site")
+        && !page_opened_from_elsewhere(request.method(), path, headers)
     {
         return error(StatusCode::FORBIDDEN, "Cross-site requests are blocked");
     }
-    let path = request.uri().path();
     if path.starts_with("/api/") {
-        let public = path == "/api/health" || path == "/api/auth";
+        // Pairing is authenticated by the invite code it carries (peers.rs).
+        let public = path == "/api/health" || path == "/api/auth" || path == "/api/peer/pair";
         // A session's agent token opens the agent tools and nothing else; the
         // rest of the API still takes the deployment's own credentials.
         let agent_path = path.starts_with("/api/agent/");
         let agent = agent_path && crate::agent::is_agent_request(&state, headers);
-        if !public && !agent && !state.security.authenticated(headers, via_tailnet) {
+        // Likewise a paired machine's key opens /api/peer/ and nothing else.
+        let peer_path = path.starts_with("/api/peer/");
+        let peer = peer_path && state.peers.is_peer_request(headers);
+        if !public && !agent && !peer && !state.security.authenticated(headers, via_tailnet) {
             return error(StatusCode::UNAUTHORIZED, "Authentication required");
         }
         if !matches!(
             *request.method(),
             Method::GET | Method::HEAD | Method::OPTIONS
         ) && headers.get("x-tendly-client").is_none_or(|v| {
-            v != "web" && !(agent_path && v == "agent") && !(v == "cli" && cli_path(path))
+            v != "web"
+                && !(agent_path && v == "agent")
+                && !(peer_path && v == "peer")
+                && !(v == "cli" && cli_path(path))
         }) {
             return error(
                 StatusCode::FORBIDDEN,
@@ -419,6 +427,22 @@ pub async fn guard(State(state): State<AppState>, request: Request, next: Next) 
     response
 }
 
+/// A page of this app opened from a link on another site: the address of
+/// another paired machine's window, say. Only the document itself, fetched as
+/// a top-level navigation; it carries no cookie (they are `SameSite=Strict`)
+/// and changes nothing, and everything it then asks for is same-site.
+fn page_opened_from_elsewhere(
+    method: &Method,
+    path: &str,
+    headers: &axum::http::HeaderMap,
+) -> bool {
+    let is = |name: &str, value: &str| headers.get(name).is_some_and(|v| v == value);
+    *method == Method::GET
+        && !path.starts_with("/api/")
+        && is("sec-fetch-mode", "navigate")
+        && is("sec-fetch-dest", "document")
+}
+
 pub async fn status(
     State(state): State<AppState>,
     via: Option<axum::Extension<ViaTailnet>>,
@@ -433,7 +457,11 @@ pub async fn status(
 }
 #[derive(Deserialize)]
 pub struct Login {
+    #[serde(default)]
     token: String,
+    /// A one-time ticket a paired machine was given (peers.rs), instead of the token.
+    #[serde(default)]
+    ticket: Option<String>,
 }
 pub async fn login(
     State(state): State<AppState>,
@@ -446,8 +474,19 @@ pub async fn login(
     } else {
         &state.security.token
     };
-    if via_tailnet && expected.is_none()
-        || expected.as_ref().is_some_and(|t| !equal(t, &input.token))
+    let ticket = input
+        .ticket
+        .as_deref()
+        .is_some_and(|ticket| state.peers.redeem_ticket(ticket));
+    if input.ticket.is_some() && !ticket {
+        return error(
+            StatusCode::UNAUTHORIZED,
+            "This sign-in link has expired or was used already. Open it again from the other machine.",
+        );
+    }
+    if !ticket
+        && (via_tailnet && expected.is_none()
+            || expected.as_ref().is_some_and(|t| !equal(t, &input.token)))
     {
         return error(StatusCode::UNAUTHORIZED, "Invalid access token");
     }
@@ -586,6 +625,44 @@ mod tests {
             Ok(_) => String::new(),
             Err(error) => error.to_string(),
         }
+    }
+
+    /// Another machine's window links here; only the page itself may arrive
+    /// that way, never the API and never a frame.
+    #[test]
+    fn only_a_top_level_page_may_be_opened_from_another_site() {
+        let headers = |mode: &str, dest: &str| {
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert("sec-fetch-mode", mode.parse().unwrap());
+            headers.insert("sec-fetch-dest", dest.parse().unwrap());
+            headers
+        };
+        let page = headers("navigate", "document");
+        assert!(page_opened_from_elsewhere(
+            &Method::GET,
+            "/session/x",
+            &page
+        ));
+        assert!(!page_opened_from_elsewhere(
+            &Method::POST,
+            "/session/x",
+            &page
+        ));
+        assert!(!page_opened_from_elsewhere(
+            &Method::GET,
+            "/api/sessions",
+            &page
+        ));
+        assert!(!page_opened_from_elsewhere(
+            &Method::GET,
+            "/",
+            &headers("navigate", "iframe")
+        ));
+        assert!(!page_opened_from_elsewhere(
+            &Method::GET,
+            "/",
+            &headers("cors", "empty")
+        ));
     }
 
     #[test]

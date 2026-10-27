@@ -93,7 +93,7 @@ async fn own_session(state: &AppState, caller: Caller, tool: &str) -> Result<Ses
         .ok_or_else(|| ApiError::missing("Session"))
 }
 
-fn session_id(arguments: &Value) -> Result<SessionId, ApiError> {
+pub(crate) fn session_id(arguments: &Value) -> Result<SessionId, ApiError> {
     text(arguments, "id")
         .or_else(|| text(arguments, "session_id"))
         .ok_or_else(|| ApiError::bad("id is required"))?
@@ -180,27 +180,20 @@ fn provider_of(arguments: &Value) -> Result<ProviderKind, ApiError> {
         .ok_or_else(|| ApiError::bad(format!("provider must be {}", ProviderKind::agent_names())))
 }
 
-pub async fn spawn(state: &AppState, caller: Caller, arguments: &Value) -> Result<Value, ApiError> {
-    let parent = own_session(state, caller, "tendly_spawn").await?;
-    let parent_id = parent.id;
-    if db(state, move |s| s.agent_parent(parent_id))
-        .await?
-        .is_some()
-    {
-        return Err(ApiError::bad(
-            "A session started by another session cannot start more",
-        ));
-    }
-    let running = db(state, move |s| s.agent_children(parent_id))
-        .await?
-        .into_iter()
-        .filter(|id| live(state, *id))
-        .count();
-    if running >= RUNNING_CHILDREN {
-        return Err(ApiError::conflict(format!(
-            "{RUNNING_CHILDREN} sessions you started are still running; wait for one to finish"
-        )));
-    }
+/// A start someone asked for: what to run, and where in the workspace.
+pub(crate) struct Start {
+    pub(crate) provider: ProviderKind,
+    pub(crate) prompt: String,
+    pub(crate) title: String,
+    pub(crate) isolated: bool,
+    pub(crate) branch: Option<String>,
+    pub(crate) keep: bool,
+    endpoint_id: Option<String>,
+    model: Option<String>,
+}
+
+/// Read a `tendly_spawn` call; `keep` is its default when the call says nothing.
+pub(crate) fn start_of(arguments: &Value, keep: bool) -> Result<Start, ApiError> {
     let provider = provider_of(arguments)?;
     let prompt = text(arguments, "prompt")
         .ok_or_else(|| ApiError::bad("prompt is required"))?
@@ -226,19 +219,55 @@ pub async fn spawn(state: &AppState, caller: Caller, arguments: &Value) -> Resul
             .get("isolated")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-    let keep = arguments
-        .get("keep")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    Ok(Start {
+        provider,
+        prompt,
+        title,
+        isolated,
+        branch,
+        keep: arguments
+            .get("keep")
+            .and_then(Value::as_bool)
+            .unwrap_or(keep),
+        endpoint_id: text(arguments, "endpoint_id").map(str::to_owned),
+        model: text(arguments, "model").map(str::to_owned),
+    })
+}
+
+/// Sessions started by a session, or by another machine, start no more.
+pub(crate) async fn started_by_another(state: &AppState, id: SessionId) -> Result<bool, ApiError> {
+    Ok(state.peers.started_by_peer(id) || db(state, move |s| s.agent_parent(id)).await?.is_some())
+}
+
+pub async fn spawn(state: &AppState, caller: Caller, arguments: &Value) -> Result<Value, ApiError> {
+    let parent = own_session(state, caller, "tendly_spawn").await?;
+    let parent_id = parent.id;
+    if started_by_another(state, parent_id).await? {
+        return Err(ApiError::bad(
+            "A session started by another session cannot start more",
+        ));
+    }
+    let running = db(state, move |s| s.agent_children(parent_id))
+        .await?
+        .into_iter()
+        .filter(|id| live(state, *id))
+        .count();
+    if running >= RUNNING_CHILDREN {
+        return Err(ApiError::conflict(format!(
+            "{RUNNING_CHILDREN} sessions you started are still running; wait for one to finish"
+        )));
+    }
+    let start = start_of(arguments, false)?;
     let who = who(state, caller).await;
     if !state.agents.may_spawn(parent_id) {
-        let label = provider.label();
-        let excerpt: String = prompt.chars().take(300).collect();
+        let label = start.provider.label();
+        let excerpt: String = start.prompt.chars().take(300).collect();
         let mut rows = vec![("Task", excerpt)];
-        if isolated {
+        if start.isolated {
             rows.push((
                 "Worktree",
-                branch
+                start
+                    .branch
                     .clone()
                     .unwrap_or_else(|| "A new branch named for the task".into()),
             ));
@@ -261,31 +290,66 @@ pub async fn spawn(state: &AppState, caller: Caller, arguments: &Value) -> Resul
         }
         state.agents.allow_spawning(parent_id);
     }
+    // From the branch this session is on, wherever that is checked out.
+    let base = if parent.checkout_path.is_some() {
+        parent.checkout_branch.clone()
+    } else {
+        None
+    };
+    start_in(
+        state,
+        parent.workspace_id,
+        start,
+        base,
+        who,
+        |id| async move { db(state, move |s| s.set_agent_parent(id, parent_id)).await },
+    )
+    .await
+}
+
+/// Create the session, put it in its own worktree if asked, and send the
+/// task. `adopt` records who started it before anything else can see it.
+pub(crate) async fn start_in<F, Fut>(
+    state: &AppState,
+    workspace: tendly_domain::WorkspaceId,
+    start: Start,
+    base: Option<String>,
+    who: Value,
+    adopt: F,
+) -> Result<Value, ApiError>
+where
+    F: FnOnce(SessionId) -> Fut,
+    Fut: std::future::Future<Output = Result<(), ApiError>>,
+{
+    let Start {
+        provider,
+        prompt,
+        title,
+        isolated,
+        branch,
+        keep,
+        endpoint_id,
+        model,
+    } = start;
     let input: crate::CreateSession = serde_json::from_value(json!({
         "interaction_mode": "structured",
         "provider": provider,
         "title": title,
-        "endpoint_profile_id": text(arguments, "endpoint_id"),
-        "model": text(arguments, "model"),
+        "endpoint_profile_id": endpoint_id,
+        "model": model,
         "ephemeral": !keep,
     }))
     .map_err(|error| ApiError::bad(error.to_string()))?;
     let (_, axum::Json(created)) = crate::create_session(
         axum::extract::State(state.clone()),
-        axum::extract::Path(parent.workspace_id),
+        axum::extract::Path(workspace),
         axum::Json(input),
     )
     .await?;
     let id = created.id;
-    db(state, move |s| s.set_agent_parent(id, parent_id)).await?;
+    adopt(id).await?;
     let mut checkout = (None, None, None);
     if isolated {
-        // From the branch this session is on, wherever that is checked out.
-        let base = if parent.checkout_path.is_some() {
-            parent.checkout_branch.clone()
-        } else {
-            None
-        };
         let moved = match crate::checkouts::isolate_child(state, id, branch, base).await {
             Ok(moved) => moved,
             Err(error) => {
@@ -347,32 +411,24 @@ pub async fn spawn(state: &AppState, caller: Caller, arguments: &Value) -> Resul
     }))
 }
 
-pub async fn session(
+/// One line about a started session, for a list of them.
+pub(crate) fn child_view(state: &AppState, session: &Session) -> Value {
+    json!({
+        "id": session.id, "title": session.title, "provider": session.provider,
+        "branch": session.checkout_branch, "activity": activity(state, session.id),
+    })
+}
+
+/// `result`, `wait` and `message` on a session the caller may follow.
+pub(crate) async fn follow(
     state: &AppState,
-    caller: Caller,
+    target: Session,
+    action: &str,
     arguments: &Value,
 ) -> Result<Value, ApiError> {
-    let me = own_session(state, caller, "tendly_session").await?;
-    match text(arguments, "action") {
-        Some("list") => {
-            let parent = me.id;
-            let mut list = Vec::new();
-            for id in db(state, move |s| s.agent_children(parent)).await? {
-                if let Some(session) = db(state, move |s| s.get_session(id)).await? {
-                    list.push(json!({
-                        "id": session.id, "title": session.title, "provider": session.provider,
-                        "branch": session.checkout_branch, "activity": activity(state, session.id),
-                    }));
-                }
-            }
-            Ok(json!(list))
-        }
-        Some("result") => {
-            let target = child(state, me.id, session_id(arguments)?).await?;
-            summary(state, &target).await
-        }
-        Some("wait") => {
-            let target = child(state, me.id, session_id(arguments)?).await?;
+    match action {
+        "result" => summary(state, &target).await,
+        "wait" => {
             let seconds = arguments
                 .get("seconds")
                 .and_then(Value::as_u64)
@@ -397,11 +453,37 @@ pub async fn session(
             result["finished_waiting"] = json!(done);
             Ok(result)
         }
-        Some("message") => {
-            let target = child(state, me.id, session_id(arguments)?).await?;
+        "message" => {
             let body = text(arguments, "text").ok_or_else(|| ApiError::bad("text is required"))?;
             crate::conversations::say(state, target.id, body.to_owned()).await?;
             Ok(json!({ "sent": true, "id": target.id }))
+        }
+        _ => Err(ApiError::bad(
+            "action must be list, result, wait or message",
+        )),
+    }
+}
+
+pub async fn session(
+    state: &AppState,
+    caller: Caller,
+    arguments: &Value,
+) -> Result<Value, ApiError> {
+    let me = own_session(state, caller, "tendly_session").await?;
+    match text(arguments, "action") {
+        Some("list") => {
+            let parent = me.id;
+            let mut list = Vec::new();
+            for id in db(state, move |s| s.agent_children(parent)).await? {
+                if let Some(session) = db(state, move |s| s.get_session(id)).await? {
+                    list.push(child_view(state, &session));
+                }
+            }
+            Ok(json!(list))
+        }
+        Some(action @ ("result" | "wait" | "message")) => {
+            let target = child(state, me.id, session_id(arguments)?).await?;
+            follow(state, target, action, arguments).await
         }
         Some("rename") => {
             let title = crate::bounded_name(text(arguments, "title").unwrap_or(""))?;

@@ -1205,3 +1205,148 @@ async fn a_conversation_is_searched_through_its_whole_history() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+/// P2: an agent here starts a session on a paired machine, waits for it and
+/// reads its reply, all through `machine`; the person here says yes once, and
+/// the machine there allowed it when it made the invite.
+#[tokio::test]
+async fn a_session_starts_one_on_another_machine_and_follows_it() {
+    let here = chat_fixture();
+    let (parent, token) = agent_chat(&here).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let mut there = Fixture::new(address, None);
+    there.state.chat_fixture = here.state.chat_fixture.clone();
+    // Named like the workspace here, so a start there finds it by default.
+    there
+        .state
+        .store
+        .create_workspace("Chat fixture", there.path.join("repo").to_str().unwrap())
+        .unwrap();
+    let app = there.app();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let code = there.state.peers.invite(crate::peers::Grant::Spawn);
+    let (status, peer) = call(
+        here.app(),
+        "POST",
+        "/api/peers",
+        json!({ "invite": format!("http://{address}/#tendly-pair={code}"), "grant": "view" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{peer}");
+    let machine = peer["id"].as_str().unwrap().to_owned();
+
+    let mut events = here.state.activity.subscribe();
+    let spawn = {
+        let (app, token, machine) = (here.app(), token.clone(), machine.clone());
+        tokio::spawn(async move {
+            agent_request(app, "POST", "/api/agent/call", Some(&token), Some("agent"), json!({"name":"tendly_spawn","arguments":{"provider":"codex","prompt":"Run the suite there","title":"Suite","machine":machine}})).await.1
+        })
+    };
+    let request = next_event(&mut events, "request").await;
+    assert_eq!(request["title"], "Start a {client} session on {machine}");
+    assert_eq!(request["who"]["session_id"], parent.to_string());
+    call(
+        here.app(),
+        "POST",
+        &format!(
+            "/api/agent-activity/requests/{}",
+            request["id"].as_str().unwrap()
+        ),
+        json!({"approve":true}),
+    )
+    .await;
+    let started = spawn.await.unwrap();
+    assert_eq!(started["isError"], false, "{started}");
+    let child: Uuid = tool_text(&started)["result"]["started"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    // It lives there, kept in its list, and nothing about it is here.
+    let session = there.state.store.get_session(child).unwrap().unwrap();
+    assert!(!session.ephemeral);
+    assert!(
+        session.title.starts_with('⇠') && session.title.ends_with("Suite"),
+        "{}",
+        session.title
+    );
+    assert!(here.state.store.get_session(child).unwrap().is_none());
+    assert!(there.state.peers.started_by_peer(child));
+
+    let waited = tool_text(
+        &tool(
+            &here,
+            &token,
+            "tendly_session",
+            json!({"action":"wait","id":child,"seconds":5,"machine":machine}),
+        )
+        .await,
+    );
+    assert_eq!(waited["result"]["finished_waiting"], true, "{waited}");
+    assert_eq!(waited["result"]["last_reply"], "fixture reply");
+    let listed = tool_text(
+        &tool(
+            &here,
+            &token,
+            "tendly_session",
+            json!({"action":"list","machine":machine}),
+        )
+        .await,
+    );
+    assert_eq!(listed["result"][0]["id"], child.to_string(), "{listed}");
+    // Another session here did not start it, so it can neither see nor follow it.
+    let (_, sibling) = agent_chat(&here).await;
+    let refused = tool(
+        &here,
+        &sibling,
+        "tendly_session",
+        json!({"action":"result","id":child,"machine":machine}),
+    )
+    .await;
+    assert_eq!(refused["isError"], true, "{refused}");
+    let theirs = tool_text(
+        &tool(
+            &here,
+            &sibling,
+            "tendly_session",
+            json!({"action":"list","machine":machine}),
+        )
+        .await,
+    );
+    assert_eq!(theirs["result"], json!([]), "{theirs}");
+    // A session there it did not start stays out of reach.
+    let stranger = there
+        .state
+        .store
+        .list_sessions(None)
+        .unwrap()
+        .into_iter()
+        .find(|s| s.id != child);
+    if let Some(stranger) = stranger {
+        let refused = tool(
+            &here,
+            &token,
+            "tendly_session",
+            json!({"action":"result","id":stranger.id,"machine":machine}),
+        )
+        .await;
+        assert_eq!(refused["isError"], true);
+    }
+    // And the session started there cannot start more, there or anywhere.
+    let refused = crate::agent_sessions::spawn(
+        &there.state,
+        crate::agent::Caller::Session(child),
+        &json!({"provider":"codex","prompt":"Grandchild"}),
+    )
+    .await;
+    assert!(refused.is_err());
+    let refused = crate::peers::forward(
+        &there.state,
+        crate::agent::Caller::Session(child),
+        "tendly_spawn",
+        &json!({"provider":"codex","prompt":"Further","machine":"anything"}),
+    )
+    .await;
+    assert!(refused.is_err());
+}

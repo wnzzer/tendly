@@ -22,6 +22,8 @@ pub(super) struct AppState {
     pub(super) security: security::Security,
     /// Publishing to a tailnet (`tailscale.rs`).
     pub(super) tailnet: tailscale::Tailnet,
+    /// Other machines running Tendly that this one is paired with (`peers.rs`).
+    pub(super) peers: peers::Peers,
     pub(super) claude_manual_mode: bool,
     pub(super) operations: Arc<tokio::sync::Mutex<()>>,
     pub(super) agents: agent::AgentRegistry,

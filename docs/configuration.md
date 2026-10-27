@@ -143,5 +143,6 @@ TENDLY_CODEX_BIN           # optional absolute path to codex
 TENDLY_SHELL               # optional shell; defaults to SHELL or /bin/sh
 TENDLY_BROWSE_ROOTS        # optional directory-picker roots, OS path-list (macOS/Linux colon-separated)
 TENDLY_WORKSPACE_ROOTS     # optional roots a new workspace may sit under; defaults to the browsing roots
-TENDLY_INSTANCE_LABEL      # optional UI label for isolated preview deployments
+TENDLY_INSTANCE_LABEL      # optional UI label for isolated preview deployments; also this machine's name to paired machines
+TENDLY_PUBLIC_URL          # optional address other machines reach this one at (reverse proxy, LAN name), for pairing
 ```

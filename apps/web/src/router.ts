@@ -11,7 +11,7 @@ import { createRouter, createWebHistory } from "vue-router";
  */
 const Page = { render: () => null };
 
-export const SETTINGS_SECTIONS = ["preferences", "agents", "endpoints", "accounts", "remote", "updates"] as const;
+export const SETTINGS_SECTIONS = ["preferences", "agents", "endpoints", "accounts", "remote", "machines", "updates"] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export const router = createRouter({

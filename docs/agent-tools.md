@@ -33,6 +33,9 @@ Turn it off for every session under **Settings → Preferences → Tendly tools 
 | `tendly_show` | Open a file at a line, the Git changes, or a session in your window | — |
 | `tendly_usage` | The quota its official account last reported | — |
 | `tendly_canvas` | List the tabs on the canvas; close some or all | Only when it would discard a temporary session still working |
+| `tendly_machines` | The other machines this one is [paired with](security.md#paired-machines), whether each answers now, and what each lets it do | — |
+
+`tendly_list`, `tendly_spawn` and `tendly_session` take an optional `machine`: the call then runs on that paired machine. A start there takes `workspace` (by name or id; the default is the one named like the caller's own), and asks you here the first time per session; that machine allowed it when it made the invite. The session runs there, in that machine's copy of the repository, and is kept in its list with the caller's machine in its title. A session can follow only the ones it started there.
 
 ## What you see
 
@@ -52,6 +55,7 @@ Everything an agent changes without asking is shown as a notice, with **Undo** f
 
 - A session can read and message only the sessions it started, and a session started this way cannot start more. At most four it started may run at once. Started sessions are temporary unless the agent asks to keep them.
 - Agents cannot answer or even see the cards: those live under `/api/agent-activity/`, which an agent token does not open.
+- A call from another machine never reaches a third, and a session another machine started cannot start sessions, there or anywhere.
 - Agents cannot read other sessions' conversations, approve their own tool calls, change their own permission mode, or sign accounts in or out.
 
 The token identifies the caller; it is not the security boundary. On a deployment without an access token (the local default), any process running as you can already call Tendly's whole API. What protects the changes that matter is the confirmation in your window.

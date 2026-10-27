@@ -31,13 +31,14 @@ test('unavailable or corrupt local storage is not reported as durable saving',()
   assert.equal(writeCanvasCache(storage,'a',{version:1,root:{type:'bad'}},false),false);
 });
 test('legacy servers do not get shared-canvas, native history or native configuration calls',()=>{
-  assert.deepEqual(capabilitiesFor({ok:true}),{sharedCanvas:false,nativeConfig:false,nativeHistory:false,directories:false,models:false,environment:false,structuredChat:false,accounts:false,sessionConfiguration:false,sessionArchive:false,accountImportNative:false,clients:false,ephemeralSessions:false,sessionTerminalEscape:false,customBalances:false,storedSecrets:false,agentTools:false,selfUpdate:false,modelProbe:false,modelProbePlan:false,resourceMonitoring:false,tailnet:false});
+  assert.deepEqual(capabilitiesFor({ok:true}),{sharedCanvas:false,nativeConfig:false,nativeHistory:false,directories:false,models:false,environment:false,structuredChat:false,accounts:false,sessionConfiguration:false,sessionArchive:false,accountImportNative:false,clients:false,ephemeralSessions:false,sessionTerminalEscape:false,customBalances:false,storedSecrets:false,agentTools:false,selfUpdate:false,modelProbe:false,modelProbePlan:false,resourceMonitoring:false,tailnet:false,peers:false});
   assert.equal(capabilitiesFor({ok:true,api_version:2}).storedSecrets,false);
   assert.equal(capabilitiesFor({ok:true,api_version:2,capabilities:["stored_secrets"]}).storedSecrets,true);
   assert.equal(capabilitiesFor({ok:true,api_version:2,capabilities:["self_update"]}).selfUpdate,true);
   assert.equal(capabilitiesFor({ok:true,api_version:2}).resourceMonitoring,false);
   assert.equal(capabilitiesFor({ok:true,api_version:2,capabilities:["resource_monitoring"]}).resourceMonitoring,true);
   assert.equal(capabilitiesFor({ok:true,api_version:2,capabilities:["tailnet"]}).tailnet,true);
+  assert.equal(capabilitiesFor({ok:true,api_version:2,capabilities:["peers"]}).peers,true);
   // A model check needs the server that answers one; an older one still lists models.
   assert.equal(capabilitiesFor({ok:true,api_version:2,capabilities:["endpoint_models"]}).modelProbe,false);
   assert.equal(capabilitiesFor({ok:true,api_version:2,capabilities:["model_probe"]}).modelProbe,true);

@@ -367,6 +367,45 @@ fn machine_from_status(status: &str) -> std::result::Result<Machine, Problem> {
     })
 }
 
+/// Another machine on the tailnet, as `tailscale status` lists it.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct TailnetPeer {
+    /// The MagicDNS name, without the trailing dot.
+    pub name: String,
+    pub host: String,
+    pub os: String,
+    pub online: bool,
+}
+
+fn peers_from_status(status: &str) -> std::result::Result<Vec<TailnetPeer>, Problem> {
+    machine_from_status(status)?;
+    let status: Value = serde_json::from_str(status).unwrap_or_default();
+    let mut peers: Vec<TailnetPeer> = status["Peer"]
+        .as_object()
+        .map(|peers| {
+            peers
+                .values()
+                .filter_map(|peer| {
+                    let name = peer["DNSName"].as_str()?.trim_end_matches('.');
+                    (!name.is_empty()).then(|| TailnetPeer {
+                        name: name.to_owned(),
+                        host: peer["HostName"].as_str().unwrap_or(name).to_owned(),
+                        os: peer["OS"].as_str().unwrap_or("").to_owned(),
+                        online: peer["Online"].as_bool().unwrap_or(false),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    peers.sort_by(|a, b| (!a.online, &a.name).cmp(&(!b.online, &b.name)));
+    Ok(peers)
+}
+
+/// The other machines on this tailnet, for finding Tendly on them.
+pub async fn peers() -> std::result::Result<Vec<TailnetPeer>, Problem> {
+    peers_from_status(&tailscale(&["status", "--json"], Duration::from_secs(10)).await?)
+}
+
 /// The URL the tailnet reaches this gateway at.
 pub fn url(name: &str) -> String {
     format!("https://{name}/")
@@ -521,6 +560,11 @@ impl Tailnet {
             target: self.inner.target.clone(),
             via_tailnet,
         }
+    }
+
+    /// The address the tailnet reaches this gateway at, while it is live.
+    pub fn published_url(&self) -> Option<String> {
+        self.status(false).url
     }
 
     /// The tailnet name, once known.
@@ -961,6 +1005,24 @@ mod tests {
         .unwrap();
         assert!(!bare.https);
         assert_eq!(bare.ip, None);
+    }
+
+    #[test]
+    fn the_other_machines_are_listed_online_first_without_their_trailing_dot() {
+        let status = serde_json::json!({
+            "BackendState": "Running",
+            "Self": { "DNSName": "mac.tail1.ts.net.", "TailscaleIPs": ["100.64.0.1"] },
+            "Peer": {
+                "a": { "DNSName": "zeta.tail1.ts.net.", "HostName": "zeta", "OS": "linux", "Online": true },
+                "b": { "DNSName": "alpha.tail1.ts.net.", "HostName": "alpha", "OS": "macOS", "Online": false },
+                "c": { "DNSName": "", "HostName": "nameless" }
+            }
+        })
+        .to_string();
+        let peers = peers_from_status(&status).unwrap();
+        let names: Vec<_> = peers.iter().map(|peer| peer.name.as_str()).collect();
+        assert_eq!(names, ["zeta.tail1.ts.net", "alpha.tail1.ts.net"]);
+        assert!(peers[0].online && !peers[1].online);
     }
 
     #[test]

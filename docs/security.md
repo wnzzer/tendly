@@ -25,6 +25,17 @@ reverse proxy in front that preserves Host and WebSocket upgrades. Do not expose
 this trusted-host workspace to untrusted users: whoever holds the token can run
 agents, read and write files, and open terminals on that machine.
 
+## Paired machines
+
+Settings → **Machines** pairs this Tendly with others, for seeing their sessions, opening them, and letting agents start work there (`machine` in [agent tools](agent-tools.md)). There is no server in between: each machine stays the only authority over its own sessions.
+
+- **Pairing** starts with an invite on the machine to be reached: a link to its own address with a one-time code in the fragment, good once, for ten minutes. Ten wrong codes withdraw every open invite. The other machine redeems it by calling that address directly. Each side then holds a key the other issued; the side that is called keeps only its SHA-256, in `peers.json` in the state directory, owner-only.
+- **A key opens `/api/peer/` and nothing else**, as an agent token opens only `/api/agent/`. Each machine decides what each other one may do there: *see its sessions* (names and status, never conversations), *start sessions too* (what `tendly_spawn` with `machine` needs), or *full control* (open its window, signed in, from the other machine). Either side can change its own choice or remove the pairing alone; removing it removes the key at once.
+- **Opening the other machine's window** asks it for a sign-in ticket, good once, for a minute, carried in the link's fragment. The page itself may be opened by a link from another site (the paired machine's own); the API still refuses every cross-site request.
+- An address another machine can reach is needed for an invite: `TENDLY_PUBLIC_URL` when set (behind a reverse proxy, say), else Remote access through Tailscale, else a `--lan` binding opened at its own address. A machine without one can still pair with one that has it, one way.
+
+Full control is what it says: anyone with that machine's window can do there what you can.
+
 ## Boundaries
 
 This is a **single trusted user's host workspace**, not a multi-tenant sandbox. Native tool permissions remain native. A working-directory check or config directory is not an OS isolation boundary.

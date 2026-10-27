@@ -372,6 +372,10 @@ async fn shared_canvas_uses_existing_authentication_and_health_capabilities() {
         ("GET", "/api/tailnet"),
         ("PUT", "/api/tailnet"),
         ("GET", "/api/tailnet/login-code"),
+        ("GET", "/api/peers"),
+        ("POST", "/api/peers"),
+        ("POST", "/api/peers/invite"),
+        ("GET", "/api/peers/discover"),
     ] {
         assert_eq!(
             call(f.app(), method, path, json!({"value":"x"})).await.0,
@@ -408,7 +412,8 @@ async fn shared_canvas_uses_existing_authentication_and_health_capabilities() {
             "agent_tools",
             "self_update",
             "resource_monitoring",
-            "tailnet"
+            "tailnet",
+            "peers"
         ])
     );
     let allowed = Request::builder()
