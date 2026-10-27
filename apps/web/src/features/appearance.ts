@@ -80,10 +80,23 @@ export function setPalette(value: Palette) { palette.value = value; }
 export function setInterfaceFont(value: InterfaceFont) { interfaceFont.value = value; }
 export function setChatFont(value: ChatFont) { chatFont.value = value; }
 export function setTextScale(value: TextScale) { textScale.value = value; }
-/** One step larger or smaller, stopping at either end: the phone's A− / A+. */
+/** One step larger or smaller, stopping at either end: what a pinch does on a phone. */
 export function stepTextScale(by: 1 | -1) {
   const next = TEXT_SCALES[TEXT_SCALES.indexOf(textScale.value) + by];
   if (next) textScale.value = next;
+}
+
+/**
+ * How far two fingers must spread, or close, before a pinch counts: well past
+ * what a hand resting on the screen or a two-finger scroll moves them.
+ */
+const PINCH_STEP = 1.4;
+
+/** Whether a pinch has spread far enough for a step up, closed far enough for one down, or neither. */
+export function pinchStep(startSpread: number, spread: number, step = PINCH_STEP): 1 | -1 | 0 {
+  if (startSpread <= 0) return 0;
+  const ratio = spread / startSpread;
+  return ratio >= step ? 1 : ratio <= 1 / step ? -1 : 0;
 }
 
 /**
@@ -93,10 +106,26 @@ export function stepTextScale(by: 1 | -1) {
  * zoomed it in uninvited, and a pinch left it somewhere it would not come
  * back from. The viewport's maximum-scale stops the first; Safari ignores it
  * for a pinch, so its gesture is refused here, and a double tap is declined
- * by touch-action in the stylesheet. A− / A+ in the drawer, or Text size in
- * Settings, is what makes things larger, and the layout reflows to it.
+ * by touch-action in the stylesheet. A deliberate pinch still means larger or
+ * smaller: it moves the text size one step, terminal included, and the layout
+ * reflows to it. One step a pinch, so it never runs away; lift and pinch
+ * again for the next. Text size in Settings sets it outright.
  */
 export function holdPageScale() {
   if (typeof document === "undefined" || !matchMedia("(pointer: coarse)").matches) return;
   for (const name of ["gesturestart", "gesturechange"]) document.addEventListener(name, event => event.preventDefault(), { passive: false });
+  const spreadOf = (touches: TouchList) => Math.hypot(touches[0]!.clientX - touches[1]!.clientX, touches[0]!.clientY - touches[1]!.clientY);
+  // The spread the pinch began at; 0 once it has stepped, or with other than two fingers down.
+  let start = 0;
+  document.addEventListener("touchstart", event => { start = event.touches.length === 2 ? spreadOf(event.touches) : 0; }, { passive: true });
+  document.addEventListener("touchmove", event => {
+    if (event.touches.length !== 2) return;
+    if (event.cancelable) event.preventDefault();
+    const step = pinchStep(start, spreadOf(event.touches));
+    if (!step) return;
+    stepTextScale(step);
+    start = 0;
+  }, { passive: false });
+  document.addEventListener("touchend", event => { if (event.touches.length !== 2) start = 0; }, { passive: true });
+  document.addEventListener("touchcancel", () => { start = 0; }, { passive: true });
 }

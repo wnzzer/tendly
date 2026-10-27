@@ -1437,8 +1437,6 @@ export const zhCN: Readonly<Record<string, string>> = {
   "The quick brown fox jumps over the lazy dog. 敏捷的棕色狐狸跳过懒狗。": "The quick brown fox jumps over the lazy dog. 敏捷的棕色狐狸跳过懒狗。",
   "Larger": "更大",
   "Largest": "最大",
-  "Smaller text": "缩小文字",
-  "Larger text": "放大文字",
   "Large": "大",
   "Default": "默认",
   "Small": "小",

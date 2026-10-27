@@ -42,7 +42,6 @@ import { setThemePreference } from "./features/theme";
 import { isSessionArchived } from "./features/session-list";
 import { attentionTitle, trackSessions, waitingIds } from "./features/attention";
 import { useMobile } from "./features/mobile";
-import { TEXT_SCALES, stepTextScale, textScale } from "./features/appearance";
 import { useI18n } from "./i18n";
 import { ApiConnectionError, ApiError, errorMessage, json, providerLabel, request, workspacePath } from "./features/api";
 import { AGENT_CLIENTS, DEFAULT_CLIENT, PROVIDER_KINDS } from "./features/clients";
@@ -850,7 +849,7 @@ onUnmounted(() => { disposeCanvas(); disposed = true; clearInterval(pollTimer); 
       
         <div v-else class="drawer-footer">
           <div v-if="contextWorkspace" class="drawer-git"><span :title="contextCheckout ?? contextWorkspace.root_path"><Icon name="git" :size="15"/><span v-if="contextCheckout" class="status-worktree" :title="t('Works in worktree {path}', { path: contextCheckout })"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M5 3v7M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm0-7a2 2 0 1 0 0-.01M11 5a2 2 0 1 0 0-.01M11 7c0 2-2 3-6 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>{{ currentGit.branch || (currentGitKnown ? t('Detached HEAD') : '') }}</span><WorkspaceBranchMenu v-else-if="currentGitAvailable" :workspace-id="contextWorkspace.id" :branch="currentGit.branch" @switched="branchSwitched(contextWorkspace.id)" @changed="branchSwitched(contextWorkspace.id)" /><template v-else-if="currentGitKnown">{{ t('Git unavailable') }}</template></span><button v-if="currentGitAvailable" type="button" @click="openChanges()">{{ t(currentGit.files.length===1?'{count} change':'{count} changes',{count:currentGit.files.length}) }}</button></div>
-          <div class="drawer-host"><HostUsage v-if="signedIn&&!showAuth" :sessions="sessions" @open="openPage('system')" /><span v-if="layoutTrouble" class="danger-text">{{ t('Layout {status}',{status:t(layoutStatus)}) }}</span><span class="drawer-text-size" role="group" :aria-label="t('Text size')"><button class="icon-button" type="button" :aria-label="t('Smaller text')" :title="t('Smaller text')" :disabled="textScale===TEXT_SCALES[0]" @click="stepTextScale(-1)"><small>A</small>−</button><button class="icon-button" type="button" :aria-label="t('Larger text')" :title="t('Larger text')" :disabled="textScale===TEXT_SCALES[TEXT_SCALES.length-1]" @click="stepTextScale(1)">A+</button></span><button class="icon-button" type="button" :aria-label="t('Settings')" :title="t('Settings') + ' · ' + hint('settings')" @click="openSettings()"><Icon name="settings" :size="19"/></button></div>
+          <div class="drawer-host"><HostUsage v-if="signedIn&&!showAuth" :sessions="sessions" @open="openPage('system')" /><span v-if="layoutTrouble" class="danger-text">{{ t('Layout {status}',{status:t(layoutStatus)}) }}</span><button class="icon-button" type="button" :aria-label="t('Settings')" :title="t('Settings') + ' · ' + hint('settings')" @click="openSettings()"><Icon name="settings" :size="19"/></button></div>
         </div>
       </aside>
       <main class="main-workspace">

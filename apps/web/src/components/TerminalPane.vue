@@ -9,6 +9,7 @@ import { createSessionStream, TERMINAL_VIEW_ERROR, type SessionStreamState } fro
 import { onPageReturn } from "../features/page-return";
 import { arrowSequence, ctrlSequence, ENTER_SEQUENCE, ESCAPE_SEQUENCE, isTap, repeatArrow, selectionPresses, shiftSequence, tabSequence, type ArrowKey } from "../features/terminal-keys";
 import { terminalDark as dark } from "../features/theme";
+import { textScale } from "../features/appearance";
 import { terminalEngine } from "../features/terminal-engine";
 import { findCount, isTerminalFind, terminalClipboardKey, terminalFindChord } from "../features/terminal-search";
 import { formatChord } from "../features/shortcuts";
@@ -380,6 +381,8 @@ function createView() {
   if (view.ready) viewEvents.ready();
 }
 watch(dark, isDark => view?.applyTheme(terminalTheme(isDark)));
+// Larger text is fewer columns in the same width: tell the process.
+watch(textScale, resize);
 
 function cleanupView() {
   cancelAnimationFrame(resizeFrame);
