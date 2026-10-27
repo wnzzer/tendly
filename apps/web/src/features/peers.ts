@@ -30,7 +30,11 @@ export interface Peer {
 }
 export interface Peers { name: string; peers: Peer[] }
 export interface Invite { link: string; code: string; url: string; expires_in: number }
-export interface Discovered { name: string; url: string; os: string; tendly: boolean; version: string | null; pairs: boolean; paired: boolean }
+export interface Discovered {
+  name: string; url: string; os: string; tendly: boolean; version: string | null; pairs: boolean; paired: boolean;
+  /** Signed in to the same Tailscale account as this machine: it pairs without an invite. */
+  mine: boolean;
+}
 export interface RemoteSession { id: string; title: string; provider: string; status: string; workspace_id: string; branch: string | null; activity: string }
 export interface RemoteSessions { name: string; grant: Grant; workspaces: { id: string; name: string }[]; sessions: RemoteSession[] }
 
@@ -38,11 +42,24 @@ const origin = () => typeof location === "undefined" ? undefined : location.orig
 export const readPeers = () => request<Peers>("/peers");
 export const invitePeer = (grant: Grant) => request<Invite>("/peers/invite", json("POST", { grant, origin: origin() }));
 export const addPeer = (invite: string, grant: Grant) => request<Peer>("/peers", json("POST", { invite, grant, origin: origin() }));
+/** Pair with a machine of the same Tailscale account: both grants are decided here. */
+export const pairOnTailnet = (url: string, grant: Grant, asked: Grant) => request<Peer>("/peers", json("POST", { url, grant, asked, origin: origin() }));
 export const regrantPeer = (id: string, grant: Grant) => request<Peer>(`/peers/${encodeURIComponent(id)}`, json("PUT", { grant }));
 export const removePeer = (id: string) => request<void>(`/peers/${encodeURIComponent(id)}`, json("DELETE"));
 export const peerSessions = (id: string) => request<RemoteSessions>(`/peers/${encodeURIComponent(id)}/sessions`);
 export const openPeer = (id: string, sessionId?: string) => request<{ url: string }>(`/peers/${encodeURIComponent(id)}/open`, json("POST", sessionId ? { session_id: sessionId } : {}));
 export const discoverPeers = () => request<Discovered[]>("/peers/discover");
+
+/**
+ * What a machine found on the tailnet offers: pairing in one click when it is
+ * the same account's, an invite when it is someone else's.
+ */
+export type FoundAction = "paired" | "update" | "pair" | "invite";
+export function foundAction(machine: Discovered): FoundAction {
+  if (machine.paired) return "paired";
+  if (!machine.pairs) return "update";
+  return machine.mine ? "pair" : "invite";
+}
 
 /** The one-time ticket a link from another paired machine carries (`#tendly-ticket=…`). */
 export const TICKET_FRAGMENT = "tendly-ticket";

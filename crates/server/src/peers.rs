@@ -11,6 +11,11 @@
 //! other machine redeems it by calling that address, and sends back its own
 //! key and, when it has one, the address it can be reached at.
 //!
+//! Two machines signed in to the same Tailscale account need no invite: the
+//! one adding calls the other's tailnet address, and `tailscale serve` there
+//! says which account the call comes from. Being that account is proof
+//! enough, so both grants are decided in one place, on the machine adding.
+//!
 //! What a machine may do here, from least to most:
 //!
 //! - `view`: see the workspaces and sessions here (titles and status only);
@@ -30,7 +35,7 @@ use crate::{
     agent_sessions, db,
 };
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     extract::{Path, State},
     http::{HeaderMap, StatusCode, header},
     routing::{get, post, put},
@@ -58,6 +63,9 @@ const INVITE_FAILURES: u32 = 10;
 const GLANCE: Duration = Duration::from_secs(4);
 /// The longest a forwarded call may take: `tendly_session` wait is 120 s.
 const LONGEST_CALL: Duration = Duration::from_secs(150);
+/// The header `tailscale serve` puts the caller's Tailscale account in. It
+/// replaces any the caller sent, and only `serve` reaches the tailnet listener.
+const TAILSCALE_LOGIN: &str = "Tailscale-User-Login";
 /// The fragment an invite link carries its code in.
 pub const INVITE_FRAGMENT: &str = "tendly-pair";
 
@@ -178,6 +186,12 @@ impl Peers {
         let text = serde_json::to_string_pretty(&*peers).map_err(std::io::Error::other)?;
         crate::security::write_owner_only(&self.0.path, &text)?;
         Ok(outcome)
+    }
+
+    /// As if every pairing had been removed here alone.
+    #[cfg(test)]
+    pub fn forget_all(&self) {
+        self.change(Vec::clear).unwrap();
     }
 
     /// The machine presenting this request's key, if any does.
@@ -577,20 +591,45 @@ async fn invite(
 #[serde(deny_unknown_fields)]
 struct AddInput {
     /// The invite link the other machine made.
-    invite: String,
+    #[serde(default)]
+    invite: Option<String>,
+    /// Or its tailnet address, when it is signed in to the same Tailscale
+    /// account as this one.
+    #[serde(default)]
+    url: Option<String>,
     /// What that machine may do here.
     grant: Grant,
+    /// What this machine may do there; only a machine of the same account
+    /// takes it, as an invite carries its own.
+    #[serde(default)]
+    asked: Option<Grant>,
     #[serde(default)]
     origin: Option<String>,
 }
 
 async fn add(State(state): State<AppState>, Json(input): Json<AddInput>) -> Result<Json<Value>> {
-    let (url, code) = parse_invite(&input.invite)?;
+    let (url, code) = match (input.invite.as_deref(), input.url.as_deref()) {
+        (Some(invite), None) => {
+            let (url, code) = parse_invite(invite)?;
+            (url, Some(code))
+        }
+        (None, Some(url)) => (base_url(url)?, None),
+        _ => return Err(ApiError::bad("Give an invite link or a tailnet address")),
+    };
     let base = url.to_string();
-    if own_url(&state, input.origin.as_deref()).as_deref() == Some(base.as_str()) {
-        return Err(ApiError::bad(
-            "That invite is from this machine. Use it on the other one.",
+    // Pairing without an invite is the two-way kind: the other machine has to
+    // be able to call back.
+    if code.is_none() && own_url(&state, input.origin.as_deref()).is_none() {
+        return Err(ApiError::conflict(
+            "The other machine could not reach this one back. Turn on Remote access here first.",
         ));
+    }
+    if own_url(&state, input.origin.as_deref()).as_deref() == Some(base.as_str()) {
+        return Err(ApiError::bad(if code.is_some() {
+            "That invite is from this machine. Use it on the other one."
+        } else {
+            "That is this machine."
+        }));
     }
     if state
         .peers
@@ -603,14 +642,17 @@ async fn add(State(state): State<AppState>, Json(input): Json<AddInput>) -> Resu
         ));
     }
     let key = secret("tdp_");
-    let request = json!({
-        "code": code,
+    let mut request = json!({
         "name": own_name(&state),
         "url": own_url(&state, input.origin.as_deref()),
         "token": key,
         "grant": input.grant,
         "peer_api": PEER_API,
     });
+    match code {
+        Some(code) => request["code"] = json!(code),
+        None => request["asked"] = json!(input.asked.unwrap_or(Grant::View)),
+    }
     let answer = send(
         &base,
         None,
@@ -791,6 +833,7 @@ async fn discover(State(state): State<AppState>) -> Result<Json<Value>> {
                 "version": tendly.map(|health| health["version"].clone()),
                 "pairs": tendly.is_some_and(|health| health["capabilities"].as_array().is_some_and(|caps| caps.iter().any(|cap| cap == "peers"))),
                 "paired": paired.contains(&url),
+                "mine": machine.mine,
             })
         }
     });
@@ -844,7 +887,13 @@ fn allowed(peer: &Peer, needed: Grant) -> Result<()> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PairInput {
-    code: String,
+    /// The invite's code; absent when the caller is of the same Tailscale
+    /// account.
+    #[serde(default)]
+    code: Option<String>,
+    /// What the caller may do here, when there is no invite to say.
+    #[serde(default)]
+    asked: Option<Grant>,
     name: String,
     url: Option<String>,
     token: String,
@@ -853,13 +902,39 @@ struct PairInput {
     peer_api: u64,
 }
 
-async fn pair(State(state): State<AppState>, Json(input): Json<PairInput>) -> Result<Json<Value>> {
-    let Some(grant) = state.peers.redeem_invite(&input.code) else {
-        return Err(ApiError {
+/// Whether a request came over the tailnet from the Tailscale account this
+/// machine is signed in to.
+fn same_account(state: &AppState, via_tailnet: bool, headers: &HeaderMap) -> bool {
+    let theirs = headers
+        .get(TAILSCALE_LOGIN)
+        .and_then(|value| value.to_str().ok())
+        .filter(|login| !login.is_empty());
+    via_tailnet
+        && theirs
+            .zip(state.tailnet.login())
+            .is_some_and(|(theirs, mine)| theirs.eq_ignore_ascii_case(&mine))
+}
+
+async fn pair(
+    State(state): State<AppState>,
+    via: Option<Extension<crate::security::ViaTailnet>>,
+    headers: HeaderMap,
+    Json(input): Json<PairInput>,
+) -> Result<Json<Value>> {
+    let grant = match input.code.as_deref() {
+        Some(code) => state.peers.redeem_invite(code).ok_or_else(|| ApiError {
             status: StatusCode::FORBIDDEN,
             message: "That invite is not valid. It may have expired or been used; make a new one."
                 .into(),
-        });
+        })?,
+        None if same_account(&state, via.is_some(), &headers) => input.asked.unwrap_or(Grant::View),
+        None => {
+            return Err(ApiError {
+                status: StatusCode::FORBIDDEN,
+                message: "It is not signed in to the same Tailscale account as this machine, so pairing takes an invite: make one in this machine's Settings → Machines."
+                    .into(),
+            });
+        }
     };
     if input.peer_api != PEER_API {
         return Err(ApiError::conflict(
@@ -877,6 +952,7 @@ async fn pair(State(state): State<AppState>, Json(input): Json<PairInput>) -> Re
         .transpose()?
         .map(|url| url.to_string());
     let key = secret("tdp_");
+    let again = url.clone();
     let peer = Peer {
         id: Uuid::new_v4(),
         name: name.clone(),
@@ -887,9 +963,14 @@ async fn pair(State(state): State<AppState>, Json(input): Json<PairInput>) -> Re
         granted: Some(input.grant),
         paired_at: chrono::Utc::now().to_rfc3339(),
     };
+    // A machine pairing again replaces the pairing it had: the other side
+    // has forgotten it.
     state
         .peers
-        .change(move |peers| peers.push(peer))
+        .change(move |peers| {
+            peers.retain(|known| again.is_none() || known.url != again);
+            peers.push(peer)
+        })
         .map_err(ApiError::internal)?;
     state.activity.notify(
         json!({ "kind": "machine", "title": name }),

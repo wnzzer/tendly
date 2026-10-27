@@ -441,3 +441,139 @@ async fn a_machine_that_stopped_answering_is_shown_offline_and_says_why() {
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
 }
+
+/// Where the machine adding is reached, as its page would say.
+const HERE: &str = "http://here.tail1.ts.net";
+
+/// A fixture behind its tailnet listener, with `tailscale serve` in front
+/// saying the call comes from `caller`'s Tailscale account.
+async fn serve_on_tailnet(account: &str, caller: &'static str) -> (Fixture, SocketAddr) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let mut f = Fixture::new(address, Some("there-token"));
+    f.state.tailnet = crate::tailscale::Tailnet::new(&f.path, address.port());
+    f.state.tailnet.signed_in_as(account);
+    let app = f
+        .app()
+        .layer(axum::middleware::map_request(
+            move |mut request: Request<Body>| async move {
+                request
+                    .headers_mut()
+                    .insert("tailscale-user-login", caller.parse().unwrap());
+                request
+            },
+        ))
+        .layer(axum::Extension(security::ViaTailnet));
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap()
+    });
+    (f, address)
+}
+
+#[tokio::test]
+async fn a_machine_of_the_same_tailscale_account_pairs_without_an_invite() {
+    let (there, address) = serve_on_tailnet("me@example.com", "Me@example.com").await;
+    let here = Fixture::new("127.0.0.1:8787".parse().unwrap(), None);
+    let (status, peer) = call(
+        here.app(),
+        "POST",
+        "/api/peers",
+        json!({ "url": format!("http://{address}/"), "grant": "view", "asked": "spawn", "origin": HERE }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{peer}");
+    // Both grants were decided here, in one go.
+    assert_eq!(
+        (&peer["grant"], &peer["granted"]),
+        (&json!("view"), &json!("spawn"))
+    );
+    let (_, theirs) = call_on(&there, address, "GET", "/api/peers", Value::Null).await;
+    let back = &theirs["peers"][0];
+    assert_eq!(
+        (&back["grant"], &back["granted"]),
+        (&json!("spawn"), &json!("view"))
+    );
+
+    // Pairing again replaces the pairing there rather than adding a second.
+    here.state.peers.forget_all();
+    let (status, _) = call(
+        here.app(),
+        "POST",
+        "/api/peers",
+        json!({ "url": format!("http://{address}/"), "grant": "control", "origin": HERE }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, theirs) = call_on(&there, address, "GET", "/api/peers", Value::Null).await;
+    assert_eq!(theirs["peers"].as_array().unwrap().len(), 1);
+    assert_eq!(theirs["peers"][0]["granted"], "control");
+    assert_eq!(
+        theirs["peers"][0]["grant"], "view",
+        "nothing asked is the least"
+    );
+}
+
+#[tokio::test]
+async fn without_an_invite_another_account_or_another_listener_is_refused() {
+    let here = Fixture::new("127.0.0.1:8787".parse().unwrap(), None);
+    let pair = |address: SocketAddr| {
+        call(
+            here.app(),
+            "POST",
+            "/api/peers",
+            json!({ "url": format!("http://{address}/"), "grant": "view", "asked": "control", "origin": HERE }),
+        )
+    };
+    // Someone else's machine on a shared tailnet.
+    let (there, address) = serve_on_tailnet("me@example.com", "else@example.com").await;
+    let (status, refused) = pair(address).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{refused}");
+    assert!(
+        refused["error"]
+            .as_str()
+            .unwrap()
+            .contains("same Tailscale account")
+    );
+    let (_, theirs) = call_on(&there, address, "GET", "/api/peers", Value::Null).await;
+    assert_eq!(theirs["peers"], json!([]));
+
+    // The header means nothing off the tailnet listener, where anyone may send it.
+    let (there, address) = serve(Some("there-token")).await;
+    there.state.tailnet.signed_in_as("me@example.com");
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("http://{address}/api/peer/pair"))
+        .header("host", address.to_string())
+        .header("tailscale-user-login", "me@example.com")
+        .header("x-tendly-client", "peer")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({ "name": "forger", "url": null, "token": "tdp_".repeat(10), "grant": "view", "asked": "control", "peer_api": 1 })
+                .to_string(),
+        ))
+        .unwrap();
+    let response = there.app().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let (_, theirs) = call_on(&there, address, "GET", "/api/peers", Value::Null).await;
+    assert_eq!(theirs["peers"], json!([]));
+
+    // An address and an invite at once, or neither, is a mistake.
+    let (status, _) = call(here.app(), "POST", "/api/peers", json!({ "grant": "view" })).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    // And a machine the other could not call back is told to fix that first.
+    let (_, address) = serve_on_tailnet("me@example.com", "me@example.com").await;
+    let (status, refused) = call(
+        here.app(),
+        "POST",
+        "/api/peers",
+        json!({ "url": format!("http://{address}/"), "grant": "view" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(refused["error"].as_str().unwrap().contains("Remote access"));
+}

@@ -4,9 +4,10 @@ import Icon from './Icon.vue';
 import CopyButton from './CopyButton.vue';
 import { errorMessage, providerLabel } from './api';
 import {
-  GRANTS, GRANT_LABELS, GRANT_NOTES, addPeer, discoverPeers, invitePeer, looksLikeInvite, openPeer, peerSessions, readPeers, regrantPeer, removePeer,
+  GRANTS, GRANT_LABELS, GRANT_NOTES, addPeer, discoverPeers, foundAction, invitePeer, looksLikeInvite, openPeer, pairOnTailnet, peerSessions, readPeers, regrantPeer, removePeer,
   type Discovered, type Grant, type Invite, type Peer, type RemoteSessions,
 } from './peers';
+import { readTailnet, switchTailnet, type TailnetStatus } from './tailnet';
 import { useI18n } from '../i18n';
 
 /**
@@ -15,6 +16,10 @@ import { useI18n } from '../i18n';
  * Nothing sits between them: each machine keeps its own sessions and decides
  * what each other machine may do there. This page is where that is decided,
  * and where the other machines' sessions are seen and opened.
+ *
+ * Adding one happens here in one go: the machines of this Tailscale account
+ * are listed and pair with a click, Remote access turning on first when it is
+ * off. An invite link is for anyone else's machine, or one off the tailnet.
  */
 const emit = defineEmits<{ remote: [] }>();
 const { t } = useI18n();
@@ -22,13 +27,21 @@ const { t } = useI18n();
 const name = ref(''), peers = ref<Peer[]>(), error = ref('');
 const loading = ref(false);
 
+// What the machine being added may do here, and what this one may do there.
+// An invite carries the second already; a machine of the same account takes it.
+const here = ref<Grant>('view'), there = ref<Grant>('spawn');
 // Inviting: this machine makes a link the other one redeems.
-const inviteGrant = ref<Grant>('view'), invite = ref<Invite>(), inviteError = ref(''), inviting = ref(false);
-// Adding: the link another machine made, and what that machine may do here.
-const link = ref(''), addGrant = ref<Grant>('view'), addError = ref(''), adding = ref(false);
+const invite = ref<Invite>(), inviteError = ref(''), inviting = ref(false);
+// Adding: the link another machine made.
+const link = ref(''), addError = ref(''), adding = ref(false);
 const linkOk = computed(() => looksLikeInvite(link.value));
+const invitesOpen = ref(false);
 
+// The tailnet: how the machines find each other.
+const tailnet = ref<TailnetStatus>(), turningOn = ref(false);
+const live = computed(() => tailnet.value?.phase === 'live');
 const found = ref<Discovered[]>(), finding = ref(false), findError = ref('');
+const pairing = ref<string>(), pairErrors = ref<Record<string, string>>({});
 const open = ref<Record<string, RemoteSessions | 'loading' | { error: string }>>({});
 const confirmRemove = ref<string>(), busy = ref<string>();
 
@@ -44,18 +57,22 @@ async function load(quiet = false) {
   clearTimeout(timer);
   if (!disposed) timer = setTimeout(() => void load(true), 30000);
 }
-onMounted(() => load());
+onMounted(() => {
+  void load();
+  void readTailnet().then(status => { tailnet.value = status; }, () => {});
+  void find();
+});
 onBeforeUnmount(() => { disposed = true; clearTimeout(timer); });
 
 async function makeInvite() {
   inviting.value = true; inviteError.value = '';
-  try { invite.value = await invitePeer(inviteGrant.value); }
+  try { invite.value = await invitePeer(here.value); }
   catch (cause) { inviteError.value = errorMessage(cause); }
   finally { inviting.value = false; }
 }
 async function pair() {
   adding.value = true; addError.value = '';
-  try { await addPeer(link.value.trim(), addGrant.value); link.value = ''; await load(true); }
+  try { await addPeer(link.value.trim(), here.value); link.value = ''; await load(true); }
   catch (cause) { addError.value = errorMessage(cause); }
   finally { adding.value = false; }
 }
@@ -95,6 +112,37 @@ async function find() {
   catch (cause) { findError.value = errorMessage(cause); }
   finally { finding.value = false; }
 }
+/**
+ * Remote access on, and live: the other machine pairs back through it. Turning
+ * it on can take a minute or two the first time, while Tailscale issues the
+ * certificate.
+ */
+async function reachable(): Promise<boolean> {
+  if (live.value) return true;
+  turningOn.value = true;
+  try {
+    tailnet.value = await switchTailnet(true);
+    const until = Date.now() + 180_000;
+    while (!disposed && tailnet.value.phase === 'starting' && Date.now() < until) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      tailnet.value = await readTailnet();
+    }
+    return live.value;
+  } finally { turningOn.value = false; }
+}
+async function pairWith(machine: Discovered) {
+  pairing.value = machine.url; delete pairErrors.value[machine.url];
+  try {
+    if (!await reachable()) {
+      pairErrors.value[machine.url] = tailnet.value?.problem?.detail ?? t('Remote access did not turn on here.');
+      return;
+    }
+    await pairOnTailnet(machine.url, here.value, there.value);
+    machine.paired = true;
+    await load(true);
+  } catch (cause) { pairErrors.value[machine.url] = errorMessage(cause); }
+  finally { pairing.value = undefined; }
+}
 
 const sessionsOf = (listing: RemoteSessions, workspace: string) => listing.sessions.filter(session => session.workspace_id === workspace);
 const host = (url: string | null) => { try { return url ? new URL(url).host : ''; } catch { return url ?? ''; } };
@@ -114,7 +162,7 @@ const STATE_LABELS = { online: 'Reachable', offline: 'Unreachable', 'one-way': '
         <button type="button" class="small-button machine-refresh" :disabled="loading" :aria-label="t('Check again')" @click="load()"><Icon name="refresh" :size="13"/></button>
       </header>
       <p v-if="!peers" class="machine-hint">{{ t('Loading…') }}</p>
-      <p v-else-if="!peers.length" class="machine-hint">{{ t('None yet. Invite one from this machine, or add the invite link another machine made.') }}</p>
+      <p v-else-if="!peers.length" class="machine-hint">{{ t('None yet. Add one below.') }}</p>
       <ul v-else class="machine-list">
         <li v-for="peer in peers" :key="peer.id" class="machine-row">
           <div class="machine-line">
@@ -164,52 +212,72 @@ const STATE_LABELS = { online: 'Reachable', offline: 'Unreachable', 'one-way': '
       </ul>
     </article>
 
-    <div class="machine-pair">
-      <article class="machine-card">
-        <header><span class="machine-mark"><Icon name="upload" :size="16"/></span><strong>{{ t('Invite a machine') }}</strong></header>
-        <p class="machine-hint">{{ t('Make a link here and paste it into Settings → Machines on the other machine. It works once, for 10 minutes.') }}</p>
-        <label class="machine-field">
-          <span>{{ t('What it may do on {name}', { name: name || t('this machine') }) }}</span>
-          <select v-model="inviteGrant"><option v-for="grant in GRANTS" :key="grant" :value="grant">{{ t(GRANT_LABELS[grant]) }}</option></select>
-          <small>{{ t(GRANT_NOTES[inviteGrant]) }}</small>
-        </label>
-        <button type="button" class="primary-button" :disabled="inviting" @click="makeInvite"><Icon name="plus" :size="14"/>{{ t('Make invite link') }}</button>
-        <div v-if="invite" class="machine-invite">
-          <code>{{ invite.link }}</code><CopyButton :text="invite.link" :label="t('Copy link')"/>
-        </div>
-        <p v-if="inviteError" class="inline-error" role="alert">{{ inviteError }} <button type="button" class="link-button" @click="emit('remote')">{{ t('Remote access') }}</button></p>
-      </article>
-
-      <article class="machine-card">
-        <header><span class="machine-mark"><Icon name="download" :size="16"/></span><strong>{{ t('Add a machine') }}</strong></header>
-        <p class="machine-hint">{{ t('Paste the invite link the other machine made.') }}</p>
-        <input v-model="link" class="machine-link" type="url" spellcheck="false" autocomplete="off" placeholder="https://…#tendly-pair=…" @keydown.enter="linkOk && !adding && pair()"/>
+    <article class="machine-card machine-add">
+      <header>
+        <span class="machine-mark"><Icon name="plus" :size="16"/></span><strong>{{ t('Add a machine') }}</strong>
+        <button type="button" class="small-button machine-refresh" :disabled="finding" @click="find"><Icon name="search" :size="13"/>{{ finding ? t('Looking…') : t('Look again') }}</button>
+      </header>
+      <div class="machine-grant-pair">
         <label class="machine-field">
           <span>{{ t('What it may do here') }}</span>
-          <select v-model="addGrant"><option v-for="grant in GRANTS" :key="grant" :value="grant">{{ t(GRANT_LABELS[grant]) }}</option></select>
-          <small>{{ t(GRANT_NOTES[addGrant]) }}</small>
+          <select v-model="here" data-grant="here"><option v-for="grant in GRANTS" :key="grant" :value="grant">{{ t(GRANT_LABELS[grant]) }}</option></select>
+          <small>{{ t(GRANT_NOTES[here]) }}</small>
         </label>
-        <button type="button" class="primary-button" :disabled="!linkOk || adding" @click="pair"><Icon name="check" :size="14"/>{{ adding ? t('Pairing…') : t('Pair') }}</button>
-        <p v-if="addError" class="inline-error" role="alert">{{ addError }}</p>
-      </article>
-    </div>
+        <label class="machine-field">
+          <span>{{ t('What this machine may do there') }}</span>
+          <select v-model="there" data-grant="there"><option v-for="grant in GRANTS" :key="grant" :value="grant">{{ t(GRANT_LABELS[grant]) }}</option></select>
+          <small>{{ t('A machine of your Tailscale account takes it as asked. With an invite link, the machine that made it decides.') }}</small>
+        </label>
+      </div>
 
-    <article class="machine-card">
-      <header>
-        <span class="machine-mark"><Icon name="globe" :size="16"/></span><strong>{{ t('On your tailnet') }}</strong>
-        <button type="button" class="small-button machine-refresh" :disabled="finding" @click="find"><Icon name="search" :size="13"/>{{ finding ? t('Looking…') : t('Find Tendly') }}</button>
-      </header>
-      <p class="machine-hint">{{ t('Machines on your tailnet that run Tendly with Remote access on. Open one to make an invite there.') }}</p>
-      <p v-if="findError" class="inline-error" role="alert">{{ findError }}</p>
-      <p v-else-if="found && !found.length" class="machine-hint">{{ t('No other machine on the tailnet answers as Tendly.') }}</p>
-      <ul v-if="found?.length" class="machine-found">
-        <li v-for="machine in found" :key="machine.url">
-          <strong>{{ machine.name }}</strong><small>{{ machine.os }}<template v-if="machine.version"> · {{ machine.version }}</template></small>
-          <span v-if="machine.paired" class="machine-tag">{{ t('Paired') }}</span>
-          <span v-else-if="!machine.pairs" class="machine-tag">{{ t('Update it to pair') }}</span>
-          <a v-else class="small-button" :href="`${machine.url}settings/machines`" target="_blank" rel="noopener">{{ t('Open') }}</a>
-        </li>
-      </ul>
+      <div class="machine-tailnet">
+        <p v-if="!findError" class="machine-self">
+          <span :class="['machine-dot', { online: live }]" aria-hidden="true"/>
+          <template v-if="live">{{ t('This machine is on the tailnet as {name}.', { name: tailnet?.machine?.name ?? '' }) }}</template>
+          <template v-else-if="turningOn">{{ t('Turning on Remote access here… The first time, Tailscale issues a certificate, which can take a minute or two.') }}</template>
+          <template v-else>{{ t('Remote access is off here. Pairing turns it on, so the other machine can reach this one back.') }}</template>
+        </p>
+        <div v-if="findError" class="machine-no-tailnet" role="alert">
+          <p>{{ t('Tailscale is not connected on this machine, so the machines on your tailnet cannot be listed.') }} <button type="button" class="link-button" @click="emit('remote')">{{ t('Set it up in Remote access') }}</button></p>
+          <small>{{ findError }}</small>
+        </div>
+        <p v-else-if="!found" class="machine-hint">{{ t('Looking on your tailnet…') }}</p>
+        <p v-else-if="!found.length" class="machine-hint">{{ t('No other machine on your tailnet answers as Tendly. Turn on Remote access on it, then look again.') }}</p>
+        <ul v-else class="machine-found">
+          <li v-for="machine in found" :key="machine.url" :data-machine="machine.name">
+            <div class="machine-name"><strong>{{ machine.name }}</strong><small>{{ machine.os }}<template v-if="machine.version"> · {{ machine.version }}</template></small></div>
+            <span v-if="foundAction(machine) === 'paired'" class="machine-tag">{{ t('Paired') }}</span>
+            <span v-else-if="foundAction(machine) === 'update'" class="machine-tag">{{ t('Update it to pair') }}</span>
+            <button v-else-if="foundAction(machine) === 'invite'" type="button" class="small-button" :title="t('It is signed in to another Tailscale account.')" @click="invitesOpen = true">{{ t('Use an invite') }}</button>
+            <button v-else type="button" class="primary-button" :disabled="!!pairing" @click="pairWith(machine)"><Icon name="check" :size="14"/>{{ pairing === machine.url ? t('Pairing…') : t('Pair') }}</button>
+            <p v-if="pairErrors[machine.url]" class="inline-error" role="alert">{{ pairErrors[machine.url] }}</p>
+          </li>
+        </ul>
+      </div>
+
+      <details class="machine-invites" :open="invitesOpen" @toggle="invitesOpen = ($event.target as HTMLDetailsElement).open">
+        <summary>{{ t("Someone else's machine, or one off your tailnet: pair with an invite link") }}</summary>
+        <div class="machine-pair">
+          <div class="machine-invite-side">
+            <strong>{{ t('Invite from here') }}</strong>
+            <p class="machine-hint">{{ t('Make a link here and paste it into Settings → Machines on the other machine. It works once, for 10 minutes.') }}</p>
+            <button type="button" class="small-button" :disabled="inviting" @click="makeInvite"><Icon name="plus" :size="13"/>{{ t('Make invite link') }}</button>
+            <div v-if="invite" class="machine-invite">
+              <code>{{ invite.link }}</code><CopyButton :text="invite.link" :label="t('Copy link')"/>
+            </div>
+            <p v-if="inviteError" class="inline-error" role="alert">{{ inviteError }} <button type="button" class="link-button" @click="emit('remote')">{{ t('Remote access') }}</button></p>
+          </div>
+          <div class="machine-invite-side">
+            <strong>{{ t('Use a link from there') }}</strong>
+            <p class="machine-hint">{{ t('Paste the invite link the other machine made.') }}</p>
+            <div class="machine-link-row">
+              <input v-model="link" class="machine-link" type="url" spellcheck="false" autocomplete="off" placeholder="https://…#tendly-pair=…" @keydown.enter="linkOk && !adding && pair()"/>
+              <button type="button" class="small-button" :disabled="!linkOk || adding" @click="pair">{{ adding ? t('Pairing…') : t('Pair') }}</button>
+            </div>
+            <p v-if="addError" class="inline-error" role="alert">{{ addError }}</p>
+          </div>
+        </div>
+      </details>
     </article>
   </section>
 </template>
@@ -254,8 +322,21 @@ const STATE_LABELS = { online: 'Reachable', offline: 'Unreachable', 'one-way': '
 .machine-activity.working,.machine-activity.running{background:var(--accent)}
 .machine-activity.idle{background:var(--teal)}
 .machine-activity.waiting_for_approval{background:var(--warn)}
-.machine-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
-.machine-pair .primary-button{align-self:flex-start}
+.machine-grant-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.machine-tailnet{display:grid;gap:6px;padding-top:4px}
+.machine-self{margin:0;display:flex;align-items:center;gap:8px;font-size:var(--text-xs);line-height:1.6;color:var(--ink-soft)}
+.machine-found li .primary-button{min-height:30px;padding:0 12px;display:inline-flex;align-items:center;gap:5px}
+.machine-found li .inline-error{flex-basis:100%;margin:0 0 6px}
+.machine-no-tailnet{display:grid;gap:3px;padding:8px 10px;border-radius:var(--radius-md);background:var(--fill)}
+.machine-no-tailnet p{margin:0;font-size:var(--text-xs);line-height:1.6;color:var(--ink-soft)}
+.machine-no-tailnet small{font-size:var(--text-xs);color:var(--muted)}
+.machine-invites{border-top:1px solid var(--border);padding-top:8px}
+.machine-invites summary{cursor:pointer;font-size:var(--text-xs);color:var(--ink-soft)}
+.machine-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:10px}
+.machine-invite-side{display:flex;flex-direction:column;gap:6px;min-width:0}
+.machine-invite-side > strong{font-size:var(--text-sm);font-weight:600;color:var(--ink)}
+.machine-invite-side > .small-button{align-self:flex-start;display:inline-flex;align-items:center;gap:5px}
+.machine-link-row{display:flex;gap:6px;min-width:0}
 .machine-field{display:grid;gap:4px;font-size:var(--text-xs);color:var(--ink-soft)}
 .machine-field small{color:var(--muted);line-height:1.5}
 .machine-card select{height:32px;padding:0 8px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface);font:inherit;font-size:var(--text-sm);color:var(--ink)}
@@ -267,13 +348,13 @@ const STATE_LABELS = { online: 'Reachable', offline: 'Unreachable', 'one-way': '
 .machine-invite code{flex:1;min-width:0;overflow-x:auto;white-space:nowrap;padding:7px 9px;border-radius:var(--radius-sm);background:var(--fill);font-size:var(--text-xs);color:var(--ink)}
 .link-button{border:0;background:none;padding:0;font:inherit;color:var(--accent);text-decoration:underline;cursor:pointer}
 .machine-found{list-style:none;margin:0;padding:0;display:grid}
-.machine-found li{display:flex;align-items:center;gap:10px;min-height:36px;border-top:1px solid var(--border);font-size:var(--text-sm)}
+.machine-found li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;min-height:44px;border-top:1px solid var(--border);font-size:var(--text-sm)}
 .machine-found li strong{font-weight:600;color:var(--ink)}
 .machine-found li small{font-size:var(--text-xs);color:var(--muted)}
-.machine-found li > :last-child{margin-left:auto}
+.machine-found li > .machine-name{flex:1}
 .machine-tag{font-size:var(--text-xs);color:var(--muted)}
 @media(max-width:700px){
-  .machine-pair{grid-template-columns:minmax(0,1fr)}
+  .machine-pair,.machine-grant-pair{grid-template-columns:minmax(0,1fr)}
   .machine-remove{margin-left:0}
 }
 </style>

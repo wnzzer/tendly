@@ -375,11 +375,15 @@ pub struct TailnetPeer {
     pub host: String,
     pub os: String,
     pub online: bool,
+    /// Whether it is signed in to the same Tailscale account as this machine,
+    /// which lets the two pair without an invite.
+    pub mine: bool,
 }
 
 fn peers_from_status(status: &str) -> std::result::Result<Vec<TailnetPeer>, Problem> {
     machine_from_status(status)?;
     let status: Value = serde_json::from_str(status).unwrap_or_default();
+    let owner = status["Self"]["UserID"].as_i64();
     let mut peers: Vec<TailnetPeer> = status["Peer"]
         .as_object()
         .map(|peers| {
@@ -392,6 +396,7 @@ fn peers_from_status(status: &str) -> std::result::Result<Vec<TailnetPeer>, Prob
                         host: peer["HostName"].as_str().unwrap_or(name).to_owned(),
                         os: peer["OS"].as_str().unwrap_or("").to_owned(),
                         online: peer["Online"].as_bool().unwrap_or(false),
+                        mine: owner.is_some() && peer["UserID"].as_i64() == owner,
                     })
                 })
                 .collect()
@@ -573,6 +578,14 @@ impl Tailnet {
             .machine
             .as_ref()
             .map(|machine| machine.name.clone())
+    }
+
+    /// The Tailscale account this machine is signed in to, once known.
+    pub fn login(&self) -> Option<String> {
+        self.current()
+            .machine
+            .as_ref()
+            .and_then(|machine| machine.login.clone())
     }
 
     /// Whether a `Host` header is one the tailnet listener answers for: the
@@ -822,6 +835,16 @@ impl Tailnet {
     pub fn disabled() -> Self {
         Self::new(&std::env::temp_dir().join("tendly-no-tailnet"), 0)
     }
+
+    /// As if Tailscale had reported this machine signed in to `login`.
+    #[cfg(test)]
+    pub fn signed_in_as(&self, login: &str) {
+        self.current().machine = Some(Machine {
+            name: "here.tail1.ts.net".into(),
+            login: Some(login.into()),
+            ..Machine::default()
+        });
+    }
 }
 
 fn save(state_dir: &Path, change: impl FnOnce(&mut Saved)) {
@@ -1011,10 +1034,10 @@ mod tests {
     fn the_other_machines_are_listed_online_first_without_their_trailing_dot() {
         let status = serde_json::json!({
             "BackendState": "Running",
-            "Self": { "DNSName": "mac.tail1.ts.net.", "TailscaleIPs": ["100.64.0.1"] },
+            "Self": { "DNSName": "mac.tail1.ts.net.", "TailscaleIPs": ["100.64.0.1"], "UserID": 7 },
             "Peer": {
-                "a": { "DNSName": "zeta.tail1.ts.net.", "HostName": "zeta", "OS": "linux", "Online": true },
-                "b": { "DNSName": "alpha.tail1.ts.net.", "HostName": "alpha", "OS": "macOS", "Online": false },
+                "a": { "DNSName": "zeta.tail1.ts.net.", "HostName": "zeta", "OS": "linux", "Online": true, "UserID": 7 },
+                "b": { "DNSName": "alpha.tail1.ts.net.", "HostName": "alpha", "OS": "macOS", "Online": false, "UserID": 8 },
                 "c": { "DNSName": "", "HostName": "nameless" }
             }
         })
@@ -1023,6 +1046,10 @@ mod tests {
         let names: Vec<_> = peers.iter().map(|peer| peer.name.as_str()).collect();
         assert_eq!(names, ["zeta.tail1.ts.net", "alpha.tail1.ts.net"]);
         assert!(peers[0].online && !peers[1].online);
+        assert!(
+            peers[0].mine && !peers[1].mine,
+            "only the same account's machines are mine"
+        );
     }
 
     #[test]

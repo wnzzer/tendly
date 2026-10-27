@@ -399,12 +399,13 @@ Recording that payload requires adding a status line command to the Claude sessi
 ```text
 GET    /api/peers                      this machine's name; each paired machine and whether it answers now
 POST   /api/peers                      { invite, grant } redeem another machine's invite link
+                                       { url, grant, asked } or pair with a machine of the same Tailscale account
 POST   /api/peers/invite               { grant } a one-time invite link to this machine
 PUT    /api/peers/{id}                 { grant } what that machine may do here
 DELETE /api/peers/{id}                 unpair, on both sides
 GET    /api/peers/{id}/sessions        its workspaces and sessions
 POST   /api/peers/{id}/open            { session_id? } a link to its window, signed in once
-GET    /api/peers/discover             machines on the tailnet and whether they run Tendly
+GET    /api/peers/discover             machines on the tailnet, whether they run Tendly and whether they are this account's (mine)
 ```
 
 Requires `peers`. `grant` is `view`, `spawn` or `control`; `granted` in a listing is what the other machine allows this one. Machines call each other under `/api/peer/` (`pair`, `hello`, `granted`, `unpair`, `sessions`, `ticket`, `call`) with `X-Tendly-Client: peer` and the key the called machine issued; nothing else accepts that key. `POST /api/auth` takes `{ ticket }` as well as `{ token }`. See [Security → Paired machines](security.md#paired-machines).

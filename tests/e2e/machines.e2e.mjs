@@ -30,25 +30,33 @@ async function machinesPage(browser, gateway) {
   await page.locator('.machine-card .machine-hint, .machine-row').first().waitFor();
   return page;
 }
+/** The invite links, folded under the tailnet list. */
+async function invites(page) {
+  await page.locator('.machine-invites summary').click();
+  return page.locator('.machine-invites');
+}
 const row = (page, name) => page.locator('.machine-row').filter({ has: page.locator('.machine-name strong', { hasText: name }) });
-/** Page errors, less the 404 a page address gets when the page is served from disk (see settings-mobile). */
-const pageErrors = errors => errors.filter(error => !/^404 GET \/settings(\/\w+)?$/.test(error));
+/**
+ * Page errors, less the 404 a page address gets when the page is served from
+ * disk (see settings-mobile), and the tailnet this machine may not have.
+ */
+const pageErrors = errors => errors.filter(error => !/^404 GET \/settings(\/\w+)?$/.test(error) && !/ GET \/api\/peers\/discover$/.test(error));
 
 test('an invite made on one machine pairs it with another, each granting its own', async () => {
   const invitePage = await machinesPage(theirs, there);
-  const invite = invitePage.locator('.machine-pair .machine-card').nth(0);
-  await invite.locator('select').selectOption('control');
+  await invitePage.locator('select[data-grant="here"]').selectOption('control');
+  const invite = await invites(invitePage);
   await invite.getByRole('button', { name: '生成邀请链接' }).click();
   const link = (await invite.locator('.machine-invite code').innerText()).trim();
   assert.match(link, new RegExp(`^${there.base}/#tendly-pair=[0-9A-F]{12}$`));
 
   const page = await machinesPage(mine, here);
-  const add = page.locator('.machine-pair .machine-card').nth(1);
+  const add = (await invites(page)).locator('.machine-invite-side').nth(1);
   const pair = add.getByRole('button', { name: '配对' });
   await add.locator('input.machine-link').fill('https://example.com/not-an-invite');
   assert.equal(await pair.isDisabled(), true, 'a link without a code is not offered');
   await add.locator('input.machine-link').fill(link);
-  await add.locator('select').selectOption('spawn');
+  await page.locator('select[data-grant="here"]').selectOption('spawn');
   await pair.click();
   const peer = row(page, 'box-there');
   await peer.waitFor();
@@ -131,9 +139,9 @@ test('a grant lowered there is what this machine sees, and removing the pairing 
 
   await peer.getByRole('button', { name: '移除' }).click();
   await peer.getByRole('button', { name: '移除（两边同时）' }).click();
-  await page.getByText('还没有。可以从本机发出邀请').waitFor();
+  await page.getByText('还没有，可以在下方添加。').waitFor();
   await theirPage.reload();
-  await theirPage.getByText('还没有。可以从本机发出邀请').waitFor();
+  await theirPage.getByText('还没有，可以在下方添加。').waitFor();
   assert.deepEqual(pageErrors(theirs.errors), []);
 });
 
