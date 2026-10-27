@@ -43,6 +43,13 @@ pub fn kill_group(pid: u32) -> bool {
     }
 }
 
+/// Hang up the process group led by `pid`, as closing its terminal would: what
+/// an interactive shell, which ignores SIGTERM, answers to.
+#[cfg(unix)]
+pub fn hangup_group(pid: u32) -> bool {
+    signal_group(pid, libc::SIGHUP)
+}
+
 #[cfg(unix)]
 fn signal_group(pid: u32, signal: libc::c_int) -> bool {
     // SAFETY: a positive pid > 1 addresses only the group this server created.

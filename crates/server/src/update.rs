@@ -7,8 +7,10 @@
 //! its kind of install instead of being guessed at.
 //!
 //! Installing and restarting are separate steps on purpose. A restart stops
-//! every running session (`reconcile_after_restart` marks them stopped), so the
-//! new version waits on disk until someone chooses when to pay that.
+//! every running session but the terminals in their own hosts, which the new
+//! server attaches to again (`reconcile_after_restart_keeping` marks the rest
+//! stopped), so the new version waits on disk until someone chooses when to
+//! pay that.
 use crate::{ApiError, AppState, Result, daemon, db};
 use axum::{
     Json, Router,
@@ -61,7 +63,7 @@ pub fn remember_executable() {
     });
 }
 
-fn executable() -> Option<&'static Path> {
+pub(crate) fn executable() -> Option<&'static Path> {
     remember_executable();
     EXECUTABLE.get().and_then(|path| path.as_deref())
 }

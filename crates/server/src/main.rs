@@ -194,6 +194,18 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
         println!("tendly {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
+    // Holds one terminal for the server that started it, and for the next one
+    // after a restart. Its stdout says when it is listening, and nothing else.
+    #[cfg(unix)]
+    if action == "pty-host" {
+        let mut arguments = env::args().skip(2);
+        let (Some(socket), Some(id)) = (arguments.next(), arguments.next()) else {
+            return Err("usage: tendly pty-host <socket> <session>".into());
+        };
+        return tendly_runtime::host::serve(socket.into(), id)
+            .await
+            .map_err(|error| error.to_string().into());
+    }
     // A relay to the running server: no state directory, database or port.
     // Its stdout is the protocol, so nothing else may print there.
     if action == "mcp" {
@@ -300,9 +312,18 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // Node modules inside it and has to place them first.
     installation::place_native_bridge(&state_dir)?;
     let paired = peers::Peers::new(&state_dir);
+    // Terminals live in hosts of their own, so a restart or an update leaves
+    // them running for this server's successor to attach to.
+    let runtime = match update::executable() {
+        Some(program) => RuntimeManager::with_host(tendly_runtime::HostConfig {
+            program: program.to_owned(),
+            dir: providers::private_dir(&state_dir.join("pty")).map_err(|e| e.message)?,
+        }),
+        None => RuntimeManager::new(),
+    };
     let state = AppState {
         store,
-        runtime: RuntimeManager::new(),
+        runtime,
         native_bridge: installation::native_bridge(&state_dir),
         #[cfg(test)]
         chat_fixture: None,
@@ -333,7 +354,8 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let app = router(state.clone());
     // Reconcile only after startup has passed all configuration, binding and
     // ownership checks. `locked_database` stays alive through graceful shutdown.
-    state.store.reconcile_after_restart()?;
+    let attached = session_routes::reattach_hosted(&state).await;
+    state.store.reconcile_after_restart_keeping(&attached)?;
     tracing::info!(%address,db=%database.display(),"Tendly listening (trusted single-user host mode)");
     let tailnet_server = tokio::spawn(
         axum::serve(

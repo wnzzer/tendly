@@ -271,6 +271,12 @@ pub(super) async fn start_session(
         s.set_session_status(id, SessionStatus::Running)
     })
     .await?;
+    watch_exit(&state, id, runtime);
+    Ok(Json(session_record(&state, id).await?))
+}
+
+/// Record the process's end once it comes, unless a newer start replaced it.
+fn watch_exit(state: &AppState, id: SessionId, runtime: Arc<RuntimeSession>) {
     let watcher = state.clone();
     tokio::spawn(async move {
         let code = runtime.wait().await;
@@ -299,7 +305,44 @@ pub(super) async fn start_session(
             .await;
         }
     });
-    Ok(Json(session_record(&state, id).await?))
+}
+
+/// Attach to the terminals an earlier server left in their hosts, and end the
+/// ones no session is waiting for. Returns the sessions still running.
+pub(super) async fn reattach_hosted(state: &AppState) -> Vec<SessionId> {
+    let mut attached = Vec::new();
+    for (name, socket) in state.runtime.hosted() {
+        let id = name.parse::<SessionId>().ok();
+        // A temporary session goes at a restart, so its terminal does too.
+        let wanted = match id {
+            Some(id) => db(state, move |s| s.get_session(id))
+                .await
+                .ok()
+                .flatten()
+                .filter(|session| {
+                    session.interaction_mode == InteractionMode::Pty
+                        && matches!(session.status, SessionStatus::Running)
+                        && !session.ephemeral
+                })
+                .map(|session| session.id),
+            None => None,
+        };
+        let Some(id) = wanted else {
+            state.runtime.discard(name, socket).await;
+            continue;
+        };
+        match state.runtime.attach(name, socket.clone()).await {
+            Ok(runtime) => {
+                watch_exit(state, id, runtime);
+                attached.push(id);
+            }
+            Err(error) => {
+                tracing::warn!(%error, %id, "could not attach to a terminal host");
+                let _ = std::fs::remove_file(&socket);
+            }
+        }
+    }
+    attached
 }
 pub(super) async fn stop_session(
     State(state): State<AppState>,

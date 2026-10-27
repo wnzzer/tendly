@@ -152,6 +152,12 @@ impl Store {
     }
 
     pub fn reconcile_after_restart(&self) -> Result<()> {
+        self.reconcile_after_restart_keeping(&[])
+    }
+
+    /// As `reconcile_after_restart`, leaving `kept` running: terminals whose
+    /// hosts outlived the server and have been attached to again.
+    pub fn reconcile_after_restart_keeping(&self, kept: &[SessionId]) -> Result<()> {
         let mut connection = self.connection.lock().expect("sqlite lock");
         let tx = connection.transaction()?;
         let ids = {
@@ -163,10 +169,20 @@ impl Store {
         for id in ids {
             conversations::append(&tx, id, serde_json::json!({"type":"exit"}))?;
         }
-        tx.execute(
-            "UPDATE sessions SET status='stopped', error='Server restarted; reconnect history is unavailable. Restart the CLI and use its native resume command.', updated_at=?1 WHERE status IN ('running','starting','waiting')",
-            [Utc::now().to_rfc3339()],
-        )?;
+        let stopped = {
+            let mut statement = tx.prepare(
+                "SELECT id FROM sessions WHERE status IN ('running','starting','waiting')",
+            )?;
+            statement
+                .query_map([], |r| parse_uuid(r.get(0)?))?
+                .collect::<Result<Vec<_>>>()?
+        };
+        for id in stopped.into_iter().filter(|id| !kept.contains(id)) {
+            tx.execute(
+                "UPDATE sessions SET status='stopped', error='Server restarted; reconnect history is unavailable. Restart the CLI and use its native resume command.', updated_at=?1 WHERE id=?2",
+                params![Utc::now().to_rfc3339(), id.to_string()],
+            )?;
+        }
         // A temporary session cannot outlive the process it was opened for, so
         // a restart clears it instead of leaving a stopped record behind. That
         // is the clutter the flag exists to avoid.

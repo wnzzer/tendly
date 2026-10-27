@@ -21,6 +21,8 @@ use std::{
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use tokio::sync::{Notify, broadcast, oneshot};
 
+#[cfg(unix)]
+pub mod host;
 pub mod process;
 
 const DEFAULT_COLS: u16 = 120;
@@ -34,7 +36,7 @@ const REPLAY_LIMIT_BYTES: usize = 1024 * 1024;
 pub type RuntimeError = Box<dyn std::error::Error + Send + Sync>;
 pub type RuntimeResult<T> = Result<T, RuntimeError>;
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct SpawnSpec {
     pub program: String,
     pub args: Vec<String>,
@@ -81,6 +83,37 @@ struct RuntimeInner {
     exit_code: Mutex<Option<Option<i32>>>,
     exit_notify: Notify,
     reader_done: AtomicBool,
+    /// Held by a `pty-host` process rather than this one: the server going
+    /// away leaves it running, and a later server attaches to it again.
+    hosted: bool,
+}
+
+impl RuntimeInner {
+    fn new(
+        commands: SyncSender<Control>,
+        killer: Option<Box<dyn portable_pty::ChildKiller + Send + Sync>>,
+        process_id: Option<u32>,
+        hosted: bool,
+    ) -> Arc<Self> {
+        let (events, _) = broadcast::channel(512);
+        Arc::new(Self {
+            running: AtomicBool::new(true),
+            next_seq: AtomicU64::new(0),
+            emit_lock: Mutex::new(()),
+            replay: Mutex::new(Replay {
+                events: VecDeque::new(),
+                output_bytes: 0,
+            }),
+            events,
+            commands,
+            killer: Mutex::new(killer),
+            process_id,
+            exit_code: Mutex::new(None),
+            exit_notify: Notify::new(),
+            reader_done: AtomicBool::new(false),
+            hosted,
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -189,6 +222,12 @@ impl RuntimeSession {
         self.inner.running.load(Ordering::Acquire)
     }
 
+    /// Whether a `pty-host` process holds this session's terminal, so that it
+    /// outlives this server.
+    pub fn hosted(&self) -> bool {
+        self.inner.hosted
+    }
+
     /// Wait for child reaping without blocking a Tokio worker thread.
     pub async fn wait(&self) -> Option<i32> {
         loop {
@@ -224,6 +263,11 @@ impl RuntimeSession {
         {
             let _ = killer.kill();
         }
+        // A hosted session's killer is in its host; this is what it would send.
+        #[cfg(unix)]
+        if self.inner.hosted {
+            signal_group(self.inner.process_id, process::hangup_group);
+        }
         if tokio::time::timeout(Duration::from_secs(3), self.wait())
             .await
             .is_err()
@@ -254,6 +298,34 @@ impl RuntimeSession {
         self.publish(RuntimeEvent::Exited { seq, code });
     }
 
+    #[cfg(unix)]
+    /// Publish an event numbered elsewhere: a hosted session's events keep
+    /// the host's sequence numbers, so a view can resume across a restart.
+    fn emit_numbered(&self, event: RuntimeEvent) {
+        let _guard = self
+            .inner
+            .emit_lock
+            .lock()
+            .expect("runtime emit mutex poisoned");
+        let (RuntimeEvent::Output { seq, .. } | RuntimeEvent::Exited { seq, .. }) = &event;
+        self.inner.next_seq.fetch_max(*seq, Ordering::AcqRel);
+        self.publish(event);
+    }
+
+    /// Record the exit after its event is published, and wake every waiter.
+    fn finish(&self, code: Option<i32>) {
+        *self
+            .inner
+            .exit_code
+            .lock()
+            .expect("runtime exit mutex poisoned") = Some(code);
+        self.inner.exit_notify.notify_waiters();
+        // Called on a dedicated thread (never an async worker), so it is safe
+        // to wait for the bounded writer queue to drain and guarantee the
+        // writer thread is asked to terminate even when input saturated it.
+        let _ = self.inner.commands.send(Control::Shutdown);
+    }
+
     fn publish(&self, event: RuntimeEvent) {
         let _ = self.inner.events.send(event.clone());
         let mut replay = self
@@ -276,9 +348,18 @@ impl RuntimeSession {
     }
 }
 
+/// Where hosted terminals live: the program that runs `pty-host`, and the
+/// private directory their sockets are made in.
+#[derive(Clone, Debug)]
+pub struct HostConfig {
+    pub program: PathBuf,
+    pub dir: PathBuf,
+}
+
 #[derive(Clone, Default)]
 pub struct RuntimeManager {
     sessions: Arc<RwLock<HashMap<String, Arc<RuntimeSession>>>>,
+    host: Option<Arc<HostConfig>>,
 }
 
 impl RuntimeManager {
@@ -286,8 +367,72 @@ impl RuntimeManager {
         Self::default()
     }
 
+    /// Start sessions in `pty-host` processes, so they outlive this server.
+    /// Only Unix has them; elsewhere this is the same as `new`.
+    pub fn with_host(host: HostConfig) -> Self {
+        Self {
+            host: cfg!(unix).then(|| Arc::new(host)),
+            ..Self::default()
+        }
+    }
+
+    pub fn host(&self) -> Option<&HostConfig> {
+        self.host.as_deref()
+    }
+
     pub async fn start(&self, id: String, spec: SpawnSpec) -> RuntimeResult<Arc<RuntimeSession>> {
         validate_spawn(&id, &spec)?;
+        let host = self.host.clone();
+        self.register(id, move |id| {
+            #[cfg(unix)]
+            if let Some(host) = host {
+                match host::spawn(&host, id, &spec) {
+                    Ok(session) => return Ok(session),
+                    // A terminal that dies with the server beats none at all.
+                    Err(error) => tracing::warn!(%error, "pty host failed; running in process"),
+                }
+            }
+            #[cfg(not(unix))]
+            let _ = host;
+            spawn_runtime(id.to_owned(), spec)
+        })
+        .await
+    }
+
+    /// The sessions hosts are still holding from an earlier server, by id.
+    pub fn hosted(&self) -> Vec<(String, PathBuf)> {
+        #[cfg(unix)]
+        if let Some(host) = &self.host {
+            return host::hosted(host);
+        }
+        Vec::new()
+    }
+
+    /// Take over a session a `pty-host` is still holding from an earlier server.
+    pub async fn attach(&self, id: String, socket: PathBuf) -> RuntimeResult<Arc<RuntimeSession>> {
+        #[cfg(unix)]
+        return self.register(id, move |id| host::attach(id, &socket)).await;
+        #[cfg(not(unix))]
+        {
+            let _ = (id, socket);
+            Err("terminal hosts need Unix".into())
+        }
+    }
+
+    /// End a host no session is waiting for, or clear the socket of one that
+    /// is already gone.
+    pub async fn discard(&self, id: String, socket: PathBuf) {
+        #[cfg(unix)]
+        host::discard(id, socket).await;
+        #[cfg(not(unix))]
+        let _ = (id, socket);
+    }
+
+    async fn register(
+        &self,
+        id: String,
+        spawn: impl FnOnce(&str) -> RuntimeResult<Arc<RuntimeSession>> + Send + 'static,
+    ) -> RuntimeResult<Arc<RuntimeSession>> {
         let registry = self.sessions.clone();
         tokio::task::spawn_blocking(move || {
             let mut sessions=registry.write().expect("runtime sessions lock poisoned");
@@ -297,7 +442,7 @@ impl RuntimeManager {
             if sessions.len()>=128 && !sessions.contains_key(&id) {
                 return Err("Runtime registry is full (128 sessions). Restart the server to release stopped replay buffers.".into());
             }
-            let session=spawn_runtime(id.clone(),spec)?;
+            let session=spawn(&id)?;
             sessions.insert(id,session.clone());
             Ok(session)
         }).await.map_err(|error| -> RuntimeError { Box::new(error) })?
@@ -329,12 +474,15 @@ impl RuntimeManager {
         session.stop().await
     }
 
+    /// Stop the sessions this process holds. Hosted ones are left to their
+    /// hosts, for the next server to attach to.
     pub async fn shutdown(&self) {
         let sessions: Vec<_> = self
             .sessions
             .read()
             .expect("runtime sessions lock poisoned")
             .values()
+            .filter(|session| !session.hosted())
             .cloned()
             .collect();
         for session in sessions {
@@ -344,6 +492,12 @@ impl RuntimeManager {
 }
 
 fn spawn_runtime(id: String, spec: SpawnSpec) -> RuntimeResult<Arc<RuntimeSession>> {
+    spawn_local(id, spec, false)
+}
+
+/// Own the child and its PTY in this process. `hosted` marks the session a
+/// `pty-host` keeps for a server, which never matters inside the host itself.
+fn spawn_local(id: String, spec: SpawnSpec, hosted: bool) -> RuntimeResult<Arc<RuntimeSession>> {
     let pty = native_pty_system();
     let pair = pty.openpty(PtySize {
         rows: DEFAULT_ROWS,
@@ -369,23 +523,7 @@ fn spawn_runtime(id: String, spec: SpawnSpec) -> RuntimeResult<Arc<RuntimeSessio
     let writer = pair.master.take_writer()?;
     let master: Arc<Mutex<Box<dyn MasterPty + Send>>> = Arc::new(Mutex::new(pair.master));
     let (commands, command_rx) = mpsc::sync_channel(INPUT_QUEUE_CAPACITY);
-    let (events, _) = broadcast::channel(512);
-    let inner = Arc::new(RuntimeInner {
-        running: AtomicBool::new(true),
-        next_seq: AtomicU64::new(0),
-        emit_lock: Mutex::new(()),
-        replay: Mutex::new(Replay {
-            events: VecDeque::new(),
-            output_bytes: 0,
-        }),
-        events,
-        commands,
-        killer: Mutex::new(Some(child.clone_killer())),
-        process_id,
-        exit_code: Mutex::new(None),
-        exit_notify: Notify::new(),
-        reader_done: AtomicBool::new(false),
-    });
+    let inner = RuntimeInner::new(commands, Some(child.clone_killer()), process_id, hosted);
     let started = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_nanos());
@@ -482,16 +620,7 @@ fn runtime_wait_loop(mut child: Box<dyn Child + Send + Sync>, session: Arc<Runti
     });
     session.inner.running.store(false, Ordering::Release);
     session.emit_exited(code);
-    *session
-        .inner
-        .exit_code
-        .lock()
-        .expect("runtime exit mutex poisoned") = Some(code);
-    session.inner.exit_notify.notify_waiters();
-    // This is a dedicated waiter thread (never an async worker), so it is safe
-    // to wait for the bounded writer queue to drain and guarantee the writer
-    // thread is asked to terminate even when input saturated the queue.
-    let _ = session.inner.commands.send(Control::Shutdown);
+    session.finish(code);
 }
 
 fn control_queue_error(error: TrySendError<Control>) -> RuntimeError {

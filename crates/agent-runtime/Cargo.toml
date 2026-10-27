@@ -8,6 +8,8 @@ license.workspace = true
 portable-pty.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
