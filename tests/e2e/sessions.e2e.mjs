@@ -80,24 +80,24 @@ test('each kind of session is made from the workspace menu and opens in a pane',
   assert.deepEqual(browser.errors, []);
 });
 
-test('the draft tab creates a configured session in its place', async () => {
+test('the new-session dialog creates a configured session and opens it', async () => {
   await workspace(); await blankCanvas();
   const page = await openApp();
   await page.locator('.new-session-more > summary').click();
   await page.locator('.new-session-menu button', { hasText: '自定义新建会话' }).click();
-  const draft = page.locator('.session-draft');
+  const draft = page.getByRole('dialog', { name: '新建会话' });
   await draft.waitFor();
   const title = draft.locator('input[maxlength="120"]'), create = draft.locator('.dialog-actions .primary-button');
   await title.fill('');
   assert.ok(await create.isDisabled(), 'an empty name cannot be created');
-  await draft.locator('select').first().selectOption('codex');
+  await draft.locator('.session-kinds label', { hasText: 'Codex' }).click();
   await title.fill('起草的会话');
   const before = await listed();
   await create.click();
   const session = await createdSince(before);
   assert.equal(session.title, '起草的会话'); assert.equal(session.provider, 'codex');
   await page.locator(`[data-pane-tab-id="session-${session.id}"]`).waitFor();
-  assert.equal(await page.locator('.session-draft').count(), 0, 'the draft became the session');
+  await draft.waitFor({ state: 'detached' });
   assert.equal((await sidebarRow(page, session.id).locator('.workspace-session-title').innerText()).trim(), '起草的会话');
   assert.deepEqual(browser.errors, []);
 });

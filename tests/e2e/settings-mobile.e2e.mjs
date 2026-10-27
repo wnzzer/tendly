@@ -205,7 +205,7 @@ test('the language is this browser\'s: English survives a reload, and Chinese co
     assert.equal(await page.evaluate(() => document.documentElement.lang), 'en');
     await page.reload();
     await page.locator('.settings-nav-item', { hasText: 'Endpoint profiles' }).waitFor();
-    assert.deepEqual(await page.locator('.settings-nav-item').allInnerTexts(), ['Preferences', 'Agent clients', 'Endpoint profiles', 'Official accounts', 'Remote access', 'Updates']);
+    assert.deepEqual(await page.locator('.settings-nav-item').allInnerTexts(), ['Preferences', 'Agent clients', 'Endpoint profiles', 'Official accounts', 'Remote access', 'Machines', 'Updates']);
     await page.getByLabel('Language').selectOption('zh-CN');
     await page.locator('.settings-nav-item', { hasText: '端点配置' }).waitFor();
     assert.deepEqual(pageErrors(), []);
@@ -337,7 +337,7 @@ test('a new session given an endpoint profile keeps it and launches the client o
   const profile = await browser.api('/endpoint-profiles', profileInput({ name }));
   const { page } = await canvasPage();
   await prefix(page, 'C');
-  const draft = page.locator('.session-draft-card');
+  const draft = page.getByRole('dialog', { name: '新建会话' });
   await draft.locator('label', { hasText: '端点配置' }).locator('select').selectOption(profile.id);
   await draft.getByText(endpoint.url).waitFor();
   await draft.getByRole('button', { name: '创建会话' }).click();
