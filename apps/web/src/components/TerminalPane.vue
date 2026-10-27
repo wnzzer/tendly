@@ -332,6 +332,10 @@ function terminalKeydown(event: KeyboardEvent) {
   if (clipboard) {
     event.preventDefault(); event.stopPropagation();
     if (clipboard === "paste") { void pressPaste(); return; }
+    // A copy event lets the terminal hand over its own selection, scrolled-off
+    // history included, and works over plain http, where navigator.clipboard
+    // does not exist.
+    if (document.execCommand("copy")) return;
     const text = window.getSelection()?.toString();
     if (text) void navigator.clipboard?.writeText(text).catch(() => undefined);
     return;
