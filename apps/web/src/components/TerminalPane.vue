@@ -7,7 +7,7 @@ import TerminalUploads from "./TerminalUploads.vue";
 import { useI18n } from "../i18n";
 import { createSessionStream, TERMINAL_VIEW_ERROR, type SessionStreamState } from "../features/session-stream";
 import { onPageReturn } from "../features/page-return";
-import { arrowSequence, ctrlSequence, ENTER_SEQUENCE, ESCAPE_SEQUENCE, isTap, repeatArrow, selectionPresses, shiftSequence, tabSequence, type ArrowKey } from "../features/terminal-keys";
+import { arrowSequence, ctrlSequence, ENTER_SEQUENCE, isTap, keyClient, repeatArrow, selectionPresses, shiftSequence, tabSequence, type ArrowKey } from "../features/terminal-keys";
 import { terminalDark as dark } from "../features/theme";
 import { textScale } from "../features/appearance";
 import { terminalEngine } from "../features/terminal-engine";
@@ -27,7 +27,8 @@ const { t } = useI18n();
  * is chosen once per browser (`terminal-engine.ts`); the pane talks to either
  * through `TerminalView` and owns everything around it.
  */
-const props = defineProps<{ sessionId: string }>();
+/** `provider` is the program the session runs, which decides the keys on the bar. */
+const props = defineProps<{ sessionId: string; provider?: string }>();
 const emit = defineEmits<{ exit: []; status: [connected: boolean] }>();
 const host = ref<HTMLDivElement>();
 const state = ref<SessionStreamState>("connecting");
@@ -203,6 +204,16 @@ function sendKeys(sequence: string) {
   shiftArmed.value = false;
   stream.send(new TextEncoder().encode(sequence));
 }
+/**
+ * A key on the bar that is more than one press, such as Esc twice: each press
+ * is its own write, a moment apart, as a hand would make them.
+ */
+async function sendPresses(presses: readonly string[]) {
+  for (const [index, press] of presses.entries()) {
+    if (index) await new Promise(done => setTimeout(done, 60));
+    sendKeys(press);
+  }
+}
 function pressArrow(key: ArrowKey) {
   if (!view?.ready) return;
   sendKeys(arrowSequence(key, view.applicationCursorKeys(), { shift: shiftArmed.value, ctrl: ctrlArmed.value }));
@@ -273,18 +284,16 @@ function cancelPaste() {
   pasteDraft.value = undefined;
   focusView();
 }
-/**
- * Bring up the on-screen keyboard by focusing the terminal's own input target.
- * A mobile browser only opens it from inside a real gesture, which is why this
- * runs on click and why the other controls refuse focus instead of taking it.
- */
-function showKeyboard() { focusView(); }
 /** Keep the caret in the terminal so tapping a control never closes the keyboard. */
 function keepFocus(event: Event) { event.preventDefault(); }
 
 let gesture: { x: number; y: number; at: number } | undefined;
 function gestureStart(event: PointerEvent) { gesture = { x: event.clientX, y: event.clientY, at: Date.now() }; }
 /**
+ * A tap on the terminal: by default the keyboard comes up, since that is where
+ * the person wants to type and a phone opens it only from inside a gesture;
+ * with row selection armed, the tapped row is selected instead.
+ *
  * Tap a row to move the selection to it.
  *
  * The distance from the cursor row to the tapped row is a number of arrow
@@ -295,9 +304,13 @@ function gestureStart(event: PointerEvent) { gesture = { x: event.clientX, y: ev
 function gestureEnd(event: PointerEvent) {
   const start = gesture;
   gesture = undefined;
-  if (!start || !tapSelect.value || !view?.ready) return;
+  if (!start || !view?.ready) return;
   const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y);
   if (!isTap({ movedPx: moved, elapsedMs: Date.now() - start.at, hasSelection: view.hasSelection() })) return;
+  if (!tapSelect.value) {
+    if (event.pointerType !== "mouse") focusView();
+    return;
+  }
   const target = view.tappedRow(event.clientY);
   if (!target) return;
   const move = selectionPresses(target.cursor, target.row);
@@ -453,9 +466,10 @@ onUnmounted(() => {
     <button v-if="scrolledBack" type="button" :class="['terminal-latest', { 'above-keys': touchDevice, 'above-more': touchDevice && moreKeys }]" :aria-label="t('Jump to latest output')" :title="t('Jump to latest output')" @pointerdown="keepFocus" @click="scrollToLatest"><Icon name="chevron" :size="14" /><span>{{ t('Latest') }}</span></button>
     <TerminalKeyBar
       v-if="touchDevice"
+      :client="keyClient(provider)"
       v-model:ctrl-armed="ctrlArmed" v-model:shift-armed="shiftArmed" v-model:tap-select="tapSelect" v-model:more-keys="moreKeys"
-      @escape="sendKeys(ESCAPE_SEQUENCE)" @tab="sendKeys(tabSequence({ shift: shiftArmed }))" @slash="sendKeys('/')"
-      @arrow="pressArrow" @enter="sendKeys(ENTER_SEQUENCE)" @paste="pressPaste" @pick-files="pickFiles" @keyboard="showKeyboard"
+      @keys="sendPresses" @tab="sendKeys(tabSequence({ shift: shiftArmed }))"
+      @arrow="pressArrow" @enter="sendKeys(ENTER_SEQUENCE)" @paste="pressPaste" @pick-files="pickFiles"
     />
     <form v-if="pasteDraft !== undefined" class="terminal-paste" @submit.prevent="sendPaste" @keydown.esc.prevent="cancelPaste">
       <textarea ref="pasteField" v-model="pasteDraft" :aria-label="t('Text to paste')" :placeholder="t('Long-press here to paste text, a photo or a file, then send it to the terminal')" @paste="onFieldPaste" />

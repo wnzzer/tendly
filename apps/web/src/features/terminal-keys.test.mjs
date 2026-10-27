@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { arrowSequence, repeatArrow, selectionPresses, isTap, ctrlSequence, shiftSequence, tabSequence, ENTER_SEQUENCE, ESCAPE_SEQUENCE, TAB_SEQUENCE, BACKTAB_SEQUENCE } from './terminal-keys.ts';
+import { arrowSequence, repeatArrow, selectionPresses, isTap, ctrlSequence, shiftSequence, tabSequence, ENTER_SEQUENCE, ESCAPE_SEQUENCE, TAB_SEQUENCE, BACKTAB_SEQUENCE, FIXED_KEYS, KEY_LAYOUTS, isFixedKey, keyClient, keyTitle } from './terminal-keys.ts';
+import { zhCN } from '../i18n/index.ts';
 
 test('arrow keys use the encoding the terminal state asks for', () => {
   // Outside application cursor mode the CSI form is what a shell expects.
@@ -80,9 +81,12 @@ test('the terminal surface exposes the controls and keeps them out of the scroll
   // Without these the feature does not exist, however correct the helpers are.
   assert.match(source, /terminal-keys/);
   assert.match(source, /class="terminal-keys"/);
-  for (const label of ['Escape', 'Ctrl', 'Shift', 'Tab', 'Arrow left', 'Arrow up', 'Arrow down', 'Arrow right', 'Enter', 'Paste', 'Keyboard']) assert.ok(source.includes(`t('${label}')`), `${label} control is present`);
-  // Shift+Tab is Shift armed and then Tab, not a second Tab-looking button.
-  assert.doesNotMatch(source, />⇧Tab</);
+  for (const label of ['Arrow left', 'Arrow up', 'Arrow down', 'Arrow right', 'Enter', 'Ctrl', 'Shift', 'Paste', 'Photo or file', 'Tap a row to select it']) assert.ok(source.includes(`t('${label}')`) || source.includes(`"${label}"`), `${label} control is present`);
+  // The keys themselves come from the layouts, one per program the terminal runs.
+  assert.match(source, /KEY_LAYOUTS\[props\.client\]/);
+  assert.match(pane, /:client="keyClient\(provider\)"/);
+  // Tapping the terminal brings the keyboard up, so the bar has no key for it.
+  assert.doesNotMatch(source, /t\('Keyboard'\)/);
   const styles = readFileSync(new URL('./workflows.css', import.meta.url), 'utf8');
   // Floating, not a row of the terminal: a full-screen program has been told
   // how tall the screen is, and taking a row back would misalign its redraws.
@@ -113,7 +117,9 @@ test('ctrl is a one-shot modifier on what the soft keyboard types', () => {
   // letter, and it releases after one key so it cannot stick on unnoticed.
   assert.match(source, /ctrlArmed\.value\) \{ ctrlArmed\.value = false; data = ctrlSequence\(data\)/);
   const bar = readFileSync(new URL('../components/TerminalKeyBar.vue', import.meta.url), 'utf8');
-  assert.match(bar, /:aria-pressed="ctrlArmed"/);
+  // And the bar says whether it is armed.
+  assert.match(bar, /:aria-pressed="armed\(slot\)"/);
+  assert.match(bar, /slot === "ctrl" \? ctrlArmed\.value/);
 });
 
 test('paste reads the clipboard where it may and falls back to a field where it may not', () => {
@@ -130,4 +136,58 @@ test('paste reads the clipboard where it may and falls back to a field where it 
   // wterm has no paste of its own: the view wraps it when the program asked for bracketed paste.
   const wterm = readFileSync(new URL('./terminal-view-wterm.ts', import.meta.url), 'utf8');
   assert.match(wterm, /bracketedPaste\(\) \? `\\x1b\[200~\$\{body\}\\x1b\[201~`/);
+});
+
+test('each fixed key sends what the physical key would', () => {
+  const sent = Object.fromEntries(Object.entries(FIXED_KEYS).map(([id, key]) => [id, key.send.join('|')]));
+  assert.deepEqual(sent, {
+    esc: '\x1b', escEsc: '\x1b|\x1b', shiftTab: '\x1b[Z', tab: '\t', slash: '/', newline: '\n',
+    ctrlA: '\x01', ctrlC: '\x03', ctrlD: '\x04', ctrlE: '\x05', ctrlL: '\x0c', ctrlO: '\x0f', ctrlR: '\x12', ctrlT: '\x14', ctrlZ: '\x1a',
+  });
+  // The control codes agree with what the one-shot Ctrl makes of the same letter.
+  for (const [id, letter] of [['ctrlA', 'a'], ['ctrlC', 'c'], ['ctrlD', 'd'], ['ctrlE', 'e'], ['ctrlL', 'l'], ['ctrlO', 'o'], ['ctrlR', 'r'], ['ctrlT', 't'], ['ctrlZ', 'z'], ['newline', 'j']]) {
+    assert.equal(FIXED_KEYS[id].send[0], ctrlSequence(letter), id);
+  }
+  // Esc twice is two presses: one write of two escapes reads as Alt+Esc.
+  assert.equal(FIXED_KEYS.escEsc.send.length, 2);
+});
+
+test('the bar puts each program\'s everyday keys first, and only keys it has', () => {
+  assert.equal(keyClient('claude_code'), 'claude_code');
+  assert.equal(keyClient('codex'), 'codex');
+  for (const other of ['terminal', 'pi', undefined, null]) assert.equal(keyClient(other), 'shell');
+  // Claude Code and Codex: interrupt, change mode, cancel, commands, from their own `?` lists.
+  for (const client of ['claude_code', 'codex']) {
+    assert.deepEqual(KEY_LAYOUTS[client].main.slice(0, 4), ['esc', 'shiftTab', 'ctrlC', 'slash'], client);
+    assert.ok(KEY_LAYOUTS[client].more.includes('newline'), `${client} has a new line that does not send`);
+  }
+  assert.ok(KEY_LAYOUTS.claude_code.more.includes('ctrlO'), 'Claude Code: verbose output');
+  assert.ok(KEY_LAYOUTS.codex.more.includes('ctrlR'), 'Codex: search history');
+  assert.deepEqual(KEY_LAYOUTS.shell.main.slice(0, 4), ['tab', 'ctrlC', 'ctrlR', 'ctrlD']);
+  for (const [client, { main, more }] of Object.entries(KEY_LAYOUTS)) {
+    // Upright on a phone, the first row holds at most ten keys and ⋯.
+    assert.ok(main.length <= 10, `${client} main row fits a phone`);
+    for (const slot of ['left', 'up', 'down', 'right', 'enter']) assert.ok(main.includes(slot), `${client} keeps ${slot}`);
+    // The one-shot modifiers stay, for any combination not listed.
+    assert.ok(more.includes('ctrl') && more.includes('shift'), client);
+    const all = [...main, ...more];
+    assert.equal(new Set(all).size, all.length, `${client} shows no key twice`);
+  }
+});
+
+test('every key says what it does, in both languages, and what each client does with it', () => {
+  for (const client of Object.keys(KEY_LAYOUTS)) {
+    for (const slot of [...KEY_LAYOUTS[client].main, ...KEY_LAYOUTS[client].more].filter(isFixedKey)) {
+      const title = keyTitle(client, slot);
+      assert.ok(zhCN[title], `missing translation: ${title}`);
+      const { label, translated } = FIXED_KEYS[slot];
+      // Key names stay as keyboards print them; only words are translated.
+      if (translated) assert.ok(zhCN[label], `missing translation: ${label}`);
+      else assert.match(label, /^[\^⇧×A-Za-z0-9\/ ]+$/, `${slot} is a key name`);
+    }
+  }
+  assert.match(keyTitle('claude_code', 'escEsc'), /clear the input/);
+  assert.match(keyTitle('codex', 'escEsc'), /edit the last message/);
+  assert.match(keyTitle('codex', 'ctrlT'), /transcript/);
+  assert.match(keyTitle('claude_code', 'ctrlT'), /tasks/);
 });

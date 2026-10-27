@@ -107,3 +107,83 @@ export function repeatArrow(key: ArrowKey, count: number, applicationCursorKeys:
 export function isTap(gesture: { movedPx: number; elapsedMs: number; hasSelection: boolean }): boolean {
   return !gesture.hasSelection && gesture.movedPx <= 10 && gesture.elapsedMs <= 500;
 }
+
+/**
+ * Which program a terminal runs, for the keys its bar puts within reach.
+ * Claude Code and Codex share most of theirs; a shell wants other ones.
+ */
+export type KeyClient = "claude_code" | "codex" | "shell";
+export function keyClient(provider?: string | null): KeyClient {
+  return provider === "claude_code" || provider === "codex" ? provider : "shell";
+}
+
+/**
+ * A key on the bar that sends fixed bytes. `send` holds one write per key
+ * press: Esc twice is two presses, because a single write of two escapes reads
+ * to a client as Alt+Esc rather than as Esc pressed twice.
+ */
+export interface FixedKey { label: string; title: string; send: string[]; translated?: boolean }
+
+/**
+ * Every fixed key the bar can show. The control codes are what a physical
+ * keyboard sends for Ctrl and the letter; the titles say what the clients do
+ * with them, as each client's own `?` shortcut list describes it.
+ */
+export const FIXED_KEYS = {
+  esc: { label: "Esc", title: "Escape · interrupt or dismiss", send: [ESCAPE_SEQUENCE] },
+  escEsc: { label: "Esc×2", title: "Escape twice", send: [ESCAPE_SEQUENCE, ESCAPE_SEQUENCE] },
+  shiftTab: { label: "⇧Tab", title: "Shift+Tab · change mode", send: [BACKTAB_SEQUENCE] },
+  tab: { label: "Tab", title: "Tab", send: [TAB_SEQUENCE] },
+  slash: { label: "/", title: "Slash · command menu", send: ["/"] },
+  newline: { label: "⏎ New line", title: "New line without sending (Ctrl+J)", send: ["\n"], translated: true },
+  ctrlA: { label: "^A", title: "Ctrl+A · start of line", send: ["\x01"] },
+  ctrlC: { label: "^C", title: "Ctrl+C · cancel", send: ["\x03"] },
+  ctrlD: { label: "^D", title: "Ctrl+D · end of input", send: ["\x04"] },
+  ctrlE: { label: "^E", title: "Ctrl+E · end of line", send: ["\x05"] },
+  ctrlL: { label: "^L", title: "Ctrl+L · clear the screen", send: ["\x0c"] },
+  ctrlO: { label: "^O", title: "Ctrl+O · verbose output", send: ["\x0f"] },
+  ctrlR: { label: "^R", title: "Ctrl+R · search history", send: ["\x12"] },
+  ctrlT: { label: "^T", title: "Ctrl+T", send: ["\x14"] },
+  ctrlZ: { label: "^Z", title: "Ctrl+Z · suspend", send: ["\x1a"] },
+} as const satisfies Record<string, FixedKey>;
+export type FixedKeyId = keyof typeof FIXED_KEYS;
+
+/** What a client does with a key, where that differs from the key's own title. */
+const CLIENT_TITLES: Partial<Record<KeyClient, Partial<Record<FixedKeyId, string>>>> = {
+  claude_code: { escEsc: "Escape twice · clear the input", ctrlT: "Ctrl+T · show or hide tasks" },
+  codex: { escEsc: "Escape twice · edit the last message", ctrlT: "Ctrl+T · open the transcript", tab: "Tab · queue the message" },
+};
+export function keyTitle(client: KeyClient, id: FixedKeyId): string {
+  return CLIENT_TITLES[client]?.[id] ?? FIXED_KEYS[id].title;
+}
+
+/** A place on the bar: a fixed key, an arrow, Enter, or a one-shot modifier. */
+export type BarSlot = FixedKeyId | ArrowKey | "enter" | "ctrl" | "shift";
+
+/**
+ * What each client's bar holds. The first row fits a phone held upright and
+ * has the keys used many times a session; the rest fold behind ⋯. Ctrl and
+ * Shift stay as one-shot modifiers there, for any combination not listed.
+ */
+export const KEY_LAYOUTS: Record<KeyClient, { main: BarSlot[]; more: BarSlot[] }> = {
+  claude_code: {
+    main: ["esc", "shiftTab", "ctrlC", "slash", "left", "up", "down", "right", "enter"],
+    more: ["newline", "escEsc", "ctrlO", "ctrlT", "tab", "ctrl", "shift"],
+  },
+  codex: {
+    main: ["esc", "shiftTab", "ctrlC", "slash", "left", "up", "down", "right", "enter"],
+    more: ["newline", "escEsc", "ctrlR", "ctrlT", "tab", "ctrl", "shift"],
+  },
+  shell: {
+    main: ["tab", "ctrlC", "ctrlR", "ctrlD", "left", "up", "down", "right", "enter"],
+    more: ["esc", "ctrlL", "ctrlZ", "ctrlA", "ctrlE", "ctrl", "shift"],
+  },
+};
+/** A key's label: a key's own name stays as printed on keyboards; words are translated. */
+export function keyLabel(id: FixedKeyId, t: (text: string) => string): string {
+  const key: FixedKey = FIXED_KEYS[id];
+  return key.translated ? t(key.label) : key.label;
+}
+export function isFixedKey(slot: BarSlot): slot is FixedKeyId {
+  return slot in FIXED_KEYS;
+}
