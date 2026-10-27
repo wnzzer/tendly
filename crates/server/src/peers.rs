@@ -43,7 +43,6 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
-    collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -55,6 +54,8 @@ use uuid::Uuid;
 /// peer speaking another, rather than half-working with it.
 const PEER_API: u64 = 1;
 const STATE_FILE: &str = "peers.json";
+/// Which sessions started which, across machines, kept over a restart.
+const LINKS_FILE: &str = "peer-sessions.json";
 const INVITE_LIFETIME: Duration = Duration::from_secs(10 * 60);
 const TICKET_LIFETIME: Duration = Duration::from_secs(60);
 /// Wrong invite codes tolerated before every open invite is withdrawn.
@@ -108,19 +109,32 @@ struct Ticket {
     until: Instant,
 }
 
+/// Which sessions started which across machines. Kept in a file of its own,
+/// so a restart on either side neither lets a session follow what it could
+/// not before, nor loses what it started.
+#[derive(Default, Serialize, Deserialize)]
+struct Links {
+    /// Sessions here that a paired machine started: they cannot start more.
+    #[serde(default)]
+    children: Vec<(SessionId, Uuid)>,
+    /// Sessions on other machines (by machine and id there) that a session
+    /// here started, and only it may follow.
+    #[serde(default)]
+    remote_children: Vec<(SessionId, Uuid, String)>,
+    /// Sessions here the person let start sessions on other machines.
+    #[serde(default)]
+    remote_spawners: Vec<SessionId>,
+}
+
 #[derive(Default)]
 struct Inner {
     path: PathBuf,
+    links_path: PathBuf,
+    links: Mutex<Links>,
     peers: Mutex<Vec<Peer>>,
     invites: Mutex<Vec<Invite>>,
     failures: Mutex<u32>,
     tickets: Mutex<Vec<Ticket>>,
-    /// Sessions here that a paired machine started, until restart.
-    children: Mutex<HashMap<SessionId, Uuid>>,
-    /// Sessions on other machines that a session here started.
-    remote_children: Mutex<HashSet<(SessionId, Uuid, String)>>,
-    /// Sessions here the person let start sessions on other machines.
-    remote_spawners: Mutex<HashSet<SessionId>>,
 }
 
 #[derive(Clone, Default)]
@@ -160,9 +174,16 @@ impl Peers {
             .ok()
             .and_then(|text| serde_json::from_str(&text).ok())
             .unwrap_or_default();
+        let links_path = state_dir.join(LINKS_FILE);
+        let links = std::fs::read_to_string(&links_path)
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default();
         Self(Arc::new(Inner {
             path,
             peers: Mutex::new(peers),
+            links_path,
+            links: Mutex::new(links),
             ..Inner::default()
         }))
     }
@@ -271,32 +292,78 @@ impl Peers {
         }
     }
 
+    fn links(&self) -> std::sync::MutexGuard<'_, Links> {
+        self.0.links.lock().expect("peer links")
+    }
+
+    /// Change the links and keep them. A failure to write is logged, not
+    /// returned: the session it concerns has started already.
+    fn link(&self, change: impl FnOnce(&mut Links) -> bool) {
+        let mut links = self.links();
+        if !change(&mut links) || self.0.links_path.as_os_str().is_empty() {
+            return;
+        }
+        let saved = serde_json::to_string_pretty(&*links)
+            .map_err(std::io::Error::other)
+            .and_then(|text| {
+                if let Some(parent) = self.0.links_path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                crate::security::write_owner_only(&self.0.links_path, &text)
+            });
+        if let Err(error) = saved {
+            tracing::warn!(%error, "could not keep which sessions started which across machines");
+        }
+    }
+
     /// Whether another machine started this session.
     pub fn started_by_peer(&self, session: SessionId) -> bool {
-        self.0
-            .children
-            .lock()
-            .expect("peer children")
-            .contains_key(&session)
+        self.links().children.iter().any(|(id, _)| *id == session)
     }
 
     fn adopt(&self, session: SessionId, peer: Uuid) {
-        self.0
-            .children
-            .lock()
-            .expect("peer children")
-            .insert(session, peer);
+        self.link(|links| {
+            links.children.push((session, peer));
+            true
+        });
     }
 
     fn children_of(&self, peer: Uuid) -> Vec<SessionId> {
-        self.0
+        self.links()
             .children
-            .lock()
-            .expect("peer children")
             .iter()
-            .filter(|(_, owner)| **owner == peer)
+            .filter(|(_, owner)| *owner == peer)
             .map(|(id, _)| *id)
             .collect()
+    }
+
+    /// Whether `session` here started `id` on `peer`.
+    fn started_there(&self, session: SessionId, peer: Uuid, id: &str) -> bool {
+        self.links()
+            .remote_children
+            .iter()
+            .any(|(by, on, there)| *by == session && *on == peer && there == id)
+    }
+
+    fn started(&self, session: SessionId, peer: Uuid, id: &str) {
+        self.link(|links| {
+            links.remote_children.push((session, peer, id.to_owned()));
+            true
+        });
+    }
+
+    fn may_start_elsewhere(&self, session: SessionId) -> bool {
+        self.links().remote_spawners.contains(&session)
+    }
+
+    fn let_start_elsewhere(&self, session: SessionId) {
+        self.link(|links| {
+            let new = !links.remote_spawners.contains(&session);
+            if new {
+                links.remote_spawners.push(session);
+            }
+            new
+        });
     }
 
     fn name_of(&self, id: Uuid) -> Option<String> {
@@ -769,6 +836,50 @@ async fn remote_sessions(
     .map(Json)
 }
 
+/// Every paired machine's sessions at once, for the sidebar. Each machine is
+/// asked in parallel and given a few seconds; one that does not answer, or
+/// does not let this machine see, is listed with why.
+async fn all_sessions(State(state): State<AppState>) -> Json<Value> {
+    let looks = state.peers.list().into_iter().map(|peer| async move {
+        let mut out = json!({
+            "id": peer.id,
+            "name": peer.name,
+            "granted": peer.granted,
+            "online": null,
+            "workspaces": [],
+            "sessions": [],
+        });
+        if peer.url.is_none() {
+            out["problem"] = json!("No address this machine can reach");
+            return out;
+        }
+        match call(
+            &peer,
+            reqwest::Method::GET,
+            "/api/peer/sessions",
+            None,
+            GLANCE,
+        )
+        .await
+        {
+            Ok(listing) => {
+                out["online"] = json!(true);
+                if !listing["grant"].is_null() {
+                    out["granted"] = listing["grant"].clone();
+                }
+                out["workspaces"] = listing["workspaces"].clone();
+                out["sessions"] = listing["sessions"].clone();
+            }
+            Err(error) => {
+                out["online"] = json!(false);
+                out["problem"] = json!(error.message);
+            }
+        }
+        out
+    });
+    Json(json!({ "machines": futures_util::future::join_all(looks).await }))
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OpenInput {
@@ -845,6 +956,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/peers", get(list).post(add))
         .route("/api/peers/invite", post(invite))
         .route("/api/peers/discover", get(discover))
+        .route("/api/peers/sessions", get(all_sessions))
         .route("/api/peers/{id}", put(regrant).delete(remove))
         .route("/api/peers/{id}/sessions", get(remote_sessions))
         .route("/api/peers/{id}/open", post(open))
@@ -1303,18 +1415,10 @@ pub async fn forward(
         match name {
             "tendly_spawn" => prepare_spawn(state, caller, session, &peer, &mut arguments).await?,
             "tendly_session" => {
-                if let Some(id) = text(&arguments, "id") {
-                    let key = (session, peer.id, id.to_owned());
-                    if !state
-                        .peers
-                        .0
-                        .remote_children
-                        .lock()
-                        .expect("remote children")
-                        .contains(&key)
-                    {
-                        return Err(ApiError::bad("That is not a session you started there"));
-                    }
+                if let Some(id) = text(&arguments, "id")
+                    && !state.peers.started_there(session, peer.id, id)
+                {
+                    return Err(ApiError::bad("That is not a session you started there"));
                 }
             }
             _ => {}
@@ -1333,25 +1437,11 @@ pub async fn forward(
     }
     let mut value = answer["ok"].clone();
     if let Some(session) = owner {
-        let mine = |id: &str| {
-            state
-                .peers
-                .0
-                .remote_children
-                .lock()
-                .expect("remote children")
-                .contains(&(session, peer.id, id.to_owned()))
-        };
+        let mine = |id: &str| state.peers.started_there(session, peer.id, id);
         match name {
             "tendly_spawn" => {
                 if let Some(id) = value["started"]["id"].as_str() {
-                    state
-                        .peers
-                        .0
-                        .remote_children
-                        .lock()
-                        .expect("remote children")
-                        .insert((session, peer.id, id.to_owned()));
+                    state.peers.started(session, peer.id, id);
                 }
                 value["machine"] = json!(peer.name);
                 value["next"] = json!(format!(
@@ -1395,13 +1485,7 @@ async fn prepare_spawn(
         object.remove("workspace_id");
     }
     let start = agent_sessions::start_of(arguments, true)?;
-    let first = !state
-        .peers
-        .0
-        .remote_spawners
-        .lock()
-        .expect("remote spawners")
-        .contains(&session);
+    let first = !state.peers.may_start_elsewhere(session);
     if first {
         let excerpt: String = start.prompt.chars().take(300).collect();
         let answer = state
@@ -1423,13 +1507,7 @@ async fn prepare_spawn(
                 "The person declined. No session was started.",
             ));
         }
-        state
-            .peers
-            .0
-            .remote_spawners
-            .lock()
-            .expect("remote spawners")
-            .insert(session);
+        state.peers.let_start_elsewhere(session);
     }
     Ok(())
 }
@@ -1610,6 +1688,42 @@ mod tests {
             let url = url::Url::parse(page).unwrap();
             assert_eq!(reachable_elsewhere(&url), offered, "{page}");
         }
+    }
+
+    #[test]
+    fn which_session_started_which_survives_a_restart_on_either_side() {
+        let dir = std::env::temp_dir().join(format!("tendly-peers-{}", Uuid::new_v4()));
+        let (here, there, machine) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        {
+            let peers = Peers::new(&dir);
+            peers.adopt(there, machine);
+            peers.started(here, machine, "remote-1");
+            peers.let_start_elsewhere(here);
+            peers.let_start_elsewhere(here);
+        }
+        let reloaded = Peers::new(&dir);
+        assert!(
+            reloaded.started_by_peer(there),
+            "a peer's session still cannot start more"
+        );
+        assert_eq!(reloaded.children_of(machine), [there]);
+        assert!(reloaded.started_there(here, machine, "remote-1"));
+        assert!(
+            !reloaded.started_there(there, machine, "remote-1"),
+            "only by the session that started it"
+        );
+        assert!(reloaded.may_start_elsewhere(here) && !reloaded.may_start_elsewhere(there));
+        assert_eq!(reloaded.links().remote_spawners.len(), 1);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dir.join(LINKS_FILE))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

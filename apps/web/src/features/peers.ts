@@ -35,7 +35,7 @@ export interface Discovered {
   /** Signed in to the same Tailscale account as this machine: it pairs without an invite. */
   mine: boolean;
 }
-export interface RemoteSession { id: string; title: string; provider: string; status: string; workspace_id: string; branch: string | null; activity: string }
+export interface RemoteSession { id: string; title: string; provider: string; status: string; workspace_id: string; branch: string | null; activity: string; temporary?: boolean }
 export interface RemoteSessions { name: string; grant: Grant; workspaces: { id: string; name: string }[]; sessions: RemoteSession[] }
 
 const origin = () => typeof location === "undefined" ? undefined : location.origin;
@@ -49,6 +49,55 @@ export const removePeer = (id: string) => request<void>(`/peers/${encodeURICompo
 export const peerSessions = (id: string) => request<RemoteSessions>(`/peers/${encodeURIComponent(id)}/sessions`);
 export const openPeer = (id: string, sessionId?: string) => request<{ url: string }>(`/peers/${encodeURIComponent(id)}/open`, json("POST", sessionId ? { session_id: sessionId } : {}));
 export const discoverPeers = () => request<Discovered[]>("/peers/discover");
+
+/** GET /api/peers/sessions: every paired machine's sessions, each asked for at once. */
+export interface MachineSessions {
+  id: string; name: string; granted: Grant | null;
+  /** `null` when it has no address this machine can reach. */
+  online: boolean | null; problem?: string;
+  workspaces: { id: string; name: string }[]; sessions: RemoteSession[];
+}
+export const allPeerSessions = () => request<{ machines: MachineSessions[] }>("/peers/sessions");
+
+/**
+ * How a session there is doing. A chat session says so itself; a terminal one
+ * says only whether its process runs.
+ */
+export type RemoteState = "waiting" | "working" | "idle" | "stopped";
+export function remoteState(session: RemoteSession): RemoteState {
+  if (session.activity === "waiting_for_approval" || session.status === "waiting") return "waiting";
+  if (session.activity === "working" || session.activity === "starting") return "working";
+  if (session.activity === "idle") return "idle";
+  return session.status === "running" || session.status === "starting" ? "working" : "stopped";
+}
+export interface MachineRow extends RemoteSession { workspace: string; state: RemoteState }
+/**
+ * A machine as the sidebar shows it: the sessions the search matches, those
+ * waiting or working first, the rest newest first as the machine listed them,
+ * and how many more there are than fit.
+ */
+export function sidebarMachine(machine: MachineSessions, query = "", limit = 8) {
+  const needle = query.trim().toLocaleLowerCase();
+  const names = new Map(machine.workspaces.map(workspace => [workspace.id, workspace.name]));
+  const all: MachineRow[] = machine.sessions
+    .filter(session => !session.temporary)
+    .map(session => ({ ...session, workspace: names.get(session.workspace_id) ?? "", state: remoteState(session) }));
+  const matches = !needle || machine.name.toLocaleLowerCase().includes(needle)
+    ? all
+    : all.filter(row => row.title.toLocaleLowerCase().includes(needle) || row.workspace.toLocaleLowerCase().includes(needle));
+  const rank: Record<RemoteState, number> = { waiting: 0, working: 1, idle: 2, stopped: 2 };
+  const ordered = matches.map((row, index) => ({ row, index }))
+    .sort((a, b) => rank[a.row.state] - rank[b.row.state] || a.index - b.index)
+    .map(({ row }) => row);
+  return {
+    rows: ordered.slice(0, limit),
+    more: Math.max(0, ordered.length - limit),
+    waiting: all.filter(row => row.state === "waiting").length,
+    working: all.filter(row => row.state === "working").length,
+    /** A search that matches nothing here hides the machine. */
+    hidden: Boolean(needle) && !matches.length,
+  };
+}
 
 /**
  * What a machine found on the tailnet offers: pairing in one click when it is

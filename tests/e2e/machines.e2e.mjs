@@ -109,6 +109,25 @@ test("the other machine's sessions are listed here and open there, signed in by 
   assert.equal((await mine.api('/auth')).authenticated, true);
 });
 
+test("the other machine's sessions are in this one's sidebar, and open in its window", async () => {
+  const page = await mine.newPage();
+  await page.goto(here.base + '/');
+  const machine = page.locator('.other-machine[data-machine="box-there"]');
+  const session = machine.locator('.other-machine-session', { hasText: 'claude_code e2e' });
+  await session.waitFor();
+  assert.match(await session.getAttribute('title'), /claude_code e2e · E2E/);
+  const [popup] = await Promise.all([mine.context.waitForEvent('page'), session.click()]);
+  await popup.waitForURL(url => url.origin === there.base && url.pathname === `/session/${remote.sessions[0].id}`, { timeout: 15000 });
+  await popup.close();
+  // Folded, it stays folded.
+  await machine.locator('.other-machine-header').click();
+  await page.reload();
+  await machine.locator('.other-machine-header[aria-expanded="false"]').waitFor();
+  assert.equal(await session.isVisible(), false);
+  await machine.locator('.other-machine-header').click();
+  await page.close();
+});
+
 test("an agent here lists the other machine's sessions by naming it", async () => {
   const machines = await mine.api('/agent/call', { name: 'tendly_machines' });
   assert.equal(machines.isError, false);
@@ -136,6 +155,11 @@ test('a grant lowered there is what this machine sees, and removing the pairing 
   assert.equal(await peer.getByRole('button', { name: '打开它的窗口' }).count(), 0);
   const opened = await mine.context.request.post(here.base + `/api/peers/${await peerId()}/open`, { headers: { 'X-Tendly-Client': 'web' }, data: {} });
   assert.equal(opened.status(), 403, 'and its window no longer opens');
+
+  const side = await mine.newPage();
+  await side.goto(here.base + '/');
+  await side.locator('.other-machine[data-machine="box-there"] .other-machine-session.viewonly').first().waitFor({ timeout: 10000 });
+  await side.close();
 
   await peer.getByRole('button', { name: '移除' }).click();
   await peer.getByRole('button', { name: '移除（两边同时）' }).click();

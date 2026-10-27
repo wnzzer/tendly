@@ -376,6 +376,7 @@ async fn shared_canvas_uses_existing_authentication_and_health_capabilities() {
         ("POST", "/api/peers"),
         ("POST", "/api/peers/invite"),
         ("GET", "/api/peers/discover"),
+        ("GET", "/api/peers/sessions"),
     ] {
         assert_eq!(
             call(f.app(), method, path, json!({"value":"x"})).await.0,

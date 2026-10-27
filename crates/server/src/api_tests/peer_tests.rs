@@ -101,6 +101,15 @@ async fn a_machine_pairs_by_invite_and_reaches_only_what_it_was_granted() {
     assert_eq!(status, StatusCode::OK, "{remote}");
     assert_eq!(remote["workspaces"][0]["name"], "shared");
     assert_eq!(remote["sessions"][0]["title"], "remote work");
+    // The sidebar asks every machine at once.
+    let (status, all) = call(here.app(), "GET", "/api/peers/sessions", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{all}");
+    let machine = &all["machines"][0];
+    assert_eq!(
+        (&machine["online"], &machine["granted"]),
+        (&json!(true), &json!("view"))
+    );
+    assert_eq!(machine["sessions"][0]["title"], "remote work");
 
     // An agent here lists the workspaces there by naming the machine.
     let (_, listed) = call(
@@ -422,6 +431,15 @@ async fn a_machine_that_stopped_answering_is_shown_offline_and_says_why() {
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT);
+    let (status, all) = call(here.app(), "GET", "/api/peers/sessions", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "the sidebar still gets the others");
+    assert_eq!(all["machines"][0]["online"], false);
+    assert!(
+        all["machines"][0]["problem"]
+            .as_str()
+            .unwrap()
+            .contains("cannot be reached")
+    );
     let (_, answer) = call(
         here.app(),
         "POST",

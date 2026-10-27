@@ -404,6 +404,7 @@ POST   /api/peers/invite               { grant } a one-time invite link to this 
 PUT    /api/peers/{id}                 { grant } what that machine may do here
 DELETE /api/peers/{id}                 unpair, on both sides
 GET    /api/peers/{id}/sessions        its workspaces and sessions
+GET    /api/peers/sessions             every paired machine's sessions at once, each with online and problem (the sidebar)
 POST   /api/peers/{id}/open            { session_id? } a link to its window, signed in once
 GET    /api/peers/discover             machines on the tailnet, whether they run Tendly and whether they are this account's (mine)
 ```

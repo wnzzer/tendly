@@ -15,6 +15,7 @@ import { lastQuickProvider } from "./quick-session";
 import { AGENT_CLIENTS } from "./clients";
 import SidebarSessionRow from "./SidebarSessionRow.vue";
 import MenuFlyout from "./MenuFlyout.vue";
+import OtherMachines from "./OtherMachines.vue";
 
 const props = withDefaults(defineProps<{
   workspaces: Workspace[];
@@ -58,6 +59,8 @@ const emit = defineEmits<{
   keepSession: [session: Session];
   refreshSessions: [];
   revealSession: [id: string];
+  /** Settings → Machines, from the other machines' list. */
+  machines: [];
 }>();
 const { t } = useI18n();
 const query = ref("");
@@ -209,6 +212,7 @@ defineExpose({ revealSession });
       </section>
       <div v-if="workspaces.length && !groups.length" class="workspace-nav-empty"><Icon name="search" :size="22" /><p>{{ t('No matching workspaces or sessions.') }}</p><button class="text-button" @click="query = ''">{{ t('Clear navigation search') }}</button></div>
       <div v-else-if="!workspaces.length" class="workspace-nav-empty"><Icon name="folder" :size="24" /><p>{{ t('Add your first workspace') }}</p><button class="secondary-button" @click="emit('addWorkspace')"><Icon name="plus" :size="14" />{{ t('Add workspace') }}</button></div>
+      <OtherMachines :query="query" @settings="emit('machines')" />
     </nav>
   </div>
 </template>
