@@ -63,9 +63,9 @@ fn may_make(state: &AppState, listed: &workspace_io::GitBranches, branch: &str) 
         .ok_or_else(|| ApiError::bad("Not a Git repository"))?;
     let planned = workspace_io::worktree_path(std::path::Path::new(&main.path), branch)?;
     let parent = planned.parent().and_then(|p| p.parent()).map(PathBuf::from);
-    if !parent.is_some_and(|p| directories::within_roots(&state.workspace_roots, &p)) {
+    if !parent.is_some_and(|p| directories::within_roots(&state.roots.workspace(), &p)) {
         return Err(ApiError::bad(
-            "The worktree would sit outside the roots this server may use. Set TENDLY_WORKSPACE_ROOTS to allow it.",
+            "The worktree would sit outside the folders Tendly may use. Add its folder in Settings → Preferences → Available folders, on the machine Tendly runs on.",
         ));
     }
     Ok(planned)
@@ -87,9 +87,9 @@ async fn recorded(
     {
         return Ok(None);
     }
-    if !directories::within_roots(&state.workspace_roots, &canonical) {
+    if !directories::within_roots(&state.roots.workspace(), &canonical) {
         return Err(ApiError::bad(
-            "That worktree is outside the roots this server may use. Set TENDLY_WORKSPACE_ROOTS to allow it.",
+            "That worktree is outside the folders Tendly may use. Add its folder in Settings → Preferences → Available folders, on the machine Tendly runs on.",
         ));
     }
     Ok(Some(canonical.to_string_lossy().into_owned()))
@@ -341,7 +341,7 @@ pub async fn session_cwd(state: &AppState, session: &Session) -> Result<PathBuf>
         .ok()
         .filter(|p| p.is_dir());
     match canonical {
-        Some(dir) if valid && directories::within_roots(&state.workspace_roots, &dir) => Ok(dir),
+        Some(dir) if valid && directories::within_roots(&state.roots.workspace(), &dir) => Ok(dir),
         _ => Err(ApiError::conflict(format!(
             "This session's worktree {path} is no longer available. Choose another branch for it."
         ))),

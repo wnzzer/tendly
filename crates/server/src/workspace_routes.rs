@@ -36,9 +36,9 @@ pub(super) async fn create_workspace(
     // Creating a workspace is what decides which part of the host this server
     // can read and write, so it is bounded like browsing is. Workspaces that
     // already exist are untouched: this is a rule about new ones.
-    if !directories::within_roots(&state.workspace_roots, &canonical) {
+    if !directories::within_roots(&state.roots.workspace(), &canonical) {
         return Err(ApiError::bad(
-            "That directory is outside the roots this server may use. Set TENDLY_WORKSPACE_ROOTS to allow it.",
+            "That directory is outside the folders Tendly may use. Add its folder in Settings → Preferences → Available folders, on the machine Tendly runs on.",
         ));
     }
     let path = canonical.to_string_lossy().into_owned();

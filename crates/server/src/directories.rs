@@ -57,17 +57,32 @@ pub fn roots() -> Result<Vec<PathBuf>, IoError> {
             }
             paths
         }
-        None => {
-            let mut paths = vec![env::current_dir().map_err(IoError::from)?];
-            if let Some(home) = env::var_os("HOME").or_else(|| env::var_os("USERPROFILE"))
-                && !home.is_empty()
-            {
-                paths.push(PathBuf::from(home));
-            }
-            paths
-        }
+        None => default_roots()?,
     };
     canonical_roots(candidates)
+}
+
+/// The working directory and the home folder: where code lives on macOS and
+/// Linux, so a default that rarely turns anyone away.
+#[cfg(not(windows))]
+fn default_roots() -> Result<Vec<PathBuf>, IoError> {
+    let mut paths = vec![env::current_dir().map_err(IoError::from)?];
+    if let Some(home) = env::var_os("HOME").filter(|home| !home.is_empty()) {
+        paths.push(PathBuf::from(home));
+    }
+    Ok(paths)
+}
+
+/// Every drive. On Windows code lives wherever there was room — `D:\code`,
+/// `E:\work` — rather than under the home folder, so the macOS default turned
+/// away the first workspace most people tried to add. A drive with nothing in
+/// it (an empty card reader) is not a directory and is left out.
+#[cfg(windows)]
+fn default_roots() -> Result<Vec<PathBuf>, IoError> {
+    Ok(('A'..='Z')
+        .map(|letter| PathBuf::from(format!("{letter}:\\")))
+        .filter(|drive| drive.is_dir())
+        .collect())
 }
 
 /// Where a new workspace may be rooted.

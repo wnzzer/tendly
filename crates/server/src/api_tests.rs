@@ -78,9 +78,11 @@ impl Fixture {
             store: Arc::new(Store::open(":memory:").unwrap()),
             runtime: RuntimeManager::new(),
             state_dir: path.join("state"),
-            browse_roots: vec![dunce::canonicalize(path.join("repo")).unwrap()],
+            roots: crate::host_roots::HostRoots::fixed(
+                vec![dunce::canonicalize(path.join("repo")).unwrap()],
+                vec![dunce::canonicalize(&path).unwrap()],
+            ),
             host_grants: crate::host_grants::HostGrants::default(),
-            workspace_roots: vec![dunce::canonicalize(&path).unwrap()],
             native_sources: Vec::new(),
             native_bridge: PathBuf::from("packages/native-bridge/history.mjs"),
             chat_fixture: Some(

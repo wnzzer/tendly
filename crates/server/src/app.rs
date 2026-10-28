@@ -8,10 +8,10 @@ pub(super) struct AppState {
     pub(super) store: Arc<Store>,
     pub(super) runtime: RuntimeManager,
     pub(super) state_dir: PathBuf,
-    pub(super) browse_roots: Vec<PathBuf>,
+    /// Where the picker may browse and a workspace may be (`host_roots.rs`).
+    pub(super) roots: host_roots::HostRoots,
     /// Files and folders the person opened to the read-only preview, until restart.
     pub(super) host_grants: host_grants::HostGrants,
-    pub(super) workspace_roots: Vec<PathBuf>,
     pub(super) native_sources: Vec<native_history::NativeSource>,
     pub(super) native_bridge: PathBuf,
     #[cfg(test)]
@@ -155,7 +155,7 @@ pub(super) async fn checkout_root(
     let listed = workspace_io::parse_worktrees(&listing)
         .into_iter()
         .any(|tree| !tree.main && dunce::canonicalize(&tree.path).is_ok_and(|path| path == wanted));
-    if !listed || !directories::within_roots(&state.workspace_roots, &wanted) {
+    if !listed || !directories::within_roots(&state.roots.workspace(), &wanted) {
         return Err(ApiError::bad(
             "Not a worktree of this workspace's repository",
         ));

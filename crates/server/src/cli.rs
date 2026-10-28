@@ -236,7 +236,8 @@ file:
   tailscale = true        # publish to the tailnet (same as --tailscale)
 
 Any other key names the TENDLY_ variable it spells: shell, claude-bin,
-instance-label, allowed-origins = ["http://..."], and so on.
+instance-label, allowed-origins = ["http://..."], and so on. Folder lists
+take single quotes on Windows: workspace-roots = ['E:\code', 'D:\work']
 
 Listens on 127.0.0.1:28789 otherwise. A binding that reaches other machines
 needs an access token; one is generated and kept in the state directory unless a

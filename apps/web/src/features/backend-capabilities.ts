@@ -8,7 +8,7 @@ export function capabilitiesFor(health: BackendHealth) {
     clients: has("agent_clients", false), ephemeralSessions: has("ephemeral_sessions", false), sessionTerminalEscape: has("session_terminal_escape", false),
     customBalances: has("custom_balances", false), storedSecrets: has("stored_secrets", false), agentTools: has("agent_tools", false), selfUpdate: has("self_update", false),
     modelProbe: has("model_probe", false), modelProbePlan: has("model_probe_plan", false),
-    resourceMonitoring: has("resource_monitoring", false), tailnet: has("tailnet", false), peers: has("peers", false) };
+    resourceMonitoring: has("resource_monitoring", false), tailnet: has("tailnet", false), peers: has("peers", false), hostRoots: has("host_roots", false) };
 }
 export const backendCapabilities = reactive(capabilitiesFor({ ok: false }));
 export function setBackendCapabilities(health: BackendHealth) { Object.assign(backendCapabilities, capabilitiesFor(health)); }

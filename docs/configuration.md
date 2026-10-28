@@ -141,8 +141,17 @@ TENDLY_CLAUDE_HISTORY_DIR  # optional history source; otherwise CLAUDE_CONFIG_DI
 TENDLY_CLAUDE_BIN          # optional absolute path to claude
 TENDLY_CODEX_BIN           # optional absolute path to codex
 TENDLY_SHELL               # optional shell; defaults to SHELL or /bin/sh
-TENDLY_BROWSE_ROOTS        # optional directory-picker roots, OS path-list (macOS/Linux colon-separated)
+TENDLY_BROWSE_ROOTS        # optional directory-picker roots, OS path-list (`:` on macOS/Linux, `;` on Windows);
+                           # default: working directory and home, or every drive on Windows
 TENDLY_WORKSPACE_ROOTS     # optional roots a new workspace may sit under; defaults to the browsing roots
 TENDLY_INSTANCE_LABEL      # optional UI label for isolated preview deployments; also this machine's name to paired machines
 TENDLY_PUBLIC_URL          # optional address other machines reach this one at (reverse proxy, LAN name), for pairing
 ```
+
+In `config.toml` the two root lists may be written as TOML lists, and are joined the way the system splits them; use single quotes for Windows paths so backslashes stay literal:
+
+```toml
+workspace-roots = ['E:\code', 'C:\Users\me']
+```
+
+Folders added in **Settings → Preferences → Available folders** widen both lists while the gateway runs, take effect at once and are kept in `<state>/folders.json`. Only a browser on the machine Tendly runs on (loopback, not the tailnet) may add or remove one; everyone else sees them read-only.

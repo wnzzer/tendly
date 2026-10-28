@@ -32,6 +32,7 @@ mod file_watch;
 mod git_ops;
 mod git_routes;
 mod host_grants;
+mod host_roots;
 mod host_routes;
 mod installation;
 mod launch;
@@ -321,6 +322,7 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
         }),
         None => RuntimeManager::new(),
     };
+    let roots = host_roots::HostRoots::load(&state_dir, browse_roots, workspace_roots);
     let state = AppState {
         store,
         runtime,
@@ -331,9 +333,8 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
         watches: file_watch::FileWatches::default(),
         accounts: accounts::AccountManager::new(),
         state_dir,
-        browse_roots,
+        roots,
         host_grants: host_grants::HostGrants::default(),
-        workspace_roots,
         native_sources: native_history::sources(),
         security,
         tailnet,
@@ -427,6 +428,7 @@ fn router(state: AppState) -> Router {
         .merge(model_limits::routes())
         .merge(usage::routes())
         .merge(host_grants::routes())
+        .merge(host_roots::routes())
         .merge(checkouts::routes())
         .merge(tasks::routes())
         .merge(git_ops::routes())
@@ -510,7 +512,7 @@ fn compressible(
 async fn health() -> Json<Value> {
     Json(
         json!({"ok":true,"service":"tendly-server","platform":env::consts::OS,"mode":"trusted-single-user","api_version":2,"capabilities":["shared_canvas","native_configurations","native_history","host_directories","endpoint_models","model_probe",
-            "model_probe_plan","session_environment","structured_chat","official_accounts","session_configuration","session_archive","account_import_native","agent_clients","ephemeral_sessions","session_model","workspace_file_search","session_terminal_escape","stored_secrets","custom_balances","agent_tools","self_update","resource_monitoring","tailnet","peers"],"instance_label":env::var("TENDLY_INSTANCE_LABEL").ok(),"version":env!("CARGO_PKG_VERSION")}),
+            "model_probe_plan","session_environment","structured_chat","official_accounts","session_configuration","session_archive","account_import_native","agent_clients","ephemeral_sessions","session_model","workspace_file_search","session_terminal_escape","stored_secrets","custom_balances","agent_tools","self_update","resource_monitoring","tailnet","peers","host_roots"],"instance_label":env::var("TENDLY_INSTANCE_LABEL").ok(),"version":env!("CARGO_PKG_VERSION")}),
     )
 }
 

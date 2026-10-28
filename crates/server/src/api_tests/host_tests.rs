@@ -403,3 +403,80 @@ async fn resource_monitoring_can_be_turned_off_and_history_cleared() {
     let (_, body) = call(f.app(), "GET", history, Value::Null).await;
     assert!(body["host"].as_array().unwrap().is_empty());
 }
+
+/// A folder added in Settings is where a workspace may then be, and only a
+/// browser on this machine may add one: not the network, not the tailnet.
+#[tokio::test]
+async fn a_folder_is_added_from_this_machine_and_then_takes_a_workspace() {
+    let mut f = Fixture::new("127.0.0.1:8787".parse().unwrap(), None);
+    // The tailnet always asks for the token; a signed-in phone has it.
+    f.state.security = security::Security::for_test("127.0.0.1:8787".parse().unwrap(), None)
+        .with_access_token(Some("fixture-token-long-enough".into()));
+    let outside = std::env::temp_dir().join(format!("tendly-outside-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&outside).unwrap();
+    let outside = dunce::canonicalize(&outside).unwrap();
+    let folder = json!({ "path": outside.to_string_lossy() });
+    let from = |address: &str, tailnet: bool, method: &str, body: Value| {
+        let mut app = f
+            .app()
+            .layer(axum::Extension(axum::extract::ConnectInfo::<SocketAddr>(
+                address.parse().unwrap(),
+            )));
+        if tailnet {
+            app = app.layer(axum::Extension(security::ViaTailnet));
+        }
+        let request = Request::builder()
+            .method(method)
+            .uri("/api/host/roots")
+            .header("host", "127.0.0.1:8787")
+            .header("x-tendly-client", "web")
+            .header("authorization", "Bearer fixture-token-long-enough")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        async move {
+            let response = app.oneshot(request).await.unwrap();
+            let status = response.status();
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            (
+                status,
+                serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null),
+            )
+        }
+    };
+    let workspace = json!({ "name": "outside", "root_path": outside.to_string_lossy() });
+    assert_eq!(
+        call(f.app(), "POST", "/api/workspaces", workspace.clone())
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
+
+    let (_, seen) = from("192.168.1.9:50000", false, "GET", Value::Null).await;
+    assert_eq!(seen["editable"], json!(false));
+    for (address, tailnet) in [("192.168.1.9:50000", false), ("127.0.0.1:50000", true)] {
+        assert_eq!(
+            from(address, tailnet, "POST", folder.clone()).await.0,
+            StatusCode::FORBIDDEN,
+            "{address} tailnet={tailnet}"
+        );
+    }
+
+    let (status, roots) = from("127.0.0.1:50000", false, "POST", folder.clone()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        (roots["editable"].clone(), roots["added"].clone()),
+        (json!(true), json!([outside.to_string_lossy()]))
+    );
+    assert_eq!(
+        call(f.app(), "POST", "/api/workspaces", workspace).await.0,
+        StatusCode::CREATED
+    );
+
+    let (_, roots) = from("127.0.0.1:50000", false, "DELETE", folder).await;
+    assert_eq!(roots["added"], json!([]));
+    std::fs::remove_dir_all(&outside).ok();
+    std::fs::remove_dir_all(&f.path).ok();
+}

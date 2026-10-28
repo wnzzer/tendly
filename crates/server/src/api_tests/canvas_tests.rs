@@ -377,6 +377,9 @@ async fn shared_canvas_uses_existing_authentication_and_health_capabilities() {
         ("POST", "/api/peers/invite"),
         ("GET", "/api/peers/discover"),
         ("GET", "/api/peers/sessions"),
+        ("GET", "/api/host/roots"),
+        ("POST", "/api/host/roots"),
+        ("DELETE", "/api/host/roots"),
     ] {
         assert_eq!(
             call(f.app(), method, path, json!({"value":"x"})).await.0,
@@ -414,7 +417,8 @@ async fn shared_canvas_uses_existing_authentication_and_health_capabilities() {
             "self_update",
             "resource_monitoring",
             "tailnet",
-            "peers"
+            "peers",
+            "host_roots"
         ])
     );
     let allowed = Request::builder()

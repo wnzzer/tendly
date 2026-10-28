@@ -54,7 +54,15 @@ fn parse(document: &str, cli_lan: bool) -> Result<Vec<(String, String)>, String>
                 );
             }
             "addr" | "address" => addr = Some(text(key, value)?),
-            _ => pairs.push((variable(key), text(key, value)?)),
+            _ => {
+                let name = variable(key);
+                let value = if name.ends_with("_ROOTS") {
+                    paths(key, value)?
+                } else {
+                    text(key, value)?
+                };
+                pairs.push((name, value));
+            }
         }
     }
     if let Some(resolved) = address(lan, port, addr.as_deref()) {
@@ -106,6 +114,23 @@ fn text(key: &str, value: &toml::Value) -> Result<String, String> {
             .join(","),
         _ => return Err(format!("{key} must be a value, not a table")),
     })
+}
+
+/// A list of folders is read the way the system reads `PATH` — `:` between
+/// them here, `;` on Windows — not with commas, which would hand over one
+/// folder that does not exist and stop the gateway from starting.
+fn paths(key: &str, value: &toml::Value) -> Result<String, String> {
+    let toml::Value::Array(items) = value else {
+        return text(key, value);
+    };
+    let folders = items
+        .iter()
+        .map(|item| text(key, item))
+        .collect::<Result<Vec<_>, _>>()?;
+    std::env::join_paths(folders)
+        .map_err(|_| format!("{key}: a folder's name contains the list separator"))?
+        .into_string()
+        .map_err(|_| format!("{key} must be text"))
 }
 
 #[cfg(test)]
@@ -184,6 +209,34 @@ mod tests {
         // variable that is not this gateway's to set.
         assert_eq!(settings["TENDLY_PATH"], "not the one you are thinking of");
         assert!(!settings.contains_key("PATH"));
+    }
+
+    #[test]
+    fn a_list_of_folders_is_joined_the_way_the_system_splits_it() {
+        let (first, second) = if cfg!(windows) {
+            (r"E:\code", r"C:\Users\me")
+        } else {
+            ("/srv/code", "/home/me")
+        };
+        let settings = read(
+            &format!("workspace-roots = ['{first}', '{second}']\nbrowse_roots = '{first}'"),
+            false,
+        );
+        let folders: Vec<_> = std::env::split_paths(&settings["TENDLY_WORKSPACE_ROOTS"]).collect();
+        assert_eq!(
+            folders,
+            [
+                std::path::PathBuf::from(first),
+                std::path::PathBuf::from(second)
+            ]
+        );
+        // One folder written as text is that folder, as it always was.
+        assert_eq!(settings["TENDLY_BROWSE_ROOTS"], first);
+        // Other lists keep the commas their variables expect.
+        assert_eq!(
+            read("allowed-origins = ['http://a', 'http://b']", false)["TENDLY_ALLOWED_ORIGINS"],
+            "http://a,http://b"
+        );
     }
 
     #[test]

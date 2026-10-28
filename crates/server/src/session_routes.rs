@@ -194,13 +194,7 @@ pub(super) async fn session_launch_plan(
     Query(query): Query<LaunchPlanQuery>,
     request: Request,
 ) -> Result<Json<Value>> {
-    let local = request
-        .extensions()
-        .get::<axum::extract::ConnectInfo<SocketAddr>>()
-        .is_some_and(|peer| peer.0.ip().is_loopback())
-        // Tailscale forwards from loopback too.
-        && request.extensions().get::<security::ViaTailnet>().is_none();
-    if !local {
+    if !host_roots::from_this_machine(&request) {
         return Err(ApiError {
             status: StatusCode::FORBIDDEN,
             message: "A session can only be resumed in a terminal on the machine Tendly runs on"

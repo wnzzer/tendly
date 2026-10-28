@@ -19,7 +19,7 @@ pub(super) async fn read_host_file(
         .ok_or_else(|| ApiError::bad("Path required"))?;
     Ok(Json(
         workspace_io::read_host_file(
-            &[state.browse_roots.clone(), state.host_grants.roots()].concat(),
+            &[state.roots.browse(), state.host_grants.roots()].concat(),
             path,
         )
         .await?,
@@ -30,7 +30,7 @@ pub(super) async fn browse_directories(
     Query(q): Query<DirectoryQuery>,
 ) -> Result<Json<directories::DirectoryListing>> {
     Ok(Json(
-        directories::list(&state.browse_roots, q.root, q.path).await?,
+        directories::list(&state.roots.browse(), q.root, q.path).await?,
     ))
 }
 
@@ -145,7 +145,7 @@ pub(super) async fn read_host_raw(
         .path
         .clone()
         .ok_or_else(|| ApiError::bad("Path required"))?;
-    let roots = [state.browse_roots.clone(), state.host_grants.roots()].concat();
+    let roots = [state.roots.browse(), state.host_grants.roots()].concat();
     let (target, _) =
         tokio::task::spawn_blocking(move || workspace_io::resolve_host_file(&roots, &path))
             .await

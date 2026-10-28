@@ -4,6 +4,7 @@ import type { Workspace } from "@tendly/protocol";
 import { useI18n } from "../i18n";
 import { errorMessage, json, request } from "./api";
 import { backendCapabilities } from "./backend-capabilities";
+import { addHostRoot, isOutsideRoots, loadHostRoots } from "./host-roots";
 import Icon from "./Icon.vue";
 import ModalDialog from "./ModalDialog.vue";
 
@@ -31,6 +32,8 @@ const browsing = ref(false);
 const browseError = ref("");
 const recent = ref<Workspace[]>([]);
 const advanced = ref(false);
+/** On the machine Tendly runs on, a folder outside the allowed ones can be allowed from here. */
+const mayAllow = ref(false);
 let lastSuggestedName = "";
 let browseController: AbortController | undefined;
 let alive = true;
@@ -82,6 +85,15 @@ function selectDirectory(directory: string) {
   }
 }
 
+/** Allow the chosen folder, then add it: what the error asked for, in one press. */
+async function allowAndCreate() {
+  busy.value = true;
+  try { await addHostRoot(path.value.trim()); }
+  catch (cause) { if (alive) { error.value = errorMessage(cause); busy.value = false; } return; }
+  busy.value = false;
+  await create();
+}
+
 async function create() {
   if (busy.value || !name.value.trim() || !path.value.trim()) return;
   if (existingWorkspace.value) {
@@ -104,6 +116,7 @@ onMounted(() => {
   if (backendCapabilities.directories) void browse(); else advanced.value = true;
   // Opened for a folder already known -- the one holding a file an agent named.
   if (props.initialPath) selectDirectory(props.initialPath);
+  if (backendCapabilities.hostRoots) void loadHostRoots().then(roots => { if (alive) mayAllow.value = roots.editable; }).catch(() => { /* Then the error alone explains it. */ });
   void request<Workspace[]>("/workspaces").then(workspaces => {
     if (alive) recent.value = workspaces;
   }).catch(() => { /* Existing workspaces are a convenience; browsing remains available. */ });
@@ -188,11 +201,14 @@ onUnmounted(() => { alive = false; browseController?.abort(); });
         <summary>{{ t('Advanced: enter a host path') }}</summary>
         <label>{{ t('Absolute host directory') }}<input :value="path" :placeholder="t('/path/to/your/project')" autocomplete="off" spellcheck="false" :disabled="busy" @input="selectDirectory(($event.target as HTMLInputElement).value)" /></label>
         <p class="form-help">{{ t('This path is on the server, not your browser’s computer. No folder, container or repository will be created.') }}</p>
-        <p class="form-help">{{ t('Deployment tip: set TENDLY_BROWSE_ROOTS to choose the folders available in the browser.') }}</p>
+        <p class="form-help">{{ t(backendCapabilities.hostRoots ? 'More locations can be added in Settings → Preferences → Available folders.' : 'Deployment tip: set TENDLY_BROWSE_ROOTS to choose the folders available in the browser.') }}</p>
       </details>
 
       <p v-if="existingWorkspace" class="form-help">{{ t('This directory is already registered. We will open the existing workspace.') }}</p>
-      <div v-if="error" class="inline-error" role="alert">{{ error }}</div>
+      <div v-if="error" class="inline-error" role="alert">
+        <span>{{ t(error) }}</span>
+        <button v-if="mayAllow && isOutsideRoots(error)" type="button" class="secondary-button allow-folder" :disabled="busy" @click="allowAndCreate">{{ t('Allow this folder and add it') }}</button>
+      </div>
       <div class="dialog-actions">
         <button type="button" class="secondary-button" :disabled="busy" @click="emit('close')">{{ t('Cancel') }}</button>
         <button class="primary-button" :disabled="busy || !name.trim() || !path.trim()">{{ busy ? t('Opening…') : existingWorkspace ? t('Open workspace') : t('Add workspace') }}</button>
@@ -244,6 +260,7 @@ onUnmounted(() => { alive = false; browseController?.abort(); });
 .selected-directory>span:last-child { min-width: 0; }
 .selected-directory small { display: block; color: var(--muted); font-size: var(--text-xs); }
 .selected-directory strong { display: block; margin-top: 3px; font-size: var(--text-xs); font-weight: 500; color: var(--accent-ink); overflow-wrap: anywhere; }
+.inline-error:has(.allow-folder) { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .advanced-directory { border-top: 1px solid var(--fill); padding-top: 12px; }
 .advanced-directory>summary { cursor: pointer; font-size: var(--text-xs); color: var(--muted); }
 .advanced-directory>label { margin-top: 12px; }

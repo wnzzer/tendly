@@ -45,8 +45,9 @@ This is a **single trusted user's host workspace**, not a multi-tenant sandbox. 
 ### What this server can reach
 
 - **Network**: loopback only by default. A non-loopback bind refuses to start without an access token (`TENDLY_TOKEN`, or one it generates), and Origin/Host must be allow-listed.
-- **Directory picker**: limited to `TENDLY_BROWSE_ROOTS`, defaulting to the working directory and the server user's home.
+- **Directory picker**: limited to `TENDLY_BROWSE_ROOTS`, defaulting to the working directory and the server user's home — on Windows, to every drive, since code there seldom lives under the home folder. With `--lan` or the tailnet on Windows, set the variable to narrow it.
 - **New workspaces**: limited to `TENDLY_WORKSPACE_ROOTS`, defaulting to the browsing roots. Workspaces created before this rule keep working; it governs new ones.
+- **Added folders**: Settings can add folders to both, kept in `<state>/folders.json`. Only a loopback browser not arriving through the tailnet may add or remove one, and never an agent: the route is outside `/api/agent/`. The file system root and credential folders are refused.
 - **File read/write**: confined to a workspace root. Paths are canonicalised and anything resolving outside is refused, as are `.git`, `.tendly` and client configuration files. Deleting never follows a symlink out of the tree.
 - **Agent processes are not confined by any of the above.** `claude` and `codex` run with your full user permissions. Tendly sets their working directory and forwards their permission prompts; it never answers one for you, and it never reads their credentials. What an Agent can reach is decided by that client's own permission settings, not by this server.
 

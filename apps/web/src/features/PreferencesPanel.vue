@@ -13,6 +13,7 @@ import { REASONING_EFFORTS, effortLabel } from './reasoning-effort';
 import { loadPreferences, preferences, savePreferences, type PreferenceProvider, type Preferences } from './preferences';
 import { backendCapabilities } from './backend-capabilities';
 import { AGENT_CLIENTS, clientInfo, clientTone } from './clients';
+import { addHostRoot, loadHostRoots, removeHostRoot, type HostRoots } from './host-roots';
 import { useI18n } from '../i18n';
 
 /**
@@ -89,6 +90,15 @@ async function toggleNotifications(on: boolean) { await setDesktopNotifications(
 const hostGrants = ref<Array<{ path: string; directory: boolean }>>([]);
 onMounted(async () => { try { hostGrants.value = await request('/host/grants'); } catch { hostGrants.value = []; } });
 async function revokeGrants() { try { hostGrants.value = await request('/host/grants/all', json('DELETE')); } catch { /* Left as listed. */ } }
+/** Where workspaces may be: the configured folders, and those added here. */
+const hostRoots = ref<HostRoots | null>(null), newRoot = ref(''), rootBusy = ref(false);
+onMounted(async () => { if (backendCapabilities.hostRoots) try { hostRoots.value = await loadHostRoots(); } catch { hostRoots.value = null; } });
+async function changeRoots(change: () => Promise<HostRoots>, clear = false) {
+  rootBusy.value = true;
+  try { hostRoots.value = await change(); if (clear) newRoot.value = ''; showToast(t('Saved'), { duration: 2000 }); }
+  catch (cause) { error.value = errorMessage(cause); }
+  finally { rootBusy.value = false; }
+}
 </script>
 
 <template>
@@ -115,6 +125,22 @@ async function revokeGrants() { try { hostGrants.value = await request('/host/gr
         <span><strong>{{ t('Temporary file access') }}</strong><small>{{ t('Read-only, for the file preview, until Tendly restarts.') }}</small><code v-for="item in hostGrants" :key="item.path" class="grant-path">{{ item.path }}{{ item.directory ? '/' : '' }}</code></span>
         <button type="button" class="small-button danger" @click="revokeGrants">{{ t('Revoke all') }}</button>
       </div>
+    </article>
+    <article v-if="hostRoots" class="preference-card">
+      <header><span class="preference-mark general"><Icon name="folder" :size="17"/></span><strong>{{ t('Available folders') }}</strong></header>
+      <div class="preference-row">
+        <span><strong>{{ t('Set when Tendly starts') }}</strong><small>{{ t('The folder picker and new workspaces reach these and everything inside them.') }}</small><code v-for="path in hostRoots.configured" :key="path" class="grant-path">{{ path }}</code></span>
+      </div>
+      <div v-for="path in hostRoots.added" :key="path" class="preference-row">
+        <span><code class="grant-path">{{ path }}</code></span>
+        <button v-if="hostRoots.editable" type="button" class="small-button" :disabled="rootBusy" @click="changeRoots(() => removeHostRoot(path))">{{ t('Remove') }}</button>
+      </div>
+      <form v-if="hostRoots.editable" class="preference-row" @submit.prevent="newRoot.trim() && changeRoots(() => addHostRoot(newRoot.trim()), true)">
+        <span><strong>{{ t('Add a folder') }}</strong><small>{{ t('An absolute path on this machine, such as E:\\code. Takes effect at once and is kept across restarts.') }}</small></span>
+        <input v-model="newRoot" class="root-input" :placeholder="t('/path/to/folder')" autocomplete="off" spellcheck="false" :aria-label="t('Add a folder')" :disabled="rootBusy" />
+        <button type="submit" class="small-button" :disabled="rootBusy || !newRoot.trim()">{{ t('Add') }}</button>
+      </form>
+      <p v-else class="preference-note">{{ t('Folders can be added only from a browser on the machine Tendly runs on.') }}</p>
     </article>
     <p v-if="!loaded" class="preferences-quiet">{{ t('Loading…') }}</p>
     <template v-else>
@@ -229,6 +255,8 @@ async function revokeGrants() { try { hostGrants.value = await request('/host/gr
 .preference-note{margin:-4px 0 8px;font-size:var(--text-xs);line-height:1.5;color:var(--muted)}
 .preference-note.danger{color:var(--danger-ink)}
 @media(max-width:520px){.preference-row{flex-direction:column;align-items:stretch;gap:6px}.preference-row select{width:100%;height:40px}}
+.root-input{width:220px;flex-shrink:0;height:32px;padding:0 8px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface);font-family:var(--mono);font-size:var(--text-xs);color:var(--ink)}
+@media(max-width:520px){.root-input{width:100%;height:40px}}
 .grant-path{display:block;margin-top:4px;font-family:var(--mono);font-size:var(--text-xs);color:var(--ink-soft);overflow-wrap:anywhere}
 .preference-row-stack{flex-direction:column;align-items:stretch;gap:10px}
 .palette-choices{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
