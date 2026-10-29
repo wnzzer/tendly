@@ -49,7 +49,7 @@ const shared = {
   license: 'MIT',
   homepage: REPOSITORY,
   repository: { type: 'git', url: `git+${REPOSITORY}.git` },
-  engines: { node: '>=20' },
+  engines: { node: '>=24' },
 };
 
 const extractRoot = mkdtempSync(path.join(tmpdir(), 'tendly-npm-'));
