@@ -2138,7 +2138,7 @@ dependencies = [
 
 [[package]]
 name = "tendly-domain"
-version = "0.1.109"
+version = "0.1.110"
 dependencies = [
  "chrono",
  "serde",
@@ -2149,7 +2149,7 @@ dependencies = [
 
 [[package]]
 name = "tendly-persistence"
-version = "0.1.109"
+version = "0.1.110"
 dependencies = [
  "chrono",
  "rusqlite",
@@ -2161,7 +2161,7 @@ dependencies = [
 
 [[package]]
 name = "tendly-runtime"
-version = "0.1.109"
+version = "0.1.110"
 dependencies = [
  "libc",
  "portable-pty",
@@ -2174,7 +2174,7 @@ dependencies = [
 
 [[package]]
 name = "tendly-server"
-version = "0.1.109"
+version = "0.1.110"
 dependencies = [
  "axum",
  "chrono",
