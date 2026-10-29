@@ -518,15 +518,16 @@ async fn send(
     if let Some(body) = body {
         request = request.json(body);
     }
-    let response = request.send().await.map_err(|error| {
-        Failure::Unreachable(if error.is_timeout() {
-            "it did not answer in time".into()
-        } else if error.is_connect() {
-            "nothing answered at its address".into()
-        } else {
-            error.to_string()
-        })
-    })?;
+    let response = match request.send().await {
+        Ok(response) => response,
+        Err(error) if error.is_timeout() => {
+            return Err(Failure::Unreachable("it did not answer in time".into()));
+        }
+        Err(error) if error.is_connect() => {
+            return Err(Failure::Unreachable(not_connected(base).await));
+        }
+        Err(error) => return Err(Failure::Unreachable(error.to_string())),
+    };
     let status = response.status();
     let text = response
         .text()
@@ -544,6 +545,40 @@ async fn send(
         return Err(Failure::Refused(status, message));
     }
     Ok(value)
+}
+
+/// Why a connection to `base` failed, in terms of what to do about it.
+///
+/// A name that does not resolve and a machine that does not answer were one
+/// message, "nothing answered", which sent people to look at the other
+/// machine when the trouble was here: a tailnet name resolves only while
+/// Tailscale runs on the machine asking.
+async fn not_connected(base: &str) -> String {
+    let Some(host) = url::Url::parse(base)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_owned))
+    else {
+        return "nothing answered at its address".into();
+    };
+    let resolves = tokio::net::lookup_host((host.as_str(), 443)).await.is_ok();
+    unreachable_reason(&host, resolves).into()
+}
+
+fn unreachable_reason(host: &str, resolves: bool) -> &'static str {
+    match (host.to_ascii_lowercase().ends_with(".ts.net"), resolves) {
+        (true, false) => {
+            "its tailnet name is unknown to this machine. Start Tailscale here and sign in to the same tailnet, then try again."
+        }
+        (false, false) => {
+            "its name could not be found. Check the address, and that this machine can reach that network."
+        }
+        (true, true) => {
+            "nothing answered at its address. Check that Tendly is running there with Remote access on."
+        }
+        (false, true) => {
+            "nothing answered at its address. Check that Tendly is running there and reachable from this network."
+        }
+    }
 }
 
 /// Call a paired machine with the key it issued this one.
@@ -1515,6 +1550,22 @@ async fn prepare_spawn(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn an_unknown_name_is_told_apart_from_a_machine_that_does_not_answer() {
+        // A tailnet name unknown here is this machine's to fix: Tailscale is off.
+        assert!(
+            unreachable_reason("Desktop-1.tail7ead88.TS.NET", false)
+                .contains("Start Tailscale here")
+        );
+        assert!(
+            unreachable_reason("desktop-1.tail7ead88.ts.net", true).contains("Remote access on")
+        );
+        let name = not_connected("https://no-such-host.invalid/").await;
+        assert!(name.contains("could not be found"), "{name}");
+        let silent = not_connected("http://127.0.0.1:1/").await;
+        assert!(silent.starts_with("nothing answered"), "{silent}");
+    }
 
     #[test]
     fn grants_include_everything_below_them() {

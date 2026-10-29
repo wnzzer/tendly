@@ -35,6 +35,22 @@ const invite = ref<Invite>(), inviteError = ref(''), inviting = ref(false);
 // Adding: the link another machine made.
 const link = ref(''), addError = ref(''), adding = ref(false);
 const linkOk = computed(() => looksLikeInvite(link.value));
+/**
+ * A link to a tailnet name opens only while Tailscale runs here, on the same
+ * tailnet. When it does not, pairing cannot work, and a line of the server's
+ * words under the field was all anyone got; a card says what to do, before
+ * pressing Pair as well as after.
+ */
+const linkHost = computed(() => { try { return new URL(link.value.trim()).hostname.toLowerCase(); } catch { return ''; } });
+const tailnetLink = computed(() => linkHost.value.endsWith('.ts.net'));
+const tailnetUnknownHere = ref(false);
+const needsTailscale = computed(() => tailnetLink.value && (!!findError.value || tailnetUnknownHere.value));
+const checkingTailscale = ref(false);
+async function checkTailscaleAndPair() {
+  checkingTailscale.value = true;
+  try { await find(); } finally { checkingTailscale.value = false; }
+  if (!findError.value) { tailnetUnknownHere.value = false; await pair(); }
+}
 const invitesOpen = ref(false);
 
 // The tailnet: how the machines find each other.
@@ -72,8 +88,12 @@ async function makeInvite() {
 }
 async function pair() {
   adding.value = true; addError.value = '';
-  try { await addPeer(link.value.trim(), here.value); link.value = ''; await load(true); }
-  catch (cause) { addError.value = errorMessage(cause); }
+  try { await addPeer(link.value.trim(), here.value); link.value = ''; tailnetUnknownHere.value = false; await load(true); }
+  catch (cause) {
+    addError.value = errorMessage(cause);
+    // The server says the name is unknown here: the card explains it, not the line.
+    if (addError.value.includes('tailnet name is unknown to this machine')) { tailnetUnknownHere.value = true; addError.value = ''; void find(); }
+  }
   finally { adding.value = false; }
 }
 async function regrant(peer: Peer, grant: Grant) {
@@ -272,7 +292,21 @@ const STATE_LABELS = { online: 'Reachable', offline: 'Unreachable', 'one-way': '
             <p class="machine-hint">{{ t('Paste the invite link the other machine made.') }}</p>
             <div class="machine-link-row">
               <input v-model="link" class="machine-link" type="url" spellcheck="false" autocomplete="off" placeholder="https://…#tendly-pair=…" @keydown.enter="linkOk && !adding && pair()"/>
-              <button type="button" class="small-button" :disabled="!linkOk || adding" @click="pair">{{ adding ? t('Pairing…') : t('Pair') }}</button>
+              <button v-if="!needsTailscale" type="button" class="small-button" :disabled="!linkOk || adding" @click="pair">{{ adding ? t('Pairing…') : t('Pair') }}</button>
+            </div>
+            <div v-if="needsTailscale" class="machine-guide" role="alert">
+              <strong><Icon name="globe" :size="15"/>{{ t('Connect Tailscale on this machine first') }}</strong>
+              <p>{{ t('This link is a tailnet address, {host}. This machine can open it only while Tailscale runs here, signed in to the same tailnet as that machine.', { host: linkHost }) }}</p>
+              <ol>
+                <li>{{ t('Open the Tailscale app and connect, or run this on this machine:') }} <span class="machine-guide-command"><code>tailscale up</code><CopyButton text="tailscale up" :label="t('Copy')"/></span></li>
+                <li>{{ t('Make sure it is signed in to the tailnet the other machine is on.') }}</li>
+                <li>{{ t('Then check again: Tendly pairs as soon as it can reach the other machine.') }}</li>
+              </ol>
+              <div class="machine-guide-actions">
+                <button type="button" class="primary-button" :disabled="checkingTailscale || adding" @click="checkTailscaleAndPair">{{ checkingTailscale ? t('Checking…') : adding ? t('Pairing…') : t('Check again and pair') }}</button>
+                <button type="button" class="link-button" @click="emit('remote')">{{ t('Set it up in Remote access') }}</button>
+              </div>
+              <small v-if="findError">{{ findError }}</small>
             </div>
             <p v-if="addError" class="inline-error" role="alert">{{ addError }}</p>
           </div>
@@ -327,6 +361,14 @@ const STATE_LABELS = { online: 'Reachable', offline: 'Unreachable', 'one-way': '
 .machine-self{margin:0;display:flex;align-items:center;gap:8px;font-size:var(--text-xs);line-height:1.6;color:var(--ink-soft)}
 .machine-found li .primary-button{min-height:30px;padding:0 12px;display:inline-flex;align-items:center;gap:5px}
 .machine-found li .inline-error{flex-basis:100%;margin:0 0 6px}
+.machine-guide{display:grid;gap:8px;margin-top:8px;padding:12px 13px;border:1px solid var(--warn-line);border-radius:var(--radius-md);background:var(--warn-soft)}
+.machine-guide>strong{display:flex;align-items:center;gap:6px;font-size:var(--text-sm);color:var(--warn-ink)}
+.machine-guide p,.machine-guide ol{margin:0;font-size:var(--text-xs);line-height:1.7;color:var(--ink-soft)}
+.machine-guide ol{padding-left:18px}
+.machine-guide-command{display:inline-flex;align-items:center;gap:4px;vertical-align:middle}
+.machine-guide-command code{padding:1px 6px;border-radius:var(--radius-sm);background:var(--surface);font-family:var(--mono);font-size:var(--text-xs)}
+.machine-guide-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.machine-guide small{font-size:var(--text-xs);color:var(--muted);overflow-wrap:anywhere}
 .machine-no-tailnet{display:grid;gap:3px;padding:8px 10px;border-radius:var(--radius-md);background:var(--fill)}
 .machine-no-tailnet p{margin:0;font-size:var(--text-xs);line-height:1.6;color:var(--ink-soft)}
 .machine-no-tailnet small{font-size:var(--text-xs);color:var(--muted)}
