@@ -1,4 +1,4 @@
-import { computed, ref, type Ref } from "vue";
+import { computed, ref, type InjectionKey, type Ref } from "vue";
 import type { GitStatus, Session } from "@tendly/protocol";
 import { ApiConnectionError, ApiError, request } from "./api";
 import { placeKey, placeOf, placeUrl } from "./checkout-place";
@@ -17,6 +17,16 @@ export function bumped(counter: Readonly<Record<string, number>>, id: string): R
 export function branchesByWorkspace(statuses: Readonly<Record<string, GitStatus>>): Record<string, string> {
   return Object.fromEntries(Object.entries(statuses).flatMap(([id, status]) => status.branch && !placeOf(id).checkout ? [[id, status.branch]] : []));
 }
+
+/**
+ * The workspace directory's branch as the shell polls it, and opening the
+ * workspace's Git pane, where that branch is switched for every session in
+ * the directory. A session's own chip reads the branch from here, so it moves
+ * with the tab strip and the status bar instead of keeping what it saw when it
+ * was opened.
+ */
+export interface WorkspaceGitContext { branch(workspaceId: string): string | undefined; openGit(workspaceId: string): void }
+export const WORKSPACE_GIT: InjectionKey<WorkspaceGitContext> = Symbol("workspace-git");
 
 /** A failed status read worth reporting: the host is unreachable or the sign-in lapsed. Anything else just means no Git here. */
 export function gitFailureMatters(cause: unknown): boolean { return cause instanceof ApiConnectionError || (cause instanceof ApiError && cause.status === 401); }

@@ -62,7 +62,7 @@ import { backTargetFor, hasUnsavedWork, rememberPane, resolveReference } from ".
 import { layoutInTrouble, useCanvasPersistence } from "./features/canvas-persistence";
 import { opensOnArrival, useSessionChanges } from "./features/session-changes";
 import { paletteItems as buildPaletteItems, shortcutHint } from "./features/palette-items";
-import { useWorkspaceGit } from "./features/workspace-git";
+import { WORKSPACE_GIT, useWorkspaceGit } from "./features/workspace-git";
 import { headerBranches } from "./features/session-header";
 import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
@@ -332,6 +332,7 @@ provide(SESSION_ACTIONS, {
   keep: keepSessionById,
   info: id => { runInfoSessionId.value = id; },
 });
+provide(WORKSPACE_GIT, { branch: id => workspaceBranches.value[id], openGit: id => openChanges(id, null) });
 async function saveRenameSession(title: string) {
   const session = renameSessionTarget.value;
   if (!session) return;
