@@ -25,8 +25,9 @@ test('a table needs a divider as wide as its header, and short rows are padded',
   });
   // A divider of the wrong width is no table, just text.
   assert.equal(markdownBlocksWithLines('| a | b |\n|---|\n| 1 | 2 |')[0].block.type, 'paragraph');
-  // Each divider cell needs two dashes or more.
-  assert.equal(markdownBlocksWithLines('| a | b |\n|:-:|---|')[0].block.type, 'paragraph');
+  // One dash a cell is a divider, as GFM has it.
+  assert.deepEqual(markdownBlocksWithLines('| 模块 | 估时 |\n|-|-|\n| 标签 | 3 天 |')[0].block, { type: 'table', header: ['模块', '估时'], align: [undefined, undefined], rows: [['标签', '3 天']] });
+  assert.deepEqual(markdownBlocksWithLines('| a | b |\n|:-:|-:|')[0].block.align, ['center', 'right']);
 });
 
 test('only paths to image files inside the workspace count as local images', () => {

@@ -60,7 +60,13 @@ function tableCells(line: string): string[] {
   cells.push(cell.trim());
   return cells;
 }
-const TABLE_DIVIDER = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+/**
+ * One dash a cell is enough, as GFM has it: `|-|-|` is a divider, and agents
+ * write it. Without a pipe it takes two, so `a |` over a lone `-` stays a
+ * heading's underline.
+ */
+const TABLE_DIVIDER = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+const isTableDivider = (line: string) => TABLE_DIVIDER.test(line) && (line.includes('|') || /-{2,}/.test(line));
 const RULE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 /** `===` or `---` under a paragraph: the line above is a heading. */
 const UNDERLINE = /^ {0,3}(=+|-+)[ \t]*$/;
@@ -96,7 +102,7 @@ export function markdownBlocksWithLines(text: string, options: { html?: boolean 
       blocks.push({ line: start, block: { type: 'quote', text: body.join('\n') } }); continue;
     }
     // A GFM table: a row, a divider of dashes, then rows until one without a pipe.
-    if (line.includes('|') && i + 1 < lines.length && TABLE_DIVIDER.test(lines[i + 1])) {
+    if (line.includes('|') && i + 1 < lines.length && isTableDivider(lines[i + 1])) {
       const header = tableCells(line), divider = tableCells(lines[i + 1]);
       if (divider.length === header.length) {
         const align = divider.map(cell => cell.startsWith(':') && cell.endsWith(':') ? 'center' as const : cell.endsWith(':') ? 'right' as const : cell.startsWith(':') ? 'left' as const : undefined);
@@ -116,7 +122,7 @@ export function markdownBlocksWithLines(text: string, options: { html?: boolean 
     while (i < lines.length && lines[i].trim()) {
       const next = lines[i], underline = next.match(UNDERLINE);
       if (underline) { level = underline[1][0] === '=' ? 1 : 2; i++; break; }
-      if (/^(?:\s*```|#{1,6}\s|\s*>|\s*(?:[-*+]|\d+\.)\s)/.test(next) || RULE.test(next) || (next.includes('|') && TABLE_DIVIDER.test(lines[i + 1] ?? '')) || (options.html && opensHtmlBlock(next))) break;
+      if (/^(?:\s*```|#{1,6}\s|\s*>|\s*(?:[-*+]|\d+\.)\s)/.test(next) || RULE.test(next) || (next.includes('|') && isTableDivider(lines[i + 1] ?? '')) || (options.html && opensHtmlBlock(next))) break;
       body.push(lines[i++]);
     }
     blocks.push({ line: start, block: level ? { type: 'heading', level, text: body.join(' ') } : { type: 'paragraph', text: body.join('\n') } });
