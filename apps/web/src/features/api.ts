@@ -20,12 +20,33 @@ function aborted(cause: unknown, signal?: AbortSignal | null) {
   return signal?.aborted || (cause instanceof Error && cause.name === "AbortError");
 }
 
+/**
+ * Sessions, workspaces and endpoints of paired machines, as a tab here came to
+ * know them. Their ids are UUIDs, so one is on one machine; what is not in
+ * here is this machine's, and goes where it always went.
+ */
+const remote = new Map<string, string>();
+export function rememberRemote(machine: string, ids: readonly string[]) { for (const id of ids) remote.set(id, machine); }
+const OWNED = /^\/(?:sessions|workspaces|endpoint-profiles)\/([^/?#]+)/;
+/** An API path, by way of the machine it belongs to. */
+export function routed(path: string): string {
+  const machine = remote.get(path.match(OWNED)?.[1] ?? "");
+  return machine ? `/machines/${encodeURIComponent(machine)}${path}` : path;
+}
+/** The same, for an address a socket, image or upload uses directly. */
+export const routedUrl = (url: string) => url.startsWith("/api/") ? `/api${routed(url.slice(4))}` : url;
+/** A path that names no session, sent to the machine a session is on. */
+export function onMachineOf(sessionId: string, path: string): string {
+  const machine = remote.get(sessionId);
+  return machine ? `/machines/${encodeURIComponent(machine)}${path}` : path;
+}
+
 /** Same-origin transport; Vite proxies /api during local development. */
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = init.method ?? "GET";
   let response: Response;
   try {
-    response = await fetch(`/api${path}`, {
+    response = await fetch(`/api${routed(path)}`, {
       ...init,
       headers: { "X-Tendly-Client": "web", ...(init.body ? { "Content-Type": "application/json" } : {}), ...init.headers },
     });
@@ -58,6 +79,6 @@ export const workspacePath = (id: string) => `/workspaces/${encodeURIComponent(i
 export const sessionPath = (id: string) => `/sessions/${encodeURIComponent(id)}`;
 /** A workspace URL in one of its checkouts: without one, the workspace directory; with one, the worktree a session works in. */
 export const inCheckout = (url: string, checkout?: string | null) => checkout ? `${url}${url.includes("?") ? "&" : "?"}checkout=${encodeURIComponent(checkout)}` : url;
-export const assetUrl = (id: string, path: string, checkout?: string | null) => inCheckout(`/api${workspacePath(id)}/asset?path=${encodeURIComponent(path)}`, checkout);
+export const assetUrl = (id: string, path: string, checkout?: string | null) => inCheckout(`/api${routed(workspacePath(id))}/asset?path=${encodeURIComponent(path)}`, checkout);
 export { providerLabel } from "./clients";
 export const formatBytes = (bytes: number) => bytes < 1024 ? `${bytes} B` : bytes < 1024 ** 2 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`;

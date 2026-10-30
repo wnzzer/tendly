@@ -340,6 +340,11 @@ fn cli_path(path: &str) -> bool {
 
 pub async fn guard(State(state): State<AppState>, request: Request, next: Next) -> Response {
     let via_tailnet = request.extensions().get::<ViaTailnet>().is_some();
+    // Let through by peer_proxy, where the calling machine's key was checked.
+    let proxied = request
+        .extensions()
+        .get::<crate::peer_proxy::Proxied>()
+        .is_some();
     let headers = request.headers();
     if !headers
         .get(header::HOST)
@@ -382,7 +387,12 @@ pub async fn guard(State(state): State<AppState>, request: Request, next: Next) 
         // Likewise a paired machine's key opens /api/peer/ and nothing else.
         let peer_path = path.starts_with("/api/peer/");
         let peer = peer_path && state.peers.is_peer_request(headers);
-        if !public && !agent && !peer && !state.security.authenticated(headers, via_tailnet) {
+        if !public
+            && !agent
+            && !peer
+            && !proxied
+            && !state.security.authenticated(headers, via_tailnet)
+        {
             return error(StatusCode::UNAUTHORIZED, "Authentication required");
         }
         if !matches!(
@@ -404,6 +414,7 @@ pub async fn guard(State(state): State<AppState>, request: Request, next: Next) 
             .get(header::UPGRADE)
             .is_some_and(|v| v == "websocket")
             && headers.get(header::ORIGIN).is_none()
+            && !proxied
             && state.security.required(via_tailnet)
             && headers.get(header::AUTHORIZATION).is_none()
         {

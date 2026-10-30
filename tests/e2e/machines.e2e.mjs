@@ -109,16 +109,39 @@ test("the other machine's sessions are listed here and open there, signed in by 
   assert.equal((await mine.api('/auth')).authenticated, true);
 });
 
-test("the other machine's sessions are in this one's sidebar, and open in its window", async () => {
+test("the other machine's sessions are in this one's sidebar, and open in a tab here", async () => {
   const page = await mine.newPage();
   await page.goto(here.base + '/');
   const machine = page.locator('.other-machine[data-machine="box-there"]');
   const session = machine.locator('.other-machine-session', { hasText: 'claude_code e2e' });
   await session.waitFor();
   assert.match(await session.getAttribute('title'), /claude_code e2e · E2E/);
+  // Nothing of the session is asked for until it is opened.
+  const asked = [];
+  page.on('request', request => { if (/\/api\/machines\//.test(request.url())) asked.push(request.url()); });
+  await page.waitForTimeout(500);
+  assert.deepEqual(asked, []);
+  // With no workspace here there is no canvas, and it opens in its own window.
   const [popup] = await Promise.all([mine.context.waitForEvent('page'), session.click()]);
   await popup.waitForURL(url => url.origin === there.base && url.pathname === `/session/${remote.sessions[0].id}`, { timeout: 15000 });
   await popup.close();
+  asked.length = 0;
+  await mine.api('/workspaces', { name: 'Here', root_path: here.workspace });
+  await page.reload();
+  await session.waitFor();
+  await page.waitForTimeout(500);
+  assert.deepEqual(asked, []);
+  await session.click();
+  const pane = page.locator('.remote-pane[data-machine="box-there"]');
+  await pane.locator('textarea').waitFor({ timeout: 15000 });
+  assert.equal(new URL(page.url()).origin, here.base);
+  assert.equal(page.context().pages().filter(other => other.url().startsWith(there.base)).length, 0);
+  assert.ok(asked.some(url => url.endsWith(`/sessions/${remote.sessions[0].id}`)));
+  await page.locator('.dock-tab', { hasText: 'claude_code e2e' }).waitFor();
+  // It comes back after a reload, as any tab does, once the canvas is saved.
+  await until(async () => JSON.stringify((await mine.api('/canvas/layout')).layout).includes('remote_session_id'), 5000, 'the tab to be saved');
+  await page.reload();
+  await pane.locator('textarea').waitFor({ timeout: 15000 });
   // Folded, it stays folded.
   await machine.locator('.other-machine-header').click();
   await page.reload();
@@ -159,6 +182,8 @@ test('a grant lowered there is what this machine sees, and removing the pairing 
   const side = await mine.newPage();
   await side.goto(here.base + '/');
   await side.locator('.other-machine[data-machine="box-there"] .other-machine-session.viewonly').first().waitFor({ timeout: 10000 });
+  await side.locator('.other-machine[data-machine="box-there"] .other-machine-viewonly').waitFor();
+  assert.match(await side.locator('.other-machine[data-machine="box-there"] .other-machine-viewonly').innerText(), /box-there.*完全控制/);
   await side.close();
 
   await peer.getByRole('button', { name: '移除' }).click();

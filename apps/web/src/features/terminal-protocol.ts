@@ -1,3 +1,4 @@
+import { routedUrl } from "./api";
 /**
  * The terminal pane's side of the PTY stream protocol, as plain functions.
  *
@@ -48,7 +49,7 @@ export function afterHello(hello: ControlMessage, previous: ResumePoint | undefi
 
 /** The socket address for a session, carrying the view's size and, on a reconnect, where to resume. */
 export function streamUrl(pageUrl: string, sessionId: string, size: { cols: number; rows: number } | undefined, resume: ResumePoint | undefined): string {
-  const url = new URL(`/api/sessions/${encodeURIComponent(sessionId)}/pty/ws`, pageUrl);
+  const url = new URL(routedUrl(`/api/sessions/${encodeURIComponent(sessionId)}/pty/ws`), pageUrl);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   if (size) {
     url.searchParams.set("cols", String(size.cols));

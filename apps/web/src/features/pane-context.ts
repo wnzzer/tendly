@@ -102,6 +102,8 @@ export function withoutDiscardedPanes(root: LayoutNode, sessions: readonly Sessi
   return root;
 }
 export function acceptsScopedPane(pane: PaneNode, workspaces: Workspace[], sessions: Session[]): boolean {
+  // Its workspace is on the machine it came from.
+  if (pane.metadata?.remote_session_id) return true;
   if (!paneWorkspace(pane, workspaces, sessions)) return false;
   const path = pane.metadata?.path;
   return path === undefined || (typeof path === "string" && !!path && !path.startsWith("/") && !path.includes("\0") && !path.split("/").includes(".."));
@@ -161,6 +163,6 @@ export function paneDisplayTitle(pane: PaneNode, translate: (text: string) => st
 export function reusablePane(open: readonly PaneNode[], incoming: PaneNode): PaneNode | undefined {
   if (incoming.kind === "git_diff") return undefined;
   return open.find(candidate => candidate.kind === incoming.kind
-    && !candidate.metadata?.session_id && !candidate.metadata?.path && !candidate.metadata?.draft
+    && !candidate.metadata?.session_id && !candidate.metadata?.remote_session_id && !candidate.metadata?.path && !candidate.metadata?.draft
     && (!candidate.metadata?.workspace_id || candidate.metadata.workspace_id === incoming.metadata?.workspace_id));
 }

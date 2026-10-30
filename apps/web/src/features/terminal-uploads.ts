@@ -1,3 +1,4 @@
+import { routedUrl } from "./api";
 import { ref } from "vue";
 import type { Attachment } from "./attachment-state";
 import { MAX_ATTACHMENT_BYTES } from "./attachment-state";
@@ -66,7 +67,7 @@ export function filesFrom(data: DataTransfer | null | undefined): File[] {
 export function uploadToSession(sessionId: string, file: File, name: string, progress: (fraction: number) => void): { promise: Promise<Attachment>; abort: () => void } {
   const xhr = new XMLHttpRequest();
   const promise = new Promise<Attachment>((resolve, reject) => {
-    xhr.open("POST", `/api/sessions/${encodeURIComponent(sessionId)}/uploads?name=${encodeURIComponent(name)}`);
+    xhr.open("POST", routedUrl(`/api/sessions/${encodeURIComponent(sessionId)}/uploads?name=${encodeURIComponent(name)}`));
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
     xhr.setRequestHeader("X-Tendly-Client", "web");
     xhr.responseType = "json";

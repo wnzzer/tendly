@@ -1,6 +1,7 @@
 //! Two machines paired with each other, over real HTTP.
 
 use super::*;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 async fn serve(token: Option<&str>) -> (Fixture, SocketAddr) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -594,4 +595,111 @@ async fn without_an_invite_another_account_or_another_listener_is_refused() {
     .await;
     assert_eq!(status, StatusCode::CONFLICT);
     assert!(refused["error"].as_str().unwrap().contains("Remote access"));
+}
+
+/// Two machines, each serving; `here` holds a key `there` gave it with `grant`.
+async fn paired_pair(
+    grant: peers::Grant,
+) -> ((Fixture, SocketAddr), (Fixture, SocketAddr), String) {
+    let (there, there_at) = serve(Some("there-token")).await;
+    let (here, here_at) = serve(Some("there-token")).await;
+    let code = there.state.peers.invite(grant);
+    let link = format!("http://{there_at}/settings/machines#tendly-pair={code}");
+    let (status, peer) = call_on(
+        &here,
+        here_at,
+        "POST",
+        "/api/peers",
+        json!({ "invite": link, "grant": "view" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{peer}");
+    let id = peer["id"].as_str().unwrap().to_owned();
+    ((there, there_at), (here, here_at), id)
+}
+
+#[tokio::test]
+async fn a_session_there_is_used_from_here_with_full_control_and_only_then() {
+    let ((there, there_at), (here, here_at), id) = paired_pair(peers::Grant::Control).await;
+    let workspace = there
+        .state
+        .store
+        .create_workspace("shared", there.path.join("repo").to_str().unwrap())
+        .unwrap();
+    let session = there
+        .state
+        .store
+        .create_session(workspace.id, ProviderKind::ClaudeCode, "remote work")
+        .unwrap();
+
+    // Read through this machine, signed in to nothing there.
+    let path = format!("/api/machines/{id}/sessions/{}", session.id);
+    let (status, seen) = call_on(&here, here_at, "GET", &path, Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{seen}");
+    assert_eq!(seen["title"], "remote work");
+
+    // The rest of that machine is out of reach, even with full control.
+    for refused in ["peers", "auth", "preferences", "machines/x/sessions/y"] {
+        let (status, _) = call_on(
+            &here,
+            here_at,
+            "GET",
+            &format!("/api/machines/{id}/{refused}"),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{refused}");
+    }
+
+    // A pane's socket goes the whole way and hears the conversation.
+    let url = format!("ws://{here_at}{path}/chat/ws");
+    let mut request = url.into_client_request().unwrap();
+    request
+        .headers_mut()
+        .insert(header::AUTHORIZATION, "Bearer there-token".parse().unwrap());
+    let (mut socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+    let greeting = tokio::time::timeout(Duration::from_secs(5), socket.next())
+        .await
+        .expect("a greeting")
+        .expect("an open socket")
+        .unwrap();
+    assert!(greeting.is_text(), "{greeting:?}");
+
+    // A machine that lowers the grant ends it at once.
+    let (_, theirs) = call_on(&there, there_at, "GET", "/api/peers", Value::Null).await;
+    let their_id = theirs["peers"][0]["id"].as_str().unwrap();
+    call_on(
+        &there,
+        there_at,
+        "PUT",
+        &format!("/api/peers/{their_id}"),
+        json!({ "grant": "spawn" }),
+    )
+    .await;
+    let (status, _) = call_on(&here, here_at, "GET", &path, Value::Null).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_key_opens_nothing_outside_the_peer_api_and_view_no_session() {
+    let ((_there, there_at), (here, here_at), id) = paired_pair(peers::Grant::View).await;
+    let text = std::fs::read_to_string(here.state.peers.file()).unwrap();
+    let saved: Value = serde_json::from_str(&text).unwrap();
+    let key = saved[0]["token"].as_str().unwrap();
+    let outside = reqwest::Client::new()
+        .get(format!("http://{there_at}/api/workspaces"))
+        .bearer_auth(key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(outside.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let (status, _) = call_on(
+        &here,
+        here_at,
+        "GET",
+        &format!("/api/machines/{id}/sessions/{id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
 }

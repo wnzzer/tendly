@@ -2,7 +2,7 @@
 import { computed, h, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, type Ref } from 'vue';
 import { WORKSPACE_GIT } from './workspace-git';
 import type { EndpointProfile, ProviderKind, Session, Workspace } from '@tendly/protocol';
-import { assetUrl, errorMessage, inCheckout, json, providerLabel, request, sessionPath, workspacePath } from './api';
+import { assetUrl, errorMessage, inCheckout, json, onMachineOf, providerLabel, request, routedUrl, sessionPath, workspacePath } from './api';
 import { placeKey } from './checkout-place';
 import { backendCapabilities } from './backend-capabilities';
 import { agentClient } from './clients';
@@ -167,7 +167,7 @@ onBeforeUnmount(() => widthObserver?.disconnect());
 /** Images load from this session's workspace, through the server, and nowhere else. */
 /** A path the conversation names is the session's: in its worktree, if it works in one. */
 const workspaceImage = (path: string) => assetUrl(props.session.workspace_id, path, props.session.checkout_path);
-const hostImage = (path: string) => `/api/host/raw?${new URLSearchParams({ path })}`;
+const hostImage = (path: string) => `/api${onMachineOf(props.session.id, `/host/raw?${new URLSearchParams({ path })}`)}`;
 /** A file a message points at opens in the file pane; the shell resolves where. */
 const openReference = (reference: { path: string; line?: number }) => emit('openFile', { ...reference, checkout: props.session.checkout_path });
 /** While a run is going, its summary names the call in progress. */
@@ -681,7 +681,7 @@ function attach(id: string, own: number) {
       batch.push(message);
     },
   });
-  const url = new URL(`/api${sessionPath(id)}/chat/ws`, window.location.href); url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = new URL(routedUrl(`/api${sessionPath(id)}/chat/ws`), window.location.href); url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   stream.connect(() => { const after = lastChatSeq(events.value); if (after === undefined) url.searchParams.delete('after'); else url.searchParams.set('after', String(after)); return url.href; });
 }
 async function load(consumeOpenIntent = false) {

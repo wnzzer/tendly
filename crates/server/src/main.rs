@@ -46,6 +46,7 @@ mod native_chat;
 mod native_config;
 mod native_history;
 mod paths;
+mod peer_proxy;
 mod peers;
 mod pi_chat;
 mod preferences;
@@ -441,6 +442,7 @@ fn router(state: AppState) -> Router {
         .merge(update::routes())
         .merge(tailscale::routes())
         .merge(peers::routes())
+        .merge(peer_proxy::routes())
         .merge(host_routes::routes())
         .merge(workspace_routes::routes())
         .merge(session_routes::routes())

@@ -4,19 +4,20 @@ import Icon from "./Icon.vue";
 import ProviderIcon from "./ProviderIcon.vue";
 import { errorMessage } from "./api";
 import { backendCapabilities } from "./backend-capabilities";
-import { allPeerSessions, openPeer, sidebarMachine, type MachineRow, type MachineSessions } from "./peers";
+import { allPeerSessions, sidebarMachine, type MachineRow, type MachineSessions } from "./peers";
 import type { ProviderKind } from "@tendly/protocol";
 import { useI18n } from "../i18n";
 
 /**
  * The sessions of the paired machines, under this machine's own workspaces.
  *
- * They stay that machine's: listed here, and opened in its own window, signed
- * in once, when it lets this machine control it. Each machine is asked every
- * 30 seconds while the page is in view, and at once when it comes back.
+ * They stay that machine's: listed here, and opened in a tab here when it lets
+ * this machine control it. Only this list is kept up to date, each machine
+ * asked every 30 seconds while the page is in view and at once when it comes
+ * back; a session's own content is fetched when its tab is looked at.
  */
 const props = defineProps<{ query: string }>();
-const emit = defineEmits<{ settings: [] }>();
+const emit = defineEmits<{ settings: []; openSession: [machine: { id: string; name: string }, session: MachineRow] }>();
 const { t } = useI18n();
 
 const STORAGE_KEY = "tendly.sidebar.machines.collapsed";
@@ -55,14 +56,9 @@ const shown = computed(() => machines.value
 
 const STATE_LABELS = { waiting: "Waiting for you", working: "Working", idle: "Idle", stopped: "Stopped" } as const;
 
-/** Its own window, at this session, signed in by a ticket good once. Opened first so no popup blocker takes it. */
-async function open(machine: MachineSessions, row: MachineRow) {
-  if (machine.granted !== "control") return;
-  const tab = window.open("", "_blank");
-  try {
-    const { url } = await openPeer(machine.id, row.id);
-    if (tab) { tab.opener = null; tab.location.href = url; } else window.location.href = url;
-  } catch (cause) { tab?.close(); error.value = errorMessage(cause); }
+/** A tab here, like one of this machine's sessions. What it holds is fetched then, not before. */
+function open(machine: MachineSessions, row: MachineRow) {
+  if (machine.granted === "control") emit("openSession", { id: machine.id, name: machine.name }, row);
 }
 </script>
 
@@ -88,7 +84,7 @@ async function open(machine: MachineSessions, row: MachineRow) {
         <li v-else-if="!view.rows.length" class="other-machine-note">{{ t('No sessions there.') }}</li>
         <li v-for="row in view.rows" :key="row.id">
           <button :class="['other-machine-session', { viewonly: machine.granted !== 'control' }]" :data-state="row.state"
-            :title="`${row.title}${row.workspace ? ` · ${row.workspace}` : ''}\n${machine.granted === 'control' ? t('Open in its window') : t('It lets this machine see its sessions only')}`"
+            :title="`${row.title}${row.workspace ? ` · ${row.workspace}` : ''}\n${machine.granted === 'control' ? t('Open here') : t('It lets this machine see its sessions only')}`"
             :aria-disabled="machine.granted !== 'control'" @click="open(machine, row)">
             <i :class="['other-machine-state', row.state]" :aria-label="t(STATE_LABELS[row.state])" />
             <ProviderIcon :provider="row.provider as ProviderKind" :size="13" />
@@ -96,6 +92,7 @@ async function open(machine: MachineSessions, row: MachineRow) {
             <Icon v-if="machine.granted === 'control'" name="arrow" :size="11" class="other-machine-open" />
           </button>
         </li>
+        <li v-if="machine.online === true && view.rows.length && machine.granted !== 'control'" class="other-machine-note other-machine-viewonly">{{ t('To open these, set this machine to Full control in {name}\'s Settings → Machines.', { name: machine.name }) }}</li>
         <li v-if="view.more" class="other-machine-note"><button class="text-button" @click="emit('settings')">{{ t('{count} more in Settings → Machines', { count: view.more }) }}</button></li>
       </ul>
     </div>

@@ -22,7 +22,8 @@
 //! - `spawn`: also start sessions here and follow the ones it started, which is
 //!   what an agent on that machine reaches through `tendly_spawn` with
 //!   `machine`;
-//! - `control`: also open this machine's own window, signed in, from there.
+//! - `control`: also open this machine's own window, signed in, from there,
+//!   and use its sessions from that machine's window (`peer_proxy`).
 //!
 //! The peer API lives under `/api/peer/` and takes a peer's key and nothing
 //! else: a key opens that prefix only, as a session's agent token opens
@@ -81,14 +82,14 @@ pub enum Grant {
 
 /// A machine this one is paired with.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct Peer {
+pub(crate) struct Peer {
     id: Uuid,
-    name: String,
+    pub(crate) name: String,
     /// Where it is reached; `None` when it has no address this machine can
     /// reach, and then only it can call here.
-    url: Option<String>,
+    pub(crate) url: Option<String>,
     /// The key this machine presents there.
-    token: Option<String>,
+    pub(crate) token: Option<String>,
     /// The SHA-256 of the key it presents here.
     inbound: String,
     /// What it may do here.
@@ -135,6 +136,8 @@ struct Inner {
     invites: Mutex<Vec<Invite>>,
     failures: Mutex<u32>,
     tickets: Mutex<Vec<Ticket>>,
+    /// The app itself, which `peer_proxy` hands what it lets through to.
+    app: std::sync::OnceLock<Router>,
 }
 
 #[derive(Clone, Default)]
@@ -188,11 +191,23 @@ impl Peers {
         }))
     }
 
+    #[cfg(test)]
+    pub(crate) fn file(&self) -> &std::path::Path {
+        &self.0.path
+    }
+
+    pub(crate) fn app(&self, state: &AppState) -> Router {
+        self.0
+            .app
+            .get_or_init(|| crate::router(state.clone()))
+            .clone()
+    }
+
     fn list(&self) -> Vec<Peer> {
         self.0.peers.lock().expect("peers").clone()
     }
 
-    fn get(&self, id: Uuid) -> Option<Peer> {
+    pub(crate) fn get(&self, id: Uuid) -> Option<Peer> {
         self.list().into_iter().find(|peer| peer.id == id)
     }
 
@@ -1007,14 +1022,14 @@ pub fn routes() -> Router<AppState> {
 
 // ---- What other machines call.
 
-fn calling(state: &AppState, headers: &HeaderMap) -> Result<Peer> {
+pub(crate) fn calling(state: &AppState, headers: &HeaderMap) -> Result<Peer> {
     state.peers.presenting(headers).ok_or_else(|| ApiError {
         status: StatusCode::UNAUTHORIZED,
         message: "This machine does not know yours".into(),
     })
 }
 
-fn allowed(peer: &Peer, needed: Grant) -> Result<()> {
+pub(crate) fn allowed(peer: &Peer, needed: Grant) -> Result<()> {
     if peer.grant >= needed {
         return Ok(());
     }

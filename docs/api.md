@@ -405,6 +405,7 @@ PUT    /api/peers/{id}                 { grant } what that machine may do here
 DELETE /api/peers/{id}                 unpair, on both sides
 GET    /api/peers/{id}/sessions        its workspaces and sessions
 GET    /api/peers/sessions             every paired machine's sessions at once, each with online and problem (the sidebar)
+ANY    /api/machines/:id/*             a call or socket for a session of a paired machine, passed on with this machine's key; needs full control there
 POST   /api/peers/{id}/open            { session_id? } a link to its window, signed in once
 GET    /api/peers/discover             machines on the tailnet, whether they run Tendly and whether they are this account's (mine)
 ```

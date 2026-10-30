@@ -48,6 +48,14 @@ export const regrantPeer = (id: string, grant: Grant) => request<Peer>(`/peers/$
 export const removePeer = (id: string) => request<void>(`/peers/${encodeURIComponent(id)}`, json("DELETE"));
 export const peerSessions = (id: string) => request<RemoteSessions>(`/peers/${encodeURIComponent(id)}/sessions`);
 export const openPeer = (id: string, sessionId?: string) => request<{ url: string }>(`/peers/${encodeURIComponent(id)}/open`, json("POST", sessionId ? { session_id: sessionId } : {}));
+/** Its own window, at this session, signed in by a ticket good once. Opened first so no popup blocker takes it. */
+export async function openPeerWindow(id: string, sessionId?: string) {
+  const tab = window.open("", "_blank");
+  try {
+    const { url } = await openPeer(id, sessionId);
+    if (tab) { tab.opener = null; tab.location.href = url; } else window.location.href = url;
+  } catch (cause) { tab?.close(); throw cause; }
+}
 export const discoverPeers = () => request<Discovered[]>("/peers/discover");
 
 /** GET /api/peers/sessions: every paired machine's sessions, each asked for at once. */

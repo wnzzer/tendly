@@ -39,6 +39,7 @@ const emit = defineEmits<{
   branchSwitched: [id: string];
   selectWorkspace: [id: string];
   openSession: [session: Session];
+  openRemoteSession: [machine: { id: string; name: string }, session: { id: string; title: string; provider: string }];
   sessionEnvironment: [id: string];
   renameSession: [session: Session, title: string];
   openFiles: [id: string];
@@ -212,7 +213,7 @@ defineExpose({ revealSession });
       </section>
       <div v-if="workspaces.length && !groups.length" class="workspace-nav-empty"><Icon name="search" :size="22" /><p>{{ t('No matching workspaces or sessions.') }}</p><button class="text-button" @click="query = ''">{{ t('Clear navigation search') }}</button></div>
       <div v-else-if="!workspaces.length" class="workspace-nav-empty"><Icon name="folder" :size="24" /><p>{{ t('Add your first workspace') }}</p><button class="secondary-button" @click="emit('addWorkspace')"><Icon name="plus" :size="14" />{{ t('Add workspace') }}</button></div>
-      <OtherMachines :query="query" @settings="emit('machines')" />
+      <OtherMachines :query="query" @settings="emit('machines')" @open-session="(machine, session) => emit('openRemoteSession', machine, session)" />
     </nav>
   </div>
 </template>

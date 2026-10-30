@@ -6,6 +6,7 @@ import { placeKey } from "./checkout-place";
 import NativeSessionPane from "./NativeSessionPane.vue";
 import CreateSessionDialog from "./CreateSessionDialog.vue";
 import SessionPane from "./SessionPane.vue";
+import RemoteSessionPane from "./RemoteSessionPane.vue";
 import FilePane from "./FilePane.vue";
 import GitPane from "./GitPane.vue";
 import Icon from "./Icon.vue";
@@ -13,6 +14,7 @@ import { useI18n } from "../i18n";
 const { t } = useI18n();
 const props = defineProps<{ pane: PaneNode; workspaces: Workspace[]; sessions: Session[]; profiles: EndpointProfile[]; gitRefresh: Record<string, number> }>();
 const emit = defineEmits<{
+  openRemoteSession: [machine: { id: string; name: string }, session: Session];
   sessionChanged: []; newSession: [id: string | undefined, provider?: ProviderKind]; openSession: [session: Session]; renameRequest: [id: string]; sessionEnvironment: [id: string];
   structuredSession: [id: string]; profiles: [];
   revealSession: [id: string]; keepSession: [id: string];
@@ -50,7 +52,8 @@ const callbacks = computed(() => {
 function renameSession(id: string) { emit("renameRequest", id); }
 </script>
 <template>
-  <section :class="['workspace-pane', { 'agent-pane': isAgent && (!!session || draft) }]" :data-workspace-id="workspace?.id">
+  <RemoteSessionPane v-if="paneString(pane,'remote_session_id')" :key="`remote:${paneString(pane,'remote_session_id')}`" :pane="pane" @open-session="(machine, session) => emit('openRemoteSession', machine, session)" />
+  <section v-else :class="['workspace-pane', { 'agent-pane': isAgent && (!!session || draft) }]" :data-workspace-id="workspace?.id">
     <div v-if="!fileShown" class="pane-workspace-bar"><span :title="checkout ?? workspace?.root_path"><Icon name="folder" :size="12" />{{ workspace?.name || t('Unassigned workspace') }}<template v-if="checkoutBranch"> · ⎇ {{ checkoutBranch }}</template></span><span class="pane-scope-label">{{ t('Fixed to this pane') }}</span></div>
     <div v-if="invalid" class="pane-empty"><Icon name="info" :size="26"/><h3>{{ t('Pane source unavailable') }}</h3><p>{{ t('This pane cannot resolve its original workspace or session. It will not use another workspace automatically.') }}</p></div>
     <SessionPane v-else-if="isAgent && session" :key="`session:${session.id}`" :pane-id="pane.id" :session="session" :sessions="choices" :profiles="profiles" @changed="emit('sessionChanged')" @create="callbacks.newSession" @select="emit('openSession',$event)" @rename-request="renameSession" @environment="emit('sessionEnvironment',$event)" @profiles="emit('profiles')" @reveal="emit('revealSession',$event)" @keep="emit('keepSession',$event)" @leave="emit('leaveTerminal',pane.id)" @open-file="(reference: { path: string; line?: number; checkout?: string | null }) => workspace && emit('openReference', workspace.id, reference)" />

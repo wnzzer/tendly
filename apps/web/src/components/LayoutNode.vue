@@ -287,7 +287,7 @@ onBeforeUnmount(() => { cleanupResize?.(); window.removeEventListener('resize', 
           <!-- Keep every session target mounted. A Teleport menu can outlive a
                tab activation during layout updates; removing its target in
                that frame causes Vue to patch a null vnode. -->
-          <span v-if="pane.metadata?.session_id" class="dock-tab-session-actions" :id="`session-actions-${pane.id}`" />
+          <span v-if="pane.metadata?.session_id || pane.metadata?.remote_session_id" class="dock-tab-session-actions" :id="`session-actions-${pane.id}`" />
           <button class="dock-tab-close" type="button" :aria-label="t('Close {title} pane', { title: tabLabel(pane) })" :title="t(isEphemeral(pane) ? 'Close and discard this temporary session' : 'Close pane (session keeps running)')" @pointerdown.stop @click.stop="emit('close', pane.id)"><Icon name="close" :size="12" /></button>
         </div>
         <span v-if="!tabs.length" class="dock-empty-label">{{ t('Empty pane') }}</span>
