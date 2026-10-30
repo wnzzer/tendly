@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-29T09:57:27Z",
+  "updatedAt": "2026-10-30T09:59:54Z",
   "source": "LiteLLM model_prices_and_context_window.json, with data/prices-overrides.json",
   "models": {
     "claude-3-5-haiku": {
@@ -585,6 +585,13 @@
       "contextWindow": 1048576,
       "maxOutput": 128000,
       "cacheWrite": 0
+    },
+    "glm-5v-turbo": {
+      "input": 1.2,
+      "output": 4,
+      "cacheRead": 0.24,
+      "contextWindow": 200000,
+      "maxOutput": 128000
     },
     "gpt-3.5-turbo": {
       "input": 0.5,
