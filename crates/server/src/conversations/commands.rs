@@ -146,8 +146,13 @@ async fn message(
         ));
     }
     // Read before the message is stored: storing it is what marks the new
-    // context as spoken to.
-    let carried = db(&state, move |s| s.carried_transcript(id, CARRIED_BYTES)).await?;
+    // context as spoken to. `/clear` carries nothing: it has to reach the
+    // client as the command alone, and what it would carry is what it drops.
+    let carried = if crate::native_chat::is_clear(&input.content) {
+        None
+    } else {
+        db(&state, move |s| s.carried_transcript(id, CARRIED_BYTES)).await?
+    };
     let mid = input.id.clone();
     let content = input.content.clone();
     match db(&state, move |s| s.submit_chat_message(id, &mid, &content)).await? {

@@ -9,7 +9,7 @@ log({event:'args',args:process.argv.slice(2)});
 let model={provider:'tendly',id:'qwen-local',contextWindow:40000},holding=false,asked;
 // Like Pi: `isStreaming` is true from a prompt's answer until its run settles,
 // and a thinking level the model cannot use is clamped to `off`, silently.
-let running=false;
+let running=false,session=1;
 const clamp=level=>model.provider==='kunlun'?level:'off';
 let level=clamp(process.argv.includes('--thinking')?process.argv[process.argv.indexOf('--thinking')+1]:'off');
 function reply(text,stopReason='stop'){
@@ -22,7 +22,8 @@ function reply(text,stopReason='stop'){
 }
 for await(const line of createInterface({input:process.stdin})){
   const command=JSON.parse(line);log(command);
-  if(command.type==='get_state')respond(command,{model,thinkingLevel:level,sessionId:'pi-session-1',isStreaming:running});
+  if(command.type==='get_state')respond(command,{model,thinkingLevel:level,sessionId:'pi-session-'+session,isStreaming:running});
+  else if(command.type==='new_session'){session++;respond(command,{cancelled:false});}
   else if(command.type==='get_commands')respond(command,{commands:[{name:'skill:review',source:'skill'}]});
   else if(command.type==='get_available_models')respond(command,{models:[model,{provider:'kunlun',id:'zai-org/GLM-5.3',name:'GLM',reasoning:true}]});
   else if(command.type==='set_model'){model={provider:command.provider,id:command.modelId,contextWindow:128000};level=clamp(level);respond(command,model);}

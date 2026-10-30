@@ -8,9 +8,9 @@
 //! across a wait. Turn indexes ensure replies belong to the active turn.
 use crate::chat_adapter::{Answers, ChatInit, Decision};
 use crate::native_chat::{
-    Core, LaunchArgs, MAX_TEXT, NativeAdapter, NativeClient, Protocol, approval_scope, clip,
-    clip_value, count, js_string, json_rpc_frame, native_id, resolve, stringify, take_resume,
-    truthy, valid_init,
+    Core, LaunchArgs, MAX_TEXT, NativeAdapter, NativeClient, Protocol, approval_scope,
+    clear_command, clip, clip_value, count, is_clear, js_string, json_rpc_frame, native_id,
+    resolve, stringify, take_resume, truthy, valid_init,
 };
 use indexmap::IndexMap;
 use serde_json::{Map, Value, json};
@@ -65,6 +65,10 @@ enum Then {
         then: Vec<Written>,
     },
     Interrupt {
+        turn: usize,
+    },
+    /// A new thread for `/clear`, in place of the one the session had.
+    Clear {
         turn: usize,
     },
 }
@@ -220,9 +224,38 @@ impl Codex {
         }
     }
     fn send_message(&mut self, id: String, content: String) {
+        let clear = is_clear(&content);
         if let Some(turn) = self.core.begin(id, &content) {
-            self.run_turn(turn, content);
+            if clear {
+                self.clear(turn);
+            } else {
+                self.run_turn(turn, content);
+            }
         }
+    }
+    /// `/clear`: app-server has no such command, so the session moves to a new
+    /// thread with the same settings. With no thread yet there is nothing to
+    /// drop but the view.
+    fn clear(&mut self, turn: usize) {
+        if self.core.native_session_id.is_none() {
+            if let Some(launch) = self.launch.as_mut() {
+                launch.resume = None;
+            }
+            self.core.replaced(None, Some(clear_command()));
+            self.core.finish("completed");
+            return;
+        }
+        let params = self
+            .launch
+            .as_ref()
+            .map(|launch| launch.thread.clone())
+            .unwrap_or_default();
+        self.rpc(
+            "thread/start",
+            Value::Object(params),
+            Then::Clear { turn },
+            false,
+        );
     }
     fn run_turn(&mut self, turn: usize, content: String) {
         if self.core.native_session_id.is_none() {
@@ -394,7 +427,7 @@ impl Codex {
                         self.shutdown();
                         return;
                     }
-                    self.core.announce(None, None);
+                    self.core.announce(None, Some(clear_command()));
                     let model = self
                         .launch
                         .as_ref()
@@ -454,8 +487,31 @@ impl Codex {
                 {
                     self.base_sandbox = Some(sandbox.clone());
                 }
-                self.core.announce(Some(&id), None);
+                self.core.announce(Some(&id), Some(clear_command()));
                 self.start_turn(turn, content);
+            }
+            Then::Clear { turn } => {
+                let id = match result {
+                    Ok(result) => result
+                        .get("thread")
+                        .and_then(|t| t.get("id"))
+                        .and_then(Value::as_str)
+                        .filter(|id| native_id(id))
+                        .map(str::to_owned),
+                    Err(message) => return self.turn_failed(turn, &message),
+                };
+                let Some(id) = id else {
+                    return self
+                        .turn_failed(turn, "Codex did not return a usable native thread ID.");
+                };
+                if let Some(launch) = self.launch.as_mut() {
+                    launch.resume = None;
+                }
+                self.core.replaced(Some(&id), Some(clear_command()));
+                if self.core.active == Some(turn) {
+                    self.core.finish("completed");
+                }
+                self.pass_on(turn);
             }
             Then::StartTurn { turn } => match result {
                 Ok(result) => {

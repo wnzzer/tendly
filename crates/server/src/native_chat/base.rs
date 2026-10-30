@@ -65,6 +65,16 @@ pub type Frame = fn(&str, &str, Value) -> Value;
 /// its result or what the client said in refusing. `None` is not a reply.
 pub type Reply = fn(&Value) -> Option<(Value, Result<Value, Value>)>;
 
+/// The message that clears a conversation, whatever the client: Claude Code's
+/// own command, which Tendly carries out itself for the clients without one.
+pub fn is_clear(content: &str) -> bool {
+    content.trim() == "/clear"
+}
+/// What a client that has no `/clear` of its own offers once Tendly does it.
+pub fn clear_command() -> Vec<String> {
+    vec!["clear".to_owned()]
+}
+
 /// `jsonRpcRequest`.
 pub fn json_rpc_frame(id: &str, method: &str, params: Value) -> Value {
     json!({"id":id,"method":method,"params":params})
@@ -298,6 +308,16 @@ impl<T, R, X: Default> Core<T, R, X> {
             self.resolve_native(&key);
         }
         self.emit(json!({"type":"turn","id":id,"status":status}));
+    }
+    /// A new native conversation took the old one's place: the view drops
+    /// what the client can no longer refer to, and the new id is the one a
+    /// restart resumes. Claude Code does this by itself on `/clear`; Codex and
+    /// Pi have no such command, so their adapters open a new conversation and
+    /// say so here, and `/clear` reads the same in all three.
+    pub fn replaced(&mut self, id: Option<&str>, commands: Option<Vec<String>>) {
+        self.native_session_id = None;
+        self.emit(json!({"type":"cleared"}));
+        self.announce(id, commands);
     }
     /// `ChatBase.announce`: ready, with the session's id and the commands the
     /// client itself advertised.

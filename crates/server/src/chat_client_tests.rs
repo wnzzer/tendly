@@ -710,6 +710,45 @@ async fn a_dropped_adapter_stops_its_app_server() {
     assert!(!alive(), "the app-server outlived its dropped adapter");
 }
 
+/// Codex has no `/clear`: Tendly opens a new thread for it, so it clears as
+/// Claude Code's does, and a restart resumes the new thread.
+#[tokio::test]
+async fn codex_clear_moves_to_a_new_thread() {
+    let events = scenario(
+        "codex-clear",
+        &[],
+        &[
+            // Before any thread there is only the view to drop.
+            Send(json!({"type":"message","id":"early","content":"/clear"})),
+            Wait(|e| turn(e, "early", "completed")),
+            Send(json!({"type":"message","id":"one","content":"hello"})),
+            Wait(|e| turn(e, "one", "completed")),
+            Send(json!({"type":"message","id":"clear","content":"/clear"})),
+            Wait(|e| turn(e, "clear", "completed")),
+            Send(json!({"type":"message","id":"two","content":"hello"})),
+            Wait(|e| turn(e, "two", "completed")),
+        ],
+    )
+    .await;
+    assert!(
+        events
+            .iter()
+            .any(|e| e["type"] == "ready" && e["commands"] == json!(["clear"]))
+    );
+    assert_eq!(events.iter().filter(|e| e["type"] == "cleared").count(), 2);
+    let after = events
+        .iter()
+        .position(|e| turn(e, "clear", "completed"))
+        .unwrap();
+    let cleared = events.iter().rposition(|e| e["type"] == "cleared").unwrap();
+    assert!(cleared < after);
+    assert!(
+        events[cleared..]
+            .iter()
+            .any(|e| e["type"] == "ready" && e["native_session_id"] == "fixture-thread-2")
+    );
+}
+
 // --- Pi ----------------------------------------------------------------------
 
 #[tokio::test]
@@ -792,6 +831,35 @@ async fn pi_interrupting_and_steering_a_running_turn() {
         ],
     )
     .await;
+}
+
+/// Pi's `/new` is its terminal's; over RPC `/clear` is `new_session`.
+#[tokio::test]
+async fn pi_clear_starts_a_new_session() {
+    let events = scenario_for(
+        &PI,
+        "pi-clear",
+        &[],
+        &[
+            Send(json!({"type":"message","id":"one","content":"hello"})),
+            Wait(|e| turn(e, "one", "completed")),
+            Send(json!({"type":"message","id":"clear","content":"/clear"})),
+            Wait(|e| turn(e, "clear", "completed")),
+        ],
+    )
+    .await;
+    assert!(events.iter().any(|e| e["type"] == "ready"
+        && e["commands"] == json!(["skill:review", "clear"])
+        && e["native_session_id"] == "pi-session-1"));
+    let cleared = events
+        .iter()
+        .position(|e| e["type"] == "cleared")
+        .expect("cleared");
+    assert!(
+        events[cleared..]
+            .iter()
+            .any(|e| e["type"] == "ready" && e["native_session_id"] == "pi-session-2")
+    );
 }
 
 #[tokio::test]

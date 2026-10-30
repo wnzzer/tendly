@@ -6,8 +6,8 @@
 //! what it does ask comes from extensions, as `extension_ui_request` dialogs.
 use crate::chat_adapter::{Answers, ChatInit, Decision};
 use crate::native_chat::{
-    Core, LaunchArgs, MAX_TEXT, NativeAdapter, NativeClient, Protocol, clip, count, js_string,
-    safe_integer, stringify, take_resume, valid_init,
+    Core, LaunchArgs, MAX_TEXT, NativeAdapter, NativeClient, Protocol, clip, count, is_clear,
+    js_string, safe_integer, stringify, take_resume, valid_init,
 };
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
@@ -152,6 +152,14 @@ enum Then {
     },
     /// A request whose answer changes nothing.
     Ignore,
+    /// `/clear`: Pi started a new session, or an extension kept it from.
+    NewSession {
+        turn: usize,
+    },
+    /// The new session's state, for its id.
+    Cleared {
+        turn: usize,
+    },
 }
 
 /// How an extension's dialog is answered.
@@ -173,6 +181,9 @@ struct Pi {
     failed: bool,
     /// The turn whose run Pi has started (agent_start), if any.
     started: Option<usize>,
+    /// What Pi offered, and `clear`, which Tendly does with `new_session`;
+    /// said again with the new session's id.
+    commands: Option<Vec<String>>,
 }
 
 impl Pi {
@@ -283,7 +294,14 @@ impl Pi {
         }
     }
     fn send_message(&mut self, id: String, content: String) {
+        let clear = is_clear(&content);
         if let Some(turn) = self.core.begin(id, &content) {
+            // Pi's own `/new` belongs to its terminal UI; over RPC it is
+            // `new_session`, which an extension may decline.
+            if clear {
+                self.rpc("new_session", json!({}), Then::NewSession { turn }, false);
+                return;
+            }
             self.rpc(
                 "prompt",
                 json!({"message": content}),
@@ -309,6 +327,12 @@ impl Pi {
         self.core.turns[turn].interrupted = true;
         self.cancel_approvals();
         self.rpc("abort", json!({}), Then::Abort { turn }, false);
+    }
+    fn clear_failed(&mut self, turn: usize, message: &str) {
+        if self.core.active == Some(turn) {
+            self.core.error(message);
+            self.core.finish("failed");
+        }
     }
     fn next_assistant(&mut self) -> String {
         self.message_count += 1;
@@ -339,11 +363,16 @@ impl Pi {
                                 .collect::<Vec<_>>()
                         })
                 });
+                let mut commands = commands.unwrap_or_default();
+                if !commands.iter().any(|name| name == "clear") {
+                    commands.push("clear".to_owned());
+                }
+                self.commands = Some(commands.clone());
                 let session = state
                     .get("sessionId")
                     .and_then(Value::as_str)
                     .map(str::to_owned);
-                self.core.announce(session.as_deref(), commands);
+                self.core.announce(session.as_deref(), Some(commands));
                 self.follow(&state);
                 self.core.initializing = false;
                 self.core.initialized = true;
@@ -413,6 +442,31 @@ impl Pi {
                 self.report();
             }
             Then::Ignore => {}
+            Then::NewSession { turn } => match result {
+                Ok(data) if data.get("cancelled") == Some(&Value::Bool(true)) => {
+                    self.clear_failed(
+                        turn,
+                        "Pi kept this session: an extension declined starting a new one.",
+                    );
+                }
+                Ok(_) => self.rpc("get_state", json!({}), Then::Cleared { turn }, false),
+                Err(message) => self.clear_failed(turn, &message),
+            },
+            Then::Cleared { turn } => match result {
+                Ok(state) => {
+                    let session = state
+                        .get("sessionId")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
+                    let commands = self.commands.clone();
+                    self.core.replaced(session.as_deref(), commands);
+                    self.follow(&state);
+                    if self.core.active == Some(turn) {
+                        self.core.finish("completed");
+                    }
+                }
+                Err(message) => self.clear_failed(turn, &message),
+            },
             Then::Steer => {
                 if let Err(message) = result {
                     self.core.error(&message);
@@ -731,6 +785,7 @@ pub fn adapter(env: &BTreeMap<String, String>, env_remove: &[String]) -> NativeA
             assistant_id: None,
             failed: false,
             started: None,
+            commands: None,
         },
     )
 }

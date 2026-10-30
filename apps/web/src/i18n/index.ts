@@ -689,7 +689,7 @@ export const zhCN: Readonly<Record<string, string>> = {
   "Dismiss": "关闭",
   "Copy selection": "复制所选内容",
   "Clear context": "清空上下文",
-  "Runs this client's own /clear: the transcript and its context are dropped together.": "执行该客户端自己的 /clear：对话记录与其上下文一并清空。",
+  "Starts a new conversation: the transcript and the client's context are dropped together.": "开始新对话：对话记录与客户端的上下文一并清空。",
   "Locate {title} in session list": "在会话列表中定位 {title}",
   "{model} could not be switched to mid-conversation": "无法在对话中途切换到 {model}",
   "This endpoint refuses the availability check the client makes when switching models live. Starting the session on this model works instead, but begins a new native context: earlier messages stay visible here and are not sent to it.": "该端点拒绝了客户端实时切换模型时发起的可用性探测。改为以该模型启动会话是可行的，但会开启新的原生上下文：之前的消息仍可在此查看，但不会发送给它。",
