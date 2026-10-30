@@ -1316,6 +1316,40 @@ async fn claude_subagents_and_background_tasks() {
         && e["stats"] == json!({"tokens":2000,"tools":3,"ms":5000})));
 }
 
+/// A subagent resumed by SendMessage: its output went to the first card and
+/// marked it running again, while the end went to the new card, so the first
+/// sat in the dock as running, "no progress" for hours.
+#[tokio::test]
+async fn claude_a_resumed_subagent_ends_where_it_runs() {
+    let events = scenario_for(
+        &CLAUDE,
+        "claude-resume",
+        &[],
+        &[
+            send_message(1, "resume"),
+            finished(1, "completed"),
+            Wait(|e| e["id"] == "send-1" && e["status"] == "completed"),
+            Sleep(200),
+        ],
+    )
+    .await;
+    let first: Vec<&Value> = events.iter().filter(|e| e["id"] == "task-1").collect();
+    let ended = first
+        .iter()
+        .position(|e| e["status"] == "completed")
+        .expect("the first run ends");
+    assert!(
+        first[ended..].iter().all(|e| e["status"] != "running"),
+        "{first:?}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e["id"] == "send-1" && e["activity"] == "Fixing again")
+    );
+    assert!(!events.iter().any(|e| e["activity"] == "Late line"));
+}
+
 #[tokio::test]
 async fn claude_a_turn_the_client_starts_by_itself() {
     let events = scenario_for(

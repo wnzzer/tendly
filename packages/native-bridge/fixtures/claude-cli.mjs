@@ -68,6 +68,22 @@ function begin(text){
       send({type:'system',subtype:'task_started',task_id:'sh-'+turn,tool_use_id:'task-'+turn,task_type:'local_bash',description:'npm test'});
       send({type:'system',subtype:'task_notification',task_id:'sh-'+turn,status:'failed'});
       return;
+    case 'resume':
+      // A background subagent finishes, and SendMessage resumes it: the same
+      // task under a new card, whose output still names the first card.
+      send({type:'assistant',message:{id:'lead-'+turn,content:[{type:'tool_use',id:'task-'+turn,name:'Agent',input:{description:'Fix it',prompt:'Fix',run_in_background:true}}]}});
+      send({type:'system',subtype:'task_started',task_id:'t-'+turn,tool_use_id:'task-'+turn,description:'Fix it',task_type:'local_agent',is_backgrounded:true});
+      send({type:'user',message:{content:[{type:'tool_result',tool_use_id:'task-'+turn,content:'Async agent launched.'}]}});
+      send({type:'system',subtype:'task_notification',task_id:'t-'+turn,status:'completed',summary:'Done once'});
+      send({type:'assistant',message:{id:'lead-b-'+turn,content:[{type:'tool_use',id:'send-'+turn,name:'SendMessage',input:{to:'agent-1',message:'Again'}}]}});
+      send({type:'system',subtype:'task_started',task_id:'t-'+turn,tool_use_id:'send-'+turn,description:'Fix it',task_type:'local_agent',is_backgrounded:true});
+      send({type:'user',message:{content:[{type:'tool_result',tool_use_id:'send-'+turn,content:'Resuming agent'}]}});
+      done();
+      send({type:'assistant',parent_tool_use_id:'task-'+turn,message:{content:[{type:'text',text:'Fixing again'}]}});
+      send({type:'system',subtype:'task_notification',task_id:'t-'+turn,status:'completed',summary:'Done twice'});
+      // Output that arrives after both ended reopens nothing.
+      send({type:'assistant',parent_tool_use_id:'task-'+turn,message:{content:[{type:'text',text:'Late line'}]}});
+      return;
     case 'background':
       done();
       // A background command it waited on finished: it carries on by itself.

@@ -303,7 +303,18 @@ impl Claude {
 
     /// Progress only: an activity line names what the subagent is doing; its
     /// own tool calls become cards nested under it.
+    ///
+    /// A subagent resumed by `SendMessage` still names the card it first ran
+    /// under; its output goes to the card of the run it is in now. Output for
+    /// a card whose task has ended never marks it running again: that left a
+    /// finished subagent in the dock, "no progress" for hours.
     pub(super) fn subagent(&mut self, message: &Value, parent: &str) {
+        let parent = self
+            .resumed
+            .get(parent)
+            .map_or(parent, String::as_str)
+            .to_owned();
+        let parent = parent.as_str();
         let Some(parent_name) = self.tools.get(parent).cloned() else {
             return;
         };
@@ -356,7 +367,7 @@ impl Claude {
             }
             _ => {}
         }
-        if lines.is_empty() {
+        if lines.is_empty() || self.ended.contains(parent) {
             return;
         }
         let name = self.tools.get(parent).cloned().unwrap_or(parent_name);
@@ -439,6 +450,14 @@ impl Claude {
             "task_started" => {
                 if let Some(task) = task_id {
                     remember(&mut self.tasks, task.to_owned(), id.clone());
+                    // The same task under another card: a resumed subagent.
+                    match self.origins.get(task) {
+                        Some(origin) if *origin != id => {
+                            self.resumed.insert(origin.clone(), id.clone());
+                        }
+                        Some(_) => {}
+                        None => remember(&mut self.origins, task.to_owned(), id.clone()),
+                    }
                 }
                 if truthy(message.get("is_backgrounded")) {
                     self.background.insert(id.clone());
@@ -483,6 +502,13 @@ impl Claude {
                 self.background.shift_remove(&id);
                 if let Some(task) = task_id {
                     self.tasks.shift_remove(task);
+                    if let Some(origin) = self.origins.get(task) {
+                        self.resumed.remove(origin);
+                    }
+                }
+                self.ended.insert(id.clone());
+                if self.ended.len() > 512 {
+                    self.ended.shift_remove_index(0);
                 }
                 self.summary_of.remove(&id);
                 let status = if message.get("status").and_then(Value::as_str) == Some("completed") {

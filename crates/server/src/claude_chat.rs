@@ -141,6 +141,15 @@ struct Claude {
     background: IndexSet<String>,
     /// The last progress summary logged per tool call.
     summary_of: HashMap<String, String>,
+    /// Background task id to the card it first ran under. A subagent resumed
+    /// by `SendMessage` runs again under the same task, while its output still
+    /// names the first card as its parent.
+    origins: IndexMap<String, String>,
+    /// A first card to the card of the run that resumed it, while that runs:
+    /// where the resumed subagent's output goes.
+    resumed: HashMap<String, String>,
+    /// Cards whose task has ended, which late output must not reopen.
+    ended: IndexSet<String>,
 }
 
 /// Inserting into a map capped at 512 entries, oldest out first.
@@ -431,6 +440,9 @@ pub fn adapter(env: &BTreeMap<String, String>, env_remove: &[String]) -> NativeA
             tasks: IndexMap::new(),
             background: IndexSet::new(),
             summary_of: HashMap::new(),
+            origins: IndexMap::new(),
+            resumed: HashMap::new(),
+            ended: IndexSet::new(),
         },
     )
 }
