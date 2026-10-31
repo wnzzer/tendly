@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-30T09:59:54Z",
+  "updatedAt": "2026-10-31T09:38:32Z",
   "source": "LiteLLM model_prices_and_context_window.json, with data/prices-overrides.json",
   "models": {
     "claude-3-5-haiku": {
@@ -959,6 +959,14 @@
       "contextWindow": 922000,
       "maxOutput": 128000,
       "cacheWrite": 0.125
+    },
+    "gpt-6-rosalind": {
+      "input": 15,
+      "output": 75,
+      "cacheRead": 1.5,
+      "contextWindow": 922000,
+      "maxOutput": 128000,
+      "cacheWrite": 18.75
     },
     "gpt-6-sol": {
       "input": 2,
