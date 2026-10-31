@@ -298,8 +298,11 @@
 .file-crumbs-path { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
 .file-crumbs > strong { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-weight: 600; }
 .file-crumbs > .dirty-indicator { margin-left: 6px; }
-/* The wterm surface: rows are page text, scrolled by the browser rather than repainted. */
-.terminal-host .wterm-surface.wterm { height: 100%; padding: 0; border-radius: 0; box-shadow: none; overscroll-behavior: contain; --term-font-family: "SFMono-Regular", Consolas, "Liberation Mono", "Symbols Nerd Font Mono", "Tendly Symbols", monospace; --term-font-size: var(--text-xs); --term-line-height: 1.25; --term-row-height: calc(var(--text-xs) * 1.25); }
+/* The wterm surface: rows are page text, scrolled by the browser rather than repainted.
+   wterm shows a scrollbar only once there is history. The gutter stays reserved so
+   the bar cannot change the grid: a client that clears its history on resize (agy)
+   would otherwise hide the bar, widen the grid, and redraw in a loop that flashes. */
+.terminal-host .wterm-surface.wterm { height: 100%; padding: 0; border-radius: 0; box-shadow: none; overscroll-behavior: contain; scrollbar-gutter: stable; --term-font-family: "SFMono-Regular", Consolas, "Liberation Mono", "Symbols Nerd Font Mono", "Tendly Symbols", monospace; --term-font-size: var(--text-xs); --term-line-height: 1.25; --term-row-height: calc(var(--text-xs) * 1.25); }
 .terminal-host .wterm-surface, .terminal-host .wterm-surface * { touch-action: pan-y; }
 /* Find in the terminal's history: the button in the status line and the bar over the terminal's top edge. */
 .terminal-find { margin-left: auto; }
