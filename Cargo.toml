@@ -10,7 +10,7 @@ resolver = "2"
 [workspace.package]
 edition = "2024"
 license = "MIT"
-version = "0.1.112"
+version = "0.1.113"
 
 [workspace.dependencies]
 tendly-domain = { path = "crates/domain" }
