@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-31T09:38:32Z",
+  "updatedAt": "2026-11-01T10:27:18Z",
   "source": "LiteLLM model_prices_and_context_window.json, with data/prices-overrides.json",
   "models": {
     "claude-3-5-haiku": {
@@ -951,6 +951,13 @@
       "contextWindow": 922000,
       "maxOutput": 128000,
       "cacheWrite": 12.5
+    },
+    "gpt-6-astra-law": {
+      "input": 10,
+      "output": 50,
+      "cacheRead": 1,
+      "contextWindow": 922000,
+      "maxOutput": 128000
     },
     "gpt-6-luna": {
       "input": 0.1,
