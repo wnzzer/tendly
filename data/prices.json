@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-05T10:55:12Z",
+  "updatedAt": "2026-11-06T10:51:47Z",
   "source": "LiteLLM model_prices_and_context_window.json, with data/prices-overrides.json",
   "models": {
     "claude-3-5-haiku": {
@@ -434,7 +434,14 @@
       "input": 1.5,
       "output": 9,
       "cacheRead": 1.5,
-      "contextWindow": 1048576,
+      "contextWindow": 131072,
+      "maxOutput": 65536
+    },
+    "gemini-omni-1.2-flash": {
+      "input": 1.5,
+      "output": 9,
+      "cacheRead": 1.5,
+      "contextWindow": 131072,
       "maxOutput": 65536
     },
     "gemini-omni-flash-preview": {
@@ -958,6 +965,14 @@
       "cacheRead": 1,
       "contextWindow": 922000,
       "maxOutput": 128000
+    },
+    "gpt-6-cyber": {
+      "input": 20,
+      "output": 100,
+      "cacheRead": 2,
+      "contextWindow": 922000,
+      "maxOutput": 128000,
+      "cacheWrite": 25
     },
     "gpt-6-luna": {
       "input": 0.1,
