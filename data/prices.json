@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-06T10:51:47Z",
+  "updatedAt": "2026-11-08T10:21:15Z",
   "source": "LiteLLM model_prices_and_context_window.json, with data/prices-overrides.json",
   "models": {
     "claude-3-5-haiku": {
@@ -1400,6 +1400,15 @@
       "maxOutput": 1048576,
       "cacheWrite": 2,
       "cacheWrite1h": 4
+    },
+    "kimi-k3.1-pro-highspeed": {
+      "input": 4,
+      "output": 20,
+      "cacheRead": 0.2,
+      "contextWindow": 1048576,
+      "maxOutput": 1048576,
+      "cacheWrite": 4,
+      "cacheWrite1h": 8
     },
     "minimax-m2": {
       "input": 0.3,
