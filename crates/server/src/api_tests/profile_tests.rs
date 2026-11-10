@@ -1111,3 +1111,23 @@ async fn launch_with(
     let session: Session = serde_json::from_value(created).unwrap();
     launch::build(&f.state, &session, f.path.join("repo")).unwrap()
 }
+
+#[tokio::test]
+async fn preferences_from_0_1_114_still_parse_beside_per_account_auto_refresh() {
+    let f = Fixture::new("127.0.0.1:8787".parse().unwrap(), None);
+    let account = Uuid::new_v4();
+    let (status, _) = call(
+        f.app(),
+        "PUT",
+        "/api/preferences",
+        json!({"codex":{"effort":"high"},"balance_auto_refresh":false,"official_auto_refresh":true,"auto_refresh_accounts":[account]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, prefs) = call(f.app(), "GET", "/api/preferences", Value::Null).await;
+    // A document that did not parse would read as no preferences at all.
+    assert_eq!(prefs["codex"]["effort"], "high");
+    assert_eq!(prefs["balance_auto_refresh"], false);
+    assert_eq!(prefs["official_auto_refresh"], true);
+    assert_eq!(prefs["auto_refresh_accounts"], json!([account]));
+}

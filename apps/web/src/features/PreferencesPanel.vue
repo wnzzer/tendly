@@ -50,14 +50,10 @@ async function update(provider: PreferenceProvider, field: 'endpoint_profile_id'
   catch (cause) { error.value = errorMessage(cause); }
   finally { saving.value = false; }
 }
-/**
- * The default is stored as nothing, the other choice as itself: off for a
- * switch that starts on, on for one that starts off (`official_auto_refresh`).
- */
-async function setSwitch(key: 'agent_tools' | 'resource_monitoring' | 'balance_auto_refresh' | 'official_auto_refresh', on: boolean) {
+/** Off is stored as `false`; on is the default, so it is stored as nothing. */
+async function setSwitch(key: 'agent_tools' | 'resource_monitoring', on: boolean) {
   const next: Preferences = JSON.parse(JSON.stringify(preferences.value));
-  const startsOn = key !== 'official_auto_refresh';
-  if (on === startsOn) delete next[key]; else next[key] = on;
+  if (on) delete next[key]; else next[key] = false;
   saving.value = true;
   try { await savePreferences(next); showToast(t('Saved'), { duration: 2000 }); }
   catch (cause) { error.value = errorMessage(cause); }
@@ -227,14 +223,6 @@ async function changeRoots(change: () => Promise<HostRoots>, clear = false) {
           <button type="button" :class="['small-button', { danger: clearArmed }]" :disabled="clearing" @click="clearHistory">{{ t(clearArmed ? 'Press again to clear' : 'Clear history') }}</button>
         </div>
         </template>
-        <label v-if="backendCapabilities.customBalances" class="preference-row">
-          <span><strong>{{ t('Refresh balances automatically') }}</strong><small>{{ t('While a Tendly page is open and in view, each custom endpoint balance is queried again every 5 minutes.') }}</small></span>
-          <input type="checkbox" class="preference-switch" role="switch" :checked="preferences.balance_auto_refresh !== false" :disabled="saving" :aria-label="t('Refresh balances automatically')" @change="setSwitch('balance_auto_refresh', ($event.target as HTMLInputElement).checked)" />
-        </label>
-        <label v-if="backendCapabilities.accounts" class="preference-row">
-          <span><strong>{{ t('Refresh official allowances automatically') }}</strong><small>{{ t('Every 15 minutes while a page is in view, signed-in official accounts check their remaining allowance. Off by default: the official usage check is rationed, and a refusal makes it wait longer.') }}</small></span>
-          <input type="checkbox" class="preference-switch" role="switch" :checked="preferences.official_auto_refresh === true" :disabled="saving" :aria-label="t('Refresh official allowances automatically')" @change="setSwitch('official_auto_refresh', ($event.target as HTMLInputElement).checked)" />
-        </label>
       </article>
     </template>
   </section>

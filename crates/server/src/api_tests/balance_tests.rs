@@ -174,3 +174,38 @@ async fn balance_mcp_saves_only_after_browser_approval_then_can_query() {
     .unwrap();
     assert_eq!(result["reading"]["value"], "62");
 }
+
+#[tokio::test]
+async fn switching_auto_refresh_keeps_the_reading_and_shows_in_the_list() {
+    let f = Fixture::new("127.0.0.1:8787".parse().unwrap(), None);
+    let (_, profile) = call(
+        f.app(),
+        "POST",
+        "/api/endpoint-profiles",
+        json!({"name":"relay","provider":"codex"}),
+    )
+    .await;
+    let id = profile["id"].as_str().unwrap();
+    let path = format!("/api/endpoint-profiles/{id}/balance");
+    let mut config = json!({"unit":{"kind":"money","currency":"CNY"},"query_url":"https://example.invalid/balance","auth":{"kind":"none"},"secret_ref":null,"script":"return {value:'8.00'};"});
+    call(f.app(), "PUT", &path, config.clone()).await;
+    let (_, queried) = call(f.app(), "POST", &format!("{path}/query"), Value::Null).await;
+    assert_eq!(queried["reading"]["value"], "8.00");
+    let (_, rows) = call(f.app(), "GET", "/api/endpoint-balances", Value::Null).await;
+    assert!(rows[0]["auto_refresh"].is_null(), "unset means on");
+
+    // When to ask is not what a reading means: switching it keeps the figure.
+    config["auto_refresh"] = json!(false);
+    let (status, view) = call(f.app(), "PUT", &path, config.clone()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(view["config"]["auto_refresh"], false);
+    assert_eq!(view["reading"]["value"], "8.00");
+    let (_, rows) = call(f.app(), "GET", "/api/endpoint-balances", Value::Null).await;
+    assert_eq!(rows[0]["auto_refresh"], false);
+
+    // A different query still starts afresh.
+    config["script"] = json!("return {value:'9.00'};");
+    let (_, view) = call(f.app(), "PUT", &path, config).await;
+    assert!(view["reading"].is_null());
+    assert_eq!(view["config"]["auto_refresh"], false);
+}

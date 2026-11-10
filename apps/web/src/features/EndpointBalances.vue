@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue';
-import { balanceIsStale, balanceLabel, balanceLevel, balanceShort, type EndpointBalance } from './balance-model';
+import { balanceAutoRefreshOn, balanceIsStale, balanceLabel, balanceLevel, balanceShort, type EndpointBalance } from './balance-model';
+import { preferences } from './preferences';
 import { balances, loadBalances, refreshBalance } from './balance-store';
 import Icon from './Icon.vue';
 import { useI18n } from '../i18n';
@@ -34,7 +35,7 @@ function checked(row: EndpointBalance): string {
       </header>
       <div class="balance-figure" :title="row.reading ? balanceLabel(row.reading) : ''">{{ row.reading ? balanceShort(row.reading, locale) : '—' }}</div>
       <span v-if="percent(row) !== undefined" class="balance-bar"><i :style="{ width: percent(row) + '%' }" /></span>
-      <small class="balance-meta">{{ checked(row) }}<template v-if="row.error"> · <span class="danger-text">{{ t(row.error) }}</span></template><template v-else-if="stale(row)"> · {{ t('Outdated') }}</template></small>
+      <small class="balance-meta">{{ checked(row) }}<template v-if="balanceAutoRefreshOn(row, preferences)"> · {{ t('Refreshes automatically') }}</template><template v-if="row.error"> · <span class="danger-text">{{ t(row.error) }}</span></template><template v-else-if="stale(row)"> · {{ t('Outdated') }}</template></small>
     </article>
   </section>
 </template>

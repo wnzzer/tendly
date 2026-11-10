@@ -4,6 +4,9 @@ import type { CompletionSource } from '@codemirror/autocomplete';
 import { request, json, errorMessage } from './api';
 import { BALANCE_EXAMPLE, BALANCE_EXAMPLES, authFields, authFromFields, type BalanceConfig, type BalanceReading, type BalanceView } from './balance-model';
 import { applyView } from './balance-store';
+import { preferences } from './preferences';
+/** Unset follows the switch 0.1.114 had for every balance, which was on unless turned off. */
+const balanceAutoRefreshDefault=()=>preferences.value.balance_auto_refresh!==false;
 import BalanceResult from './BalanceResult.vue';
 import Icon from './Icon.vue';
 import { useI18n } from '../i18n';
@@ -11,7 +14,7 @@ import { useI18n } from '../i18n';
 const CodeEditor=defineAsyncComponent(()=>import('./CodeEditor.vue'));
 const props=defineProps<{profileId:string; disabled?:boolean}>();
 const {t}=useI18n();
-const mode=ref<'disabled'|'money'|'percentage'>('disabled'), currency=ref('USD'), queryUrl=ref(''), secret=ref(''), script=ref(BALANCE_EXAMPLE);
+const mode=ref<'disabled'|'money'|'percentage'>('disabled'), currency=ref('USD'), queryUrl=ref(''), secret=ref(''), script=ref(BALANCE_EXAMPLE), autoRefresh=ref(true);
 const loaded=ref(false), busy=ref(false), error=ref(''), view=ref<BalanceView>(), preview=ref<BalanceReading>();
 const baseline=ref('');
 const auth=reactive(authFields({kind:'header',name:'Authorization',value:'Bearer {key}'}));
@@ -19,14 +22,14 @@ const url=`/endpoint-profiles/${encodeURIComponent(props.profileId)}/balance`;
 const MODES=[{id:'disabled',label:'Disabled'},{id:'money',label:'Fiat balance'},{id:'percentage',label:'Remaining percentage'}] as const;
 function config():BalanceConfig|null {
   if(mode.value==='disabled')return null;
-  return {unit:mode.value==='money'?{kind:'money',currency:currency.value.trim().toUpperCase()}:{kind:'percentage'},query_url:queryUrl.value.trim(),auth:authFromFields(auth),secret_ref:secret.value.trim()||null,script:script.value};
+  return {unit:mode.value==='money'?{kind:'money',currency:currency.value.trim().toUpperCase()}:{kind:'percentage'},query_url:queryUrl.value.trim(),auth:authFromFields(auth),secret_ref:secret.value.trim()||null,script:script.value,...(autoRefresh.value?{}:{auto_refresh:false})};
 }
 watch(() => JSON.stringify(config()), () => { preview.value=undefined; }, {flush:'sync'});
 const dirty=computed(()=>loaded.value&&JSON.stringify(config())!==baseline.value);
 const disabled=computed(()=>busy.value||props.disabled||!loaded.value);
 function apply(next:BalanceView){
   view.value=next;const c=next.config;
-  mode.value=c?.unit.kind??'disabled';currency.value=c?.unit.kind==='money'?c.unit.currency:'USD';queryUrl.value=c?.query_url??'';Object.assign(auth,authFields(c?.auth??{kind:'header',name:'Authorization',value:'Bearer {key}'}));secret.value=c?.secret_ref??'';script.value=c?.script??BALANCE_EXAMPLE;
+  mode.value=c?.unit.kind??'disabled';currency.value=c?.unit.kind==='money'?c.unit.currency:'USD';queryUrl.value=c?.query_url??'';Object.assign(auth,authFields(c?.auth??{kind:'header',name:'Authorization',value:'Bearer {key}'}));secret.value=c?.secret_ref??'';script.value=c?.script??BALANCE_EXAMPLE;autoRefresh.value=c?.auto_refresh??balanceAutoRefreshDefault();
   baseline.value=JSON.stringify(config());loaded.value=true;preview.value=undefined;
 }
 async function load(){error.value='';try{apply(await request<BalanceView>(url));}catch(cause){error.value=errorMessage(cause);}}
@@ -100,6 +103,7 @@ const completions:CompletionSource=context=>{
           <div v-if="auth.preset==='header'" class="setting-row"><span class="setting-label"><strong>{{ t('Custom header') }}</strong><small>{{ t('{key} is replaced by the key on the server.') }}</small></span><span class="setting-pair"><input :aria-label="t('Header name')" v-model="auth.headerName" placeholder="X-Token" autocomplete="off" spellcheck="false" class="field-mono" /><input :aria-label="t('Header value')" v-model="auth.headerValue" placeholder="Bearer {key}" autocomplete="off" spellcheck="false" class="field-mono" /></span></div>
           <label v-else-if="auth.preset==='query'" class="setting-row"><span class="setting-label"><strong>{{ t('Parameter name') }}</strong></span><input v-model="auth.queryName" placeholder="api_key" autocomplete="off" spellcheck="false" class="field-mono" /></label>
           <label v-if="auth.preset!=='none'" class="setting-row"><span class="setting-label"><strong>{{ t('Balance key reference') }}</strong><small>{{ t('Empty uses the endpoint key.') }}</small></span><input v-model="secret" class="field-mono" :placeholder="t('Empty uses the endpoint key · env:TENDLY_SECRET_…')" autocomplete="off" spellcheck="false" /></label>
+          <label class="setting-row"><span class="setting-label"><strong>{{ t('Refresh automatically') }}</strong><small>{{ t('While a Tendly page is open and in view, query this balance again every 5 minutes. Off: only when you refresh it.') }}</small></span><input v-model="autoRefresh" type="checkbox" class="preference-switch" role="switch" :aria-label="t('Refresh automatically')" /></label>
         </div>
         <div class="setting-row stack balance-script">
           <div class="balance-script-head">
@@ -130,6 +134,11 @@ const completions:CompletionSource=context=>{
   </section>
 </template>
 <style scoped>
+.preference-switch{appearance:none;flex:none;position:relative;width:38px;height:22px;margin:0;border-radius:var(--radius-md);background:var(--line-strong);cursor:pointer;transition:background .15s}
+.preference-switch::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:var(--surface);box-shadow:var(--shadow-sm);transition:transform .15s}
+.preference-switch:checked{background:var(--teal)}
+.preference-switch:checked::after{transform:translateX(16px)}
+.preference-switch:focus-visible{outline:2px solid var(--focus,var(--focus));outline-offset:2px}
 .balance-editor-head{flex-wrap:wrap}
 .balance-fields{min-width:0;margin:0;padding:0;border:0}
 .balance-editor-foot{align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px}

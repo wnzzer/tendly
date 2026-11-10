@@ -1,7 +1,7 @@
 import { reactive } from 'vue';
 import { ApiError, errorMessage, json, request } from './api';
 import { backendCapabilities } from './backend-capabilities';
-import { balanceAutoRefresh, balanceDue, officialAutoRefresh, officialDue, officialQuotaSource, OFFICIAL_AUTO_REFRESH_MS, shouldAutoRefresh, type BalanceView, type EndpointBalance } from './balance-model';
+import { accountAutoRefreshOn, balanceAutoRefreshOn, balanceDue, officialDue, officialQuotaSource, OFFICIAL_AUTO_REFRESH_MS, shouldAutoRefresh, type BalanceView, type EndpointBalance } from './balance-model';
 import { usageBackoffSeconds, type AccountView } from './account-ui';
 import { preferences } from './preferences';
 
@@ -77,7 +77,7 @@ export function loadAccountQuotas(): Promise<void> {
 export function applyView(profileId: string, view: BalanceView, name?: string): void {
   const index = balances.rows.findIndex(row => row.id === profileId);
   if (!view.config) { if (index >= 0) balances.rows.splice(index, 1); return; }
-  const next = { id: profileId, name: name ?? balances.rows[index]?.name ?? '', reading: view.reading, error: view.error, stale: view.stale, attempted_at: view.attempted_at };
+  const next = { id: profileId, name: name ?? balances.rows[index]?.name ?? '', auto_refresh: view.config.auto_refresh ?? null, reading: view.reading, error: view.error, stale: view.stale, attempted_at: view.attempted_at };
   if (index >= 0) Object.assign(balances.rows[index], next); else void loadBalances();
 }
 
@@ -107,13 +107,14 @@ export async function autoRefreshTick(now = Date.now()): Promise<void> {
   if (autoRunning || typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
   autoRunning = true;
   try {
-    if (balanceAutoRefresh(preferences.value)) {
-      for (const row of balances.rows) if (balanceDue(row, lastAttempt.get(row.id), now)) void refreshBalance(row.id);
+    for (const row of balances.rows) {
+      if (balanceAutoRefreshOn(row, preferences.value) && balanceDue(row, lastAttempt.get(row.id), now)) void refreshBalance(row.id);
     }
-    if (officialAutoRefresh(preferences.value) && backendCapabilities.accounts) {
+    if (backendCapabilities.accounts) {
       let asked = false;
       // One at a time: each is a request to the provider.
       for (const account of Object.values(accountQuotas.byProfile)) {
+        if (!accountAutoRefreshOn(account.id, preferences.value)) continue;
         const kept = officialState()[account.id] ?? {};
         if (!officialDue(account, kept.at, kept.notBefore, now)) continue;
         asked = true;

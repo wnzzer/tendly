@@ -254,6 +254,7 @@ mod tests {
             auth: Auth::None {},
             secret_ref: None,
             script: script.into(),
+            auto_refresh: None,
         }
     }
     #[test]

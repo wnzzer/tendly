@@ -67,12 +67,25 @@ test('authentication presets round-trip, and custom headers and query names keep
   assert.deepEqual(authFromFields({...fields,preset:'header',headerName:' X-Key ',headerValue:'{key}'}),{kind:'header',name:'X-Key',value:'{key}'});
 });
 
-test('custom balances refresh on a timer by default; official allowances only when switched on', async () => {
-  const { balanceAutoRefresh, officialAutoRefresh } = await import('./balance-model.ts');
-  assert.equal(balanceAutoRefresh({}), true);
-  assert.equal(balanceAutoRefresh({ balance_auto_refresh: false }), false);
-  assert.equal(officialAutoRefresh({}), false);
-  assert.equal(officialAutoRefresh({ official_auto_refresh: true }), true);
+test('a balance refreshes unless its endpoint turned it off; an account only once turned on', async () => {
+  const { balanceAutoRefreshOn, accountAutoRefreshOn } = await import('./balance-model.ts');
+  assert.equal(balanceAutoRefreshOn({}, {}), true);
+  assert.equal(balanceAutoRefreshOn({ auto_refresh: null }, {}), true);
+  assert.equal(balanceAutoRefreshOn({ auto_refresh: false }, {}), false);
+  // 0.1.114's switch for every balance stands where the endpoint set nothing.
+  assert.equal(balanceAutoRefreshOn({}, { balance_auto_refresh: false }), false);
+  assert.equal(balanceAutoRefreshOn({ auto_refresh: true }, { balance_auto_refresh: false }), true);
+  assert.equal(accountAutoRefreshOn('a', {}), false);
+  assert.equal(accountAutoRefreshOn('a', { auto_refresh_accounts: ['a'] }), true);
+  assert.equal(accountAutoRefreshOn('b', { auto_refresh_accounts: ['a'] }), false);
+  assert.equal(accountAutoRefreshOn('b', { official_auto_refresh: true }), true);
+});
+
+test('switching one account replaces the old every-account switch with the list it meant', async () => {
+  const { withAccountAutoRefresh } = await import('./balance-model.ts');
+  assert.deepEqual(withAccountAutoRefresh({ codex: {} }, 'a', true, ['a', 'b']), { codex: {}, auto_refresh_accounts: ['a'] });
+  assert.deepEqual(withAccountAutoRefresh({ auto_refresh_accounts: ['a', 'b'] }, 'a', false, ['a', 'b']), { auto_refresh_accounts: ['b'] });
+  assert.deepEqual(withAccountAutoRefresh({ official_auto_refresh: true }, 'a', false, ['a', 'b', 'c']), { auto_refresh_accounts: ['b', 'c'] });
 });
 
 test('a balance is due once its reading and the last try are both an interval old', async () => {

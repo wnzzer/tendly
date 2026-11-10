@@ -93,6 +93,20 @@ pub struct Config {
     pub secret_ref: Option<String>,
     /// An async function body; ctx.request() returns the response as JSON.
     pub script: String,
+    /// Whether an open page queries it again every few minutes. None is on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_refresh: Option<bool>,
+}
+
+impl Config {
+    /// Everything that decides what a reading means, without the settings
+    /// that only decide when to take one.
+    fn query_part(&self) -> Config {
+        Config {
+            auto_refresh: None,
+            ..self.clone()
+        }
+    }
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Reading {
@@ -169,10 +183,17 @@ async fn save_config(state: &AppState, id: Uuid, config: Option<Config>) -> Resu
     if old.config == config {
         return Ok(old.into());
     }
-    // A different script/unit starts afresh: never label an old USD value as CNY.
-    let document = Document {
-        config,
-        ..Default::default()
+    let same_query =
+        old.config.as_ref().map(Config::query_part) == config.as_ref().map(Config::query_part);
+    let document = if same_query {
+        // Only when to ask changed: the reading still means the same thing.
+        Document { config, ..old }
+    } else {
+        // A different script/unit starts afresh: never label an old USD value as CNY.
+        Document {
+            config,
+            ..Default::default()
+        }
     };
     let raw = serde_json::to_string(&document).map_err(ApiError::internal)?;
     db(state, move |s| s.set_endpoint_balance(id, &raw)).await?;
@@ -301,7 +322,8 @@ async fn list(State(state): State<AppState>) -> Result<Json<Vec<Value>>, ApiErro
         let (document, _) = load(&state, profile.id).await?;
         if document.config.is_some() {
             let view: View = document.into();
-            views.push(json!({"id":profile.id,"name":profile.name,"reading":view.document.reading,
+            let auto_refresh = view.document.config.as_ref().and_then(|c| c.auto_refresh);
+            views.push(json!({"id":profile.id,"name":profile.name,"auto_refresh":auto_refresh,"reading":view.document.reading,
                 "error":view.document.error,"attempted_at":view.document.attempted_at,"stale":view.stale}));
         }
     }

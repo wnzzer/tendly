@@ -20,6 +20,7 @@ pub(crate) fn tool() -> Value {
                     {"type":"object","additionalProperties":false,"required":["kind","name"],"properties":{"kind":{"const":"query"},"name":{"type":"string","description":"Query parameter name, e.g. api_key."}}}
                 ]},
                 "secret_ref":{"type":["string","null"],"description":"Saved env:TENDLY_SECRET_ reference. Omit to use the endpoint's existing key."},
+                "auto_refresh":{"type":"boolean","description":"Whether an open Tendly page queries it again every 5 minutes. Omit for on."},
                 "script":{"type":"string","maxLength":32768}
             }}]}
         }}),

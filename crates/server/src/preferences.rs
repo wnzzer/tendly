@@ -48,12 +48,16 @@ pub struct Preferences {
     /// `light` or `dark`; none follows the interface.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal_appearance: Option<String>,
-    /// Whether an open page asks again for custom endpoint balances every few
-    /// minutes. On unless turned off: those queries cost nothing official.
+    /// Official account IDs whose allowance an open page checks again every
+    /// few minutes. Off unless listed: the official usage check is rationed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub auto_refresh_accounts: Vec<Uuid>,
+    /// 0.1.114's switches for all balances and all official accounts, now set
+    /// per endpoint and per account. Still read, so a document written then
+    /// parses (one that did not would lose every preference) and its choice
+    /// stands where nothing more specific was set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub balance_auto_refresh: Option<bool>,
-    /// Whether it does the same for official accounts' allowances. Off unless
-    /// turned on: the official usage check is rationed by the provider.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub official_auto_refresh: Option<bool>,
 }
@@ -67,6 +71,7 @@ impl Default for Preferences {
             resource_monitoring: None,
             appearance: None,
             terminal_appearance: None,
+            auto_refresh_accounts: Vec::new(),
             balance_auto_refresh: None,
             official_auto_refresh: None,
         }

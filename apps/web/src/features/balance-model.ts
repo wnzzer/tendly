@@ -7,6 +7,8 @@ export interface BalanceConfig {
   auth: BalanceAuth;
   secret_ref?: string | null;
   script: string;
+  /** Unset means on (see balanceAutoRefreshOn). */
+  auto_refresh?: boolean;
 }
 export interface BalanceReading { value: string; unit: BalanceUnit; checked_at: string }
 export interface BalanceView {
@@ -16,7 +18,7 @@ export interface BalanceView {
   error: string | null;
   stale: boolean;
 }
-export interface EndpointBalance extends Omit<BalanceView, 'config'> { id: string; name: string }
+export interface EndpointBalance extends Omit<BalanceView, 'config'> { id: string; name: string; auto_refresh?: boolean | null }
 
 /** Keep money as decimal text, without floating-point rounding or currency conversion. */
 export function balanceLabel(reading: BalanceReading): string {
@@ -105,16 +107,28 @@ export const BALANCE_EXAMPLES: readonly { id: string; label: string; script: str
 
 /**
  * Asking again on a timer while a page is open, so a figure left on screen
- * keeps up without a click. Custom balances are a request to an endpoint you
- * configured, and refresh by default; an official allowance is checked against
- * the provider's own rationed endpoint, so it waits until it is switched on,
- * and less often.
+ * keeps up without a click. Set where each is configured: a custom balance in
+ * its endpoint's balance query, on unless turned off, since it is a request to
+ * an endpoint you chose; an official account in the accounts dialog, off until
+ * turned on and less often, since the provider rations its usage check.
  */
 export const BALANCE_AUTO_REFRESH_MS = 5 * 60_000;
 export const OFFICIAL_AUTO_REFRESH_MS = 15 * 60_000;
-export interface AutoRefreshPreferences { balance_auto_refresh?: boolean; official_auto_refresh?: boolean }
-export const balanceAutoRefresh = (preferences: AutoRefreshPreferences) => preferences.balance_auto_refresh !== false;
-export const officialAutoRefresh = (preferences: AutoRefreshPreferences) => preferences.official_auto_refresh === true;
+/** `balance_auto_refresh` and `official_auto_refresh` are 0.1.114's switches for all of them: still honoured where nothing more specific is set. */
+export interface AutoRefreshPreferences { auto_refresh_accounts?: string[]; balance_auto_refresh?: boolean; official_auto_refresh?: boolean }
+export const balanceAutoRefreshOn = (row: { auto_refresh?: boolean | null }, preferences: AutoRefreshPreferences) => row.auto_refresh ?? preferences.balance_auto_refresh !== false;
+export const accountAutoRefreshOn = (accountId: string, preferences: AutoRefreshPreferences) => preferences.official_auto_refresh === true || !!preferences.auto_refresh_accounts?.includes(accountId);
+/**
+ * Preferences with one account's switch flipped. The old switch for every
+ * account is turned into the list it meant, so turning one account off does
+ * not leave it on through that.
+ */
+export function withAccountAutoRefresh<T extends AutoRefreshPreferences>(preferences: T, accountId: string, on: boolean, allAccountIds: readonly string[]): T {
+  const { official_auto_refresh: everyAccount, ...rest } = preferences;
+  const listed = new Set(everyAccount === true ? allAccountIds : preferences.auto_refresh_accounts ?? []);
+  if (on) listed.add(accountId); else listed.delete(accountId);
+  return { ...rest, auto_refresh_accounts: [...listed] } as T;
+}
 
 /** A custom balance whose reading, and this page's last try, are both a full interval old. */
 export function balanceDue(row: Pick<EndpointBalance, 'reading'>, lastAttempt: number | undefined, now: number): boolean {
