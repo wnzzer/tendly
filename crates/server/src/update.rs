@@ -72,6 +72,15 @@ pub fn restart_requested() -> bool {
     RESTART_REQUESTED.load(Ordering::SeqCst)
 }
 
+/// Where SIGTERM is not to be had (Windows), a restart for an update asks the
+/// server to shut down through this, along the same graceful path.
+static SHUTDOWN: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+#[cfg_attr(unix, allow(dead_code))]
+pub async fn shutdown_requested() {
+    SHUTDOWN.notified().await;
+}
+
 /// Where npm keeps this install, if npm made it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NpmInstall {
@@ -377,6 +386,12 @@ pub enum RestartMode {
 
 fn restart_mode(state_dir: &Path) -> RestartMode {
     if daemon::running(state_dir) == Some(std::process::id() as i32) {
+        // A Windows watchdog starts the gateway again once it has gone, which
+        // is the supervisor's part: a helper's `tendly restart` would kill
+        // the tree it is itself a child of and leave the gateway held off.
+        if cfg!(windows) && crate::watchdog::running(state_dir).is_some() {
+            return RestartMode::Supervisor;
+        }
         RestartMode::Daemon
     } else if supervised() {
         RestartMode::Supervisor
@@ -576,6 +591,8 @@ async fn restart(State(state): State<AppState>) -> Result<Json<Restarting>> {
                 unsafe {
                     libc::kill(libc::getpid(), libc::SIGTERM);
                 }
+                #[cfg(not(unix))]
+                SHUTDOWN.notify_one();
             }
             RestartMode::Manual => {}
         }

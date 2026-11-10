@@ -98,6 +98,36 @@ pub fn terminate(pid: u32) -> io::Result<()> {
     }
 }
 
+/// Stop one process and none of the processes it started: on Windows,
+/// `taskkill` without `/T`. A parent whose children outlive it on purpose,
+/// such as the gateway watchdog, is stopped this way.
+pub fn terminate_one(pid: u32) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        terminate(pid)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let stopped = owned(pid)
+            && std::process::Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/F"])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .creation_flags(CREATE_NO_WINDOW)
+                .status()
+                .is_ok_and(|status| status.success());
+        if stopped {
+            Ok(())
+        } else {
+            Err(io::Error::other(format!(
+                "taskkill could not stop pid {pid}"
+            )))
+        }
+    }
+}
+
 /// Whether a process with this pid exists. Pids are reused, so this is evidence
 /// rather than proof of identity.
 pub fn alive(pid: u32) -> bool {

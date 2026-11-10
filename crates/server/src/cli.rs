@@ -14,13 +14,31 @@ pub(super) async fn gateway_start(
     state_dir: &std::path::Path,
     address: SocketAddr,
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    // Installed as a Windows service, a watchdog keeps the gateway up: one
+    // started here, if none runs (an entry from before there was one starts
+    // the gateway through here), and no longer held off by a `tendly stop`.
+    let watched = service::watched();
+    if watched {
+        watchdog::release(state_dir);
+    }
     if daemon::healthy(address).await {
         println!("Tendly is already running at http://{address}/");
         return Ok(());
     }
-    let pid = daemon::start(state_dir, address)?;
+    let pid = if watched && watchdog::running(state_dir).is_none() {
+        // It starts the gateway as its first act.
+        watchdog::start(state_dir, address)?;
+        None
+    } else {
+        Some(daemon::start(state_dir, address)?)
+    };
     if !daemon::wait_until_ready(address, Duration::from_secs(30)).await {
         let log = daemon::tail(state_dir, 20);
+        // A start that failed stays stopped rather than being retried behind
+        // the error this reports.
+        if watched {
+            watchdog::hold(state_dir);
+        }
         let _ = daemon::stop(state_dir, Duration::from_secs(5));
         return Err(format!(
             "Tendly did not become ready on {address}.\n\n{log}\n\nFull log: {}",
@@ -28,7 +46,10 @@ pub(super) async fn gateway_start(
         )
         .into());
     }
-    println!("Tendly {} (pid {pid})\n", env!("CARGO_PKG_VERSION"));
+    match pid.or_else(|| daemon::running(state_dir)) {
+        Some(pid) => println!("Tendly {} (pid {pid})\n", env!("CARGO_PKG_VERSION")),
+        None => println!("Tendly {}\n", env!("CARGO_PKG_VERSION")),
+    }
     print_access(state_dir, address, true).await;
     println!(
         "\n  logs    tendly logs\n  stop    tendly stop\n\nState: {}",
@@ -108,6 +129,11 @@ pub(super) async fn tailnet_line(address: SocketAddr, wait: bool) -> Option<Stri
 pub(super) async fn gateway_stop(
     state_dir: &std::path::Path,
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    // Stopped on purpose: the watchdog must not start it again. `start`
+    // lifts this, and so does the next sign-in.
+    if watchdog::running(state_dir).is_some() {
+        watchdog::hold(state_dir);
+    }
     match daemon::stop(state_dir, Duration::from_secs(20))? {
         Some(pid) => println!("Stopped Tendly (pid {pid})"),
         None => println!("Tendly is not running"),

@@ -66,6 +66,7 @@ mod tailscale;
 mod tasks;
 mod update;
 mod usage;
+mod watchdog;
 mod workspace_io;
 mod workspace_routes;
 mod worktree_setup;
@@ -224,7 +225,15 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
     }
     if !matches!(
         action.as_str(),
-        "serve" | "init" | "start" | "stop" | "restart" | "status" | "logs" | "service"
+        "serve"
+            | "init"
+            | "start"
+            | "stop"
+            | "restart"
+            | "status"
+            | "logs"
+            | "service"
+            | "watchdog"
     ) {
         return Err(format!("Unknown command {action:?}; use --help").into());
     }
@@ -263,6 +272,9 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
     };
     if action == "service" {
         return service::command(&state_dir, address).await;
+    }
+    if action == "watchdog" {
+        return watchdog::run(&state_dir, address).await;
     }
     // Installed as a service, the gateway is the service manager's to run.
     if matches!(action.as_str(), "start" | "stop" | "restart") && service::manages_gateway() {
@@ -384,7 +396,9 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
         }
         #[cfg(not(unix))]
         {
-            let _ = tokio::signal::ctrl_c().await;
+            // No SIGTERM here: an update restart under the watchdog asks
+            // through this instead (update.rs).
+            tokio::select! {_=tokio::signal::ctrl_c()=>{},_=update::shutdown_requested()=>{}}
         }
         state.tailnet.shutdown().await;
         state.runtime.shutdown().await;

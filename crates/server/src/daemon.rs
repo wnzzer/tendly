@@ -33,7 +33,12 @@ pub fn log_file(state_dir: &Path) -> PathBuf {
 /// still a guess about identity, which is why the port remains what actually
 /// prevents a second server.
 pub fn running(state_dir: &Path) -> Option<i32> {
-    let raw = fs::read_to_string(pid_file(state_dir)).ok()?;
+    alive_in(&pid_file(state_dir))
+}
+
+/// The pid a pid file names, if that process is still alive.
+pub fn alive_in(file: &Path) -> Option<i32> {
+    let raw = fs::read_to_string(file).ok()?;
     let pid: i32 = raw.trim().parse().ok()?;
     if pid <= 1 {
         return None;
@@ -43,10 +48,20 @@ pub fn running(state_dir: &Path) -> Option<i32> {
 
 /// Re-execute this binary as a detached `serve`.
 pub fn start(state_dir: &Path, address: SocketAddr) -> Result<i32, Box<dyn std::error::Error>> {
+    start_program(state_dir, &env::current_exe()?, address)
+}
+
+/// The same with a given binary: the watchdog keeps the path it started
+/// from, which is where an update puts the next version.
+pub fn start_program(
+    state_dir: &Path,
+    program: &Path,
+    address: SocketAddr,
+) -> Result<i32, Box<dyn std::error::Error>> {
     if let Some(pid) = running(state_dir) {
         return Err(format!("Tendly is already running (pid {pid})").into());
     }
-    let pid = spawn_detached(state_dir, &env::current_exe()?, "serve", address)?;
+    let pid = spawn_detached(state_dir, program, "serve", address)?;
     fs::write(pid_file(state_dir), pid.to_string())?;
     Ok(pid)
 }
@@ -71,7 +86,7 @@ pub fn relaunch(
 /// terminal as its controlling terminal, and closing that terminal delivers
 /// SIGHUP to everything in the session, taking the gateway and every agent it
 /// is supervising with it.
-fn spawn_detached(
+pub fn spawn_detached(
     state_dir: &Path,
     program: &Path,
     command_name: &str,

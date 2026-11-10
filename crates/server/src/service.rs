@@ -3,10 +3,10 @@
 //!
 //! Each system's own per-user mechanism, so nothing needs an administrator:
 //! a systemd user unit on Linux, a launchd agent on macOS, and on Windows a
-//! `Run` entry that does `tendly start` at sign-in. Linux and macOS run
+//! `Run` entry that starts `tendly watchdog` at sign-in. Linux and macOS run
 //! `serve` under the manager, which restarts it after a crash or an update
-//! (exit 75, see `update::RESTART_EXIT_CODE`); on Windows the result is the
-//! same background gateway `tendly start` makes.
+//! (exit 75, see `update::RESTART_EXIT_CODE`); on Windows the watchdog does
+//! the same for the background gateway `tendly start` makes (watchdog.rs).
 //!
 //! The service is written with this binary's path, the state directory and
 //! the PATH of the shell that installed it: a service manager starts with an
@@ -130,7 +130,10 @@ async fn uninstall(state_dir: &Path) -> Outcome {
     };
     refuse_hand_written("remove")?;
     unregister()?;
-    // On Windows the entry only started an ordinary background gateway.
+    // On Windows the entry only started a watchdog and an ordinary
+    // background gateway; neither outlives the entry.
+    #[cfg(windows)]
+    crate::watchdog::stop(state_dir);
     let _ = daemon::stop(state_dir, Duration::from_secs(20));
     println!("Removed {place}; Tendly no longer starts with this computer, and is stopped");
     Ok(())
@@ -162,9 +165,16 @@ pub fn installed() -> Option<String> {
 
 /// Whether `start`, `stop` and `restart` belong to the service manager: it
 /// runs the gateway there, and a gateway it did not start would be fought
-/// over the port. Windows' entry starts an ordinary background gateway.
+/// over the port. Windows' watchdog keeps an ordinary background gateway up,
+/// so there those commands stay the gateway's own (see `watched`).
 pub fn manages_gateway() -> bool {
     cfg!(any(target_os = "linux", target_os = "macos")) && installed().is_some()
+}
+
+/// Whether a watchdog should keep the background gateway up: Windows, with
+/// the sign-in entry installed.
+pub fn watched() -> bool {
+    cfg!(windows) && installed().is_some()
 }
 
 /// `tendly start`, `stop` or `restart` for a gateway the service runs.
@@ -326,8 +336,10 @@ fn register(launch: &Launch, _address: SocketAddr) -> Result<String, Box<dyn std
         &run_entry(launch),
         "/f",
     ]))?;
-    // The entry runs at the next sign-in; this one starts it now.
-    daemon::start(&launch.state_dir, _address)?;
+    // The entry runs at the next sign-in; this starts it now, replacing a
+    // watchdog an earlier install left running an older binary.
+    crate::watchdog::stop(&launch.state_dir);
+    crate::watchdog::start(&launch.state_dir, _address)?;
     Ok(format!(r"{RUN_KEY}\Tendly"))
 }
 
@@ -490,12 +502,12 @@ fn launch_agent(launch: &Launch) -> String {
     )
 }
 
-/// The `Run` value: `tendly start` with the state directory it was installed
-/// for, which a fresh sign-in would not otherwise know.
+/// The `Run` value: `tendly watchdog` with the state directory it was
+/// installed for, which a fresh sign-in would not otherwise know.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn run_entry(launch: &Launch) -> String {
     let mut entry = format!(
-        "\"{}\" start \"--state-dir={}\"",
+        "\"{}\" watchdog \"--state-dir={}\"",
         launch.program.to_string_lossy(),
         launch.state_dir.to_string_lossy()
     );
@@ -552,10 +564,10 @@ mod tests {
     }
 
     #[test]
-    fn the_run_entry_starts_the_background_gateway_for_this_state() {
+    fn the_run_entry_starts_the_watchdog_for_this_state() {
         assert_eq!(
             run_entry(&launch()),
-            "\"/opt/node modules/tendly-server\" start \"--state-dir=/home/me/.tendly\" --lan"
+            "\"/opt/node modules/tendly-server\" watchdog \"--state-dir=/home/me/.tendly\" --lan"
         );
     }
 }
