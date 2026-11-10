@@ -117,6 +117,28 @@ test('history import requires explicit original-configuration consent for the di
   assert.equal(selection.payload('different-workspace','source'),undefined);
   assert.equal(selection.payload('workspace','different-source'),undefined);
 });
+test('history can be chosen in batches: toggle, shift ranges, select all, one consent for all',()=>{
+  const selection=createHistorySelection();
+  const items=['a','b','c','d','e'].map(id=>({id,title:id.toUpperCase(),provider:'codex',cwd:'/w',updated_at:'now',imported_session_id:null}));
+  selection.select('w','s',items[1]);
+  selection.extend('w','s',items[3],items);
+  assert.deepEqual(selection.state.items.map(item=>item.id),['b','c','d']);
+  selection.toggle('w','s',items[0]);selection.toggle('w','s',items[2]);
+  assert.deepEqual(selection.state.items.map(item=>item.id),['b','d','a']);
+  selection.state.confirmed=true;
+  assert.deepEqual(selection.payloads('w','s').map(body=>body.native_id),['b','d','a']);
+  // Changing what is chosen asks for consent again.
+  selection.toggle('w','s',items[4]);assert.equal(selection.state.confirmed,false);assert.equal(selection.payloads('w','s'),undefined);
+  selection.toggleAll('w','s',items);assert.equal(selection.state.items.length,5);
+  selection.toggleAll('w','s',items);assert.equal(selection.state.items.length,0);
+  // Another source starts over rather than mixing items from both.
+  selection.toggle('w','s',items[0]);selection.toggle('w','other',items[1]);
+  assert.deepEqual(selection.state.items.map(item=>item.id),['b']);
+  selection.state.confirmed=true;assert.equal(selection.payloads('w','s'),undefined);
+  // Loaded items leave; the rest keep their consent for a retry.
+  selection.toggleAll('w','other',items);selection.state.confirmed=true;selection.remove(['a','b']);
+  assert.deepEqual(selection.state.items.map(item=>item.id),['c','d','e']);assert.equal(selection.state.confirmed,true);
+});
 test('changing or clearing history selection revokes previous consent',()=>{
   const selection=createHistorySelection();
   const item={id:'native-one',title:'Original thread',provider:'codex',cwd:'/workspace',updated_at:'now',imported_session_id:null};
@@ -124,7 +146,7 @@ test('changing or clearing history selection revokes previous consent',()=>{
   selection.select('workspace','source',{...item,id:'native-two'});
   assert.equal(selection.state.confirmed,false);assert.equal(selection.payload('workspace','source'),undefined);
   selection.state.confirmed=true;selection.clear();
-  assert.equal(selection.state.selected,undefined);assert.equal(selection.state.confirmed,false);
+  assert.equal(selection.state.items.length,0);assert.equal(selection.state.confirmed,false);
   assert.equal(selection.payload('workspace','source'),undefined);
 });
 test('fuzzy sessions match subsequences, Chinese and fullwidth case variants',()=>{
