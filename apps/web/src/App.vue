@@ -53,7 +53,7 @@ import { paneDisplayTitle, paneString, paneWorkspace, paneSession, paneCheckout,
 import { lastQuickProvider, planQuickSession, rememberQuickProvider } from "./features/quick-session";
 import { backendCapabilities, setBackendCapabilities, type BackendHealth } from "./features/backend-capabilities";
 import { formatLatency } from "./features/host-latency";
-import { loadAccountQuotas, loadBalances } from "./features/balance-store";
+import { loadAccountQuotas, loadBalances, startAutoRefresh } from "./features/balance-store";
 import { browserStorage, canvasStorageKey } from "./features/canvas-cache";
 import { readPanelVisibility, sidebarIsRail, useSidebarWidth, writePanelVisibility } from "./features/panel-state";
 import { hasDirtyDrafts, moveFileDrafts } from "./features/file-drafts";
@@ -241,6 +241,9 @@ function selectPane(pane: PaneNode) {
 // Custom balances show in every message box, so read them once the backend says it has them.
 watch(() => backendCapabilities.customBalances, enabled => { if (enabled) void loadBalances(); }, { immediate: true });
 watch(() => backendCapabilities.accounts, enabled => { if (enabled) void loadAccountQuotas(); }, { immediate: true });
+// Balances and, if switched on, official allowances ask again while the page
+// is open. Mounted only: a server render must not leave a timer running.
+onMounted(startAutoRefresh);
 watch(contextPlace, place => { if (place) { const { workspaceId, checkout } = placeOf(place); followWithExplorer(workspaceId, checkout); void refreshGit(place); } });
 // A canvas just put in place gives the keys to its selected pane, as moving to
 // it would; on a phone that would raise the keyboard unasked, so not there.

@@ -102,3 +102,36 @@ export const BALANCE_EXAMPLES: readonly { id: string; label: string; script: str
   { id: 'quota', label: 'Remaining from total and left', script: "const data = await ctx.request();\nif (!(data.total > 0)) throw new Error('No usable quota total');\nreturn { value: (100 * data.remaining / data.total).toFixed(2) };" },
   { id: 'post', label: 'POST to another path', script: "const data = await ctx.request({\n  url: '/account/balance', // same origin as the query URL\n  method: 'POST',\n  body: { account: 'example' },\n});\nreturn { value: data.available };" },
 ];
+
+/**
+ * Asking again on a timer while a page is open, so a figure left on screen
+ * keeps up without a click. Custom balances are a request to an endpoint you
+ * configured, and refresh by default; an official allowance is checked against
+ * the provider's own rationed endpoint, so it waits until it is switched on,
+ * and less often.
+ */
+export const BALANCE_AUTO_REFRESH_MS = 5 * 60_000;
+export const OFFICIAL_AUTO_REFRESH_MS = 15 * 60_000;
+export interface AutoRefreshPreferences { balance_auto_refresh?: boolean; official_auto_refresh?: boolean }
+export const balanceAutoRefresh = (preferences: AutoRefreshPreferences) => preferences.balance_auto_refresh !== false;
+export const officialAutoRefresh = (preferences: AutoRefreshPreferences) => preferences.official_auto_refresh === true;
+
+/** A custom balance whose reading, and this page's last try, are both a full interval old. */
+export function balanceDue(row: Pick<EndpointBalance, 'reading'>, lastAttempt: number | undefined, now: number): boolean {
+  if (lastAttempt !== undefined && now - lastAttempt < BALANCE_AUTO_REFRESH_MS) return false;
+  return !row.reading || now - Date.parse(row.reading.checked_at) >= BALANCE_AUTO_REFRESH_MS;
+}
+
+/** How an official account's allowance is asked for: Claude's rationed usage check, or Codex's account refresh, which reports it for free. */
+export function officialQuotaSource(account: { capabilities: { usage?: boolean; quota: boolean; refresh_token: boolean } }): 'usage' | 'refresh' | undefined {
+  return account.capabilities.usage ? 'usage' : account.capabilities.quota || account.capabilities.refresh_token ? 'refresh' : undefined;
+}
+
+/** A signed-in official account last checked a full interval ago, outside any wait the provider asked for. */
+export function officialDue(account: { status: string; checked_at?: string; capabilities: { usage?: boolean; quota: boolean; refresh_token: boolean } }, lastAttempt: number | undefined, notBefore: number | undefined, now: number): boolean {
+  if (account.status !== 'signed_in' || !officialQuotaSource(account)) return false;
+  if (notBefore !== undefined && now < notBefore) return false;
+  if (lastAttempt !== undefined && now - lastAttempt < OFFICIAL_AUTO_REFRESH_MS) return false;
+  const checked = account.checked_at ? Date.parse(account.checked_at) : NaN;
+  return !Number.isFinite(checked) || now - checked >= OFFICIAL_AUTO_REFRESH_MS;
+}

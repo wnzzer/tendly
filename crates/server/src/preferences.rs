@@ -48,6 +48,14 @@ pub struct Preferences {
     /// `light` or `dark`; none follows the interface.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal_appearance: Option<String>,
+    /// Whether an open page asks again for custom endpoint balances every few
+    /// minutes. On unless turned off: those queries cost nothing official.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub balance_auto_refresh: Option<bool>,
+    /// Whether it does the same for official accounts' allowances. Off unless
+    /// turned on: the official usage check is rationed by the provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub official_auto_refresh: Option<bool>,
 }
 
 impl Default for Preferences {
@@ -59,6 +67,8 @@ impl Default for Preferences {
             resource_monitoring: None,
             appearance: None,
             terminal_appearance: None,
+            balance_auto_refresh: None,
+            official_auto_refresh: None,
         }
         .complete()
     }

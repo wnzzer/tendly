@@ -66,3 +66,33 @@ test('authentication presets round-trip, and custom headers and query names keep
   assert.deepEqual(authFromFields({...fields,preset:'query'}),{kind:'query',name:'api_key'},'a sensible default name');
   assert.deepEqual(authFromFields({...fields,preset:'header',headerName:' X-Key ',headerValue:'{key}'}),{kind:'header',name:'X-Key',value:'{key}'});
 });
+
+test('custom balances refresh on a timer by default; official allowances only when switched on', async () => {
+  const { balanceAutoRefresh, officialAutoRefresh } = await import('./balance-model.ts');
+  assert.equal(balanceAutoRefresh({}), true);
+  assert.equal(balanceAutoRefresh({ balance_auto_refresh: false }), false);
+  assert.equal(officialAutoRefresh({}), false);
+  assert.equal(officialAutoRefresh({ official_auto_refresh: true }), true);
+});
+
+test('a balance is due once its reading and the last try are both an interval old', async () => {
+  const { balanceDue, BALANCE_AUTO_REFRESH_MS: every } = await import('./balance-model.ts');
+  const now = Date.parse('2026-11-10T12:00:00Z');
+  const reading = at => ({ reading: { value: '1', unit: { kind: 'percentage' }, checked_at: new Date(at).toISOString() } });
+  assert.equal(balanceDue({ reading: null }, undefined, now), true);
+  assert.equal(balanceDue(reading(now - every + 1000), undefined, now), false);
+  assert.equal(balanceDue(reading(now - every), undefined, now), true);
+  assert.equal(balanceDue(reading(now - every), now - 1000, now), false, 'just tried, maybe failing');
+});
+
+test('an official account is due only when signed in, checkable, outside its wait and an interval old', async () => {
+  const { officialDue, OFFICIAL_AUTO_REFRESH_MS: every } = await import('./balance-model.ts');
+  const now = Date.parse('2026-11-10T12:00:00Z');
+  const claude = { status: 'signed_in', checked_at: new Date(now - every).toISOString(), capabilities: { usage: true, quota: false, refresh_token: false } };
+  assert.equal(officialDue(claude, undefined, undefined, now), true);
+  assert.equal(officialDue({ ...claude, status: 'signed_out' }, undefined, undefined, now), false);
+  assert.equal(officialDue({ ...claude, capabilities: { quota: false, refresh_token: false } }, undefined, undefined, now), false);
+  assert.equal(officialDue(claude, undefined, now + 60_000, now), false, 'the provider asked to wait');
+  assert.equal(officialDue(claude, now - 60_000, undefined, now), false, 'another tab just asked');
+  assert.equal(officialDue({ ...claude, checked_at: new Date(now - 60_000).toISOString() }, undefined, undefined, now), false);
+});

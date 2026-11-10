@@ -1,8 +1,9 @@
 import { reactive } from 'vue';
 import { ApiError, errorMessage, json, request } from './api';
 import { backendCapabilities } from './backend-capabilities';
-import { shouldAutoRefresh, type BalanceView, type EndpointBalance } from './balance-model';
-import type { AccountView } from './account-ui';
+import { balanceAutoRefresh, balanceDue, officialAutoRefresh, officialDue, officialQuotaSource, OFFICIAL_AUTO_REFRESH_MS, shouldAutoRefresh, type BalanceView, type EndpointBalance } from './balance-model';
+import { usageBackoffSeconds, type AccountView } from './account-ui';
+import { preferences } from './preferences';
 
 /**
  * One copy of the configured endpoint balances for the whole page, so the
@@ -78,4 +79,65 @@ export function applyView(profileId: string, view: BalanceView, name?: string): 
   if (!view.config) { if (index >= 0) balances.rows.splice(index, 1); return; }
   const next = { id: profileId, name: name ?? balances.rows[index]?.name ?? '', reading: view.reading, error: view.error, stale: view.stale, attempted_at: view.attempted_at };
   if (index >= 0) Object.assign(balances.rows[index], next); else void loadBalances();
+}
+
+/**
+ * The timer behind automatic refresh (balance-model.ts): one per page, looking
+ * once a minute and whenever the page comes back into view, and asking nothing
+ * while it is hidden. The last official check is kept in this browser's
+ * storage, so several tabs share one ration rather than each spending it.
+ */
+let autoTimer: ReturnType<typeof setInterval> | undefined, autoRunning = false;
+const officialRefusals = new Map<string, number>();
+const OFFICIAL_KEY = 'tendly.official-auto-refresh';
+function officialState(): Record<string, { at?: number; notBefore?: number }> {
+  try { return JSON.parse(localStorage.getItem(OFFICIAL_KEY) ?? '{}') ?? {}; } catch { return {}; }
+}
+function recordOfficial(id: string, value: { at?: number; notBefore?: number }) {
+  try { const all = officialState(); all[id] = { ...all[id], ...value }; localStorage.setItem(OFFICIAL_KEY, JSON.stringify(all)); } catch { /* Private mode keeps this page's own timer only. */ }
+}
+
+export function startAutoRefresh(): void {
+  if (autoTimer || typeof window === 'undefined') return;
+  autoTimer = setInterval(() => void autoRefreshTick(), 60_000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void autoRefreshTick(); });
+}
+
+export async function autoRefreshTick(now = Date.now()): Promise<void> {
+  if (autoRunning || typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+  autoRunning = true;
+  try {
+    if (balanceAutoRefresh(preferences.value)) {
+      for (const row of balances.rows) if (balanceDue(row, lastAttempt.get(row.id), now)) void refreshBalance(row.id);
+    }
+    if (officialAutoRefresh(preferences.value) && backendCapabilities.accounts) {
+      let asked = false;
+      // One at a time: each is a request to the provider.
+      for (const account of Object.values(accountQuotas.byProfile)) {
+        const kept = officialState()[account.id] ?? {};
+        if (!officialDue(account, kept.at, kept.notBefore, now)) continue;
+        asked = true;
+        await refreshOfficial(account, now);
+      }
+      if (asked) await loadAccountQuotas();
+    }
+  } finally { autoRunning = false; }
+}
+
+async function refreshOfficial(account: AccountView, now: number): Promise<void> {
+  recordOfficial(account.id, { at: now });
+  const path = '/accounts/' + encodeURIComponent(account.id);
+  try {
+    if (officialQuotaSource(account) === 'refresh') { await request<AccountView>(path + '/refresh', json('POST', {})); return; }
+    const view = await request<AccountView>(path + '/usage', json('POST', {}));
+    if (view.usage?.availability === 'rate_limited') {
+      // The provider said wait: wait longer each time it says so again.
+      const refusals = (officialRefusals.get(account.id) ?? 0) + 1;
+      officialRefusals.set(account.id, refusals);
+      recordOfficial(account.id, { notBefore: now + usageBackoffSeconds(refusals, view.usage.retry_after_seconds) * 1000 });
+    } else officialRefusals.delete(account.id);
+  } catch {
+    // A failure is reported where the account is shown; the timer just waits a round.
+    recordOfficial(account.id, { notBefore: now + OFFICIAL_AUTO_REFRESH_MS });
+  }
 }
