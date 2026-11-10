@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-08T10:21:15Z",
+  "updatedAt": "2026-11-10T11:10:30Z",
   "source": "LiteLLM model_prices_and_context_window.json, with data/prices-overrides.json",
   "models": {
     "claude-3-5-haiku": {
@@ -38,6 +38,15 @@
       "maxOutput": 128000,
       "cacheWrite": 12.5,
       "cacheWrite1h": 20
+    },
+    "claude-fable-5-2": {
+      "input": 8,
+      "output": 40,
+      "cacheRead": 0.2,
+      "contextWindow": 1000000,
+      "maxOutput": 128000,
+      "cacheWrite": 10,
+      "cacheWrite1h": 16
     },
     "claude-haiku-4-5": {
       "input": 1,
@@ -1456,6 +1465,12 @@
       "cacheRead": 0.06,
       "contextWindow": 1000000,
       "maxOutput": 128000
+    },
+    "minimax-m3.1-flash": {
+      "input": 0.15,
+      "output": 0.6,
+      "cacheRead": 0.015,
+      "contextWindow": 1000000
     },
     "o1": {
       "input": 15,
