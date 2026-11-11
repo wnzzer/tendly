@@ -161,3 +161,21 @@ test('development preview is a separate guarded entry and default production bui
   const config = readFileSync(new URL('../../vite.config.ts', import.meta.url), 'utf8');
   assert.ok(!config.includes('ui-preview.html'));
 });
+
+test('a session loaded from existing history names its original configuration, not an isolated one', async () => {
+  enable(); const savedFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw Error('SSR must not call an API'); };
+  try {
+    const loaded = await render(ChatSessionPane, { session: fixture({ native_source_id: 'codex-default', provider_session_id: 'native-thread' }), profiles: [] });
+    const chip = loaded.slice(loaded.indexOf('chat-endpoint'));
+    assert.ok(chip.includes('Original client configuration'));
+    // The isolated home is still offered, but not as what this session uses.
+    assert.match(loaded, /class="selected" disabled[^>]*><strong[^>]*>Original client configuration/);
+    assert.doesNotMatch(loaded, /class="selected"[^>]*><strong[^>]*>Native · isolated configuration/);
+    // Nor does the welcome chip warn of a fresh home that may ask to sign in.
+    assert.match(loaded, /class="chat-context-chip" title="Loaded history uses the original client settings/);
+    const plain = await render(ChatSessionPane, { session: fixture(), profiles: [] });
+    assert.ok(!plain.includes('Original client configuration'));
+    assert.match(plain, /class="selected"[^>]*><strong[^>]*>Native · isolated configuration/);
+  } finally { globalThis.fetch = savedFetch; }
+});
