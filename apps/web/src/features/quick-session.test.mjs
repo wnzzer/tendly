@@ -30,6 +30,12 @@ test('several host accounts fall back to the dialog rather than picking one sile
   assert.equal(plan.body, undefined);
 });
 
+test('with nothing configured for the client the dialog opens, rather than starting a home with no sign-in', () => {
+  const plan = planQuickSession('codex', [profile()], {});
+  assert.equal(plan.needsDialog, true);
+  assert.equal(plan.body, undefined);
+});
+
 test('a terminal never needs an account, so it is always a direct create', () => {
   // Even with ambiguous Claude accounts present, a terminal has nothing to choose.
   const profiles = [profile(), profile({ id: '22222222-2222-4222-8222-222222222222' })];

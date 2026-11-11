@@ -1,6 +1,6 @@
 import type { EndpointProfile, ProviderKind } from "@tendly/protocol";
 import { DEFAULT_CLIENT, PROVIDER_KINDS, providerLabel } from "./clients";
-import { PROFILE_CHOICE_REQUIRED, preferredProfileSelection } from "./profile-preferences";
+import { PROFILE_CHOICE_REQUIRED, PROFILE_NONE, preferredProfileSelection } from "./profile-preferences";
 
 export type QuickProvider = ProviderKind;
 const KEY = "tendly.quick-provider.v1";
@@ -49,11 +49,12 @@ export interface QuickOptions {
 /**
  * Build a create request without asking anything. An account is only assumed
  * when the choice is unambiguous: with several host accounts available we would
- * be picking one silently, so the dialog opens instead.
+ * be picking one silently, and with none there is nothing to start with, so the
+ * dialog opens instead.
  */
 export function planQuickSession(provider: QuickProvider, profiles: EndpointProfile[], options: QuickOptions = {}): QuickPlan {
   const profileId = provider === "terminal" ? "" : preferredProfileSelection(provider, profiles, undefined, options.preferredProfileId);
-  if (profileId === PROFILE_CHOICE_REQUIRED) return { needsDialog: true };
+  if (profileId === PROFILE_CHOICE_REQUIRED || profileId === PROFILE_NONE) return { needsDialog: true };
   return {
     needsDialog: false,
     body: {

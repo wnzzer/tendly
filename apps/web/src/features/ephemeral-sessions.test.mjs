@@ -117,7 +117,7 @@ async function createDialogRequests(health, run) {
     };
     // ModalDialog teleports its body, so the markup arrives through the SSR context.
     const context = {};
-    await renderToString(createSSRApp(component, { workspace: reactive(alpha), profiles: [], initialProvider: 'claude_code' }), context);
+    await renderToString(createSSRApp(component, { workspace: reactive(alpha), profiles: [{ id: '11111111-2222-4333-8444-555555555555', name: 'Host Claude', provider: 'claude_code', endpoint_url: null, model: null, permission_mode: 'native', secret_ref: null, native_config: { source_id: 'claude-default', config_dir: '/fixture/claude', config_env: null }, created_at: '2026-01-01T00:00:00Z' }], initialProvider: 'claude_code' }), context);
     return { calls, html: Object.values(context.teleports ?? {}).join('') };
   } finally { globalThis.fetch = previousFetch; }
 }

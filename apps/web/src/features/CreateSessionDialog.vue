@@ -4,7 +4,7 @@ import type { EndpointProfile, ModelCatalog, ProviderKind, Session, Workspace } 
 import { errorMessage, json, providerLabel, request, workspacePath } from "./api";
 import { sessionEffortOverride, sessionModelOverride } from "./native-profiles";
 import { effortLabel, modelEfforts } from "./reasoning-effort";
-import { PROFILE_CHOICE_REQUIRED, isProfileSelectionValid, preferredProfileSelection as rememberedSelection, rememberProfileSelection } from "./profile-preferences";
+import { PROFILE_CHOICE_REQUIRED, PROFILE_NONE, isProfileSelectionValid, preferredProfileSelection as rememberedSelection, rememberProfileSelection } from "./profile-preferences";
 import { loadPreferences, preferenceFor } from "./preferences";
 import { useI18n } from "../i18n";
 import { backendCapabilities } from "./backend-capabilities";
@@ -113,11 +113,12 @@ const dirty = computed(() => title.value !== t('{provider} session', { provider:
       </div>
       <label>{{ t('Session name') }}<input v-model="title" autofocus required :disabled="busy" maxlength="120" :placeholder="t('What are you working on?')" /></label>
       <template v-if="provider!=='terminal'">
-        <label>{{ t('Endpoint profile') }}<select v-model="profileId" :disabled="busy" @change="profileTouched=true"><option v-if="profileId===PROFILE_CHOICE_REQUIRED" :value="PROFILE_CHOICE_REQUIRED" disabled>{{ t('Choose a session configuration') }}</option><option value="">{{ t('Isolated configuration · separate sign-in may be required') }}</option><option v-for="profile in available" :key="profile.id" :value="profile.id">{{ profile.name }} · {{ profile.native_config ? t('Host configuration · shared sign-in') : profile.model || t('default model') }}</option></select>
+        <div v-if="!available.length" class="inline-notice session-no-profile"><span>{{ t('{provider} has no configuration yet. Link the account already signed in on this host, or add an endpoint, in Endpoint profiles.', { provider: clientLabel(provider) }) }}</span><button type="button" class="text-button" :disabled="busy" @click="emit('profiles')">{{ t('Open endpoint profiles') }}</button></div>
+        <label v-else>{{ t('Endpoint profile') }}<select v-model="profileId" :disabled="busy" @change="profileTouched=true"><option v-if="profileId===PROFILE_CHOICE_REQUIRED" :value="PROFILE_CHOICE_REQUIRED" disabled>{{ t('Choose a session configuration') }}</option><option v-for="profile in available" :key="profile.id" :value="profile.id">{{ profile.name }} · {{ profile.native_config ? t('Host configuration · shared sign-in') : profile.model || t('default model') }}</option></select>
           <small v-if="nativeConfig" class="form-help">{{ t('Shares sign-in with {path}', { path: nativeConfig.config_dir }) }}</small>
           <small v-else-if="selectedProfile" class="form-help">{{ selectedProfile.endpoint_url || t('Official endpoint') }} · {{ t(selectedProfile.permission_mode) }}</small>
         </label>
-        <p v-if="!validProfile" class="inline-notice">{{ t('Choose a configuration explicitly when several host accounts are available. No account will be selected silently.') }}</p>
+        <p v-if="profileId===PROFILE_CHOICE_REQUIRED" class="inline-notice">{{ t('Choose a configuration explicitly when several host accounts are available. No account will be selected silently.') }}</p>
         <div class="session-place"><span>{{ t('Works in') }}</span><div class="session-place-options"><label><input v-model="place" type="radio" value="here" :disabled="busy" />{{ t('This checkout') }}</label><label><input v-model="place" type="radio" value="isolated" :disabled="busy" />{{ t('Isolated task') }}</label></div>
           <small v-if="place==='here'">{{ t('Shares this directory, and every change in it, with the other sessions here.') }}</small>
           <template v-else>

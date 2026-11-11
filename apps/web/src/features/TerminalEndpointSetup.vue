@@ -34,7 +34,7 @@ defineExpose({ prepare, busy });
 <template>
   <div v-if="available" class="terminal-endpoint-setup">
     <label>{{ t('Endpoint profile') }}<select v-model="selected" :disabled="disabled || busy" :aria-label="t('Endpoint profile')">
-      <option value="">{{ t('Native · isolated configuration') }}</option>
+      <option v-if="!session.endpoint_profile_id" value="" disabled>{{ t('Blank configuration · separate sign-in') }}</option>
       <option v-for="profile in matching" :key="profile.id" :value="profile.id">{{ profile.name }}</option>
       <option v-if="session.endpoint_profile_id && !matching.some(profile => profile.id === session.endpoint_profile_id)" :value="session.endpoint_profile_id">{{ session.endpoint_snapshot?.name || session.endpoint_profile_id }}</option>
     </select></label>
@@ -44,7 +44,7 @@ defineExpose({ prepare, busy });
     <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
   </div>
   <div v-else-if="session.resume_source_id && session.provider !== 'terminal'" class="terminal-endpoint-setup terminal-endpoint-pinned">
-    <strong>{{ t('Endpoint: {name}', { name: session.endpoint_snapshot?.name || t('Native · isolated configuration') }) }}</strong>
+    <strong>{{ t('Endpoint: {name}', { name: session.endpoint_snapshot?.name || t('Blank configuration · separate sign-in') }) }}</strong>
     <p>{{ t('This terminal continues the original conversation with the endpoint it used. To use another endpoint, switch it on the original session, then open the terminal again.') }}</p>
   </div>
 </template>

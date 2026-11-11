@@ -169,13 +169,16 @@ test('a session loaded from existing history names its original configuration, n
     const loaded = await render(ChatSessionPane, { session: fixture({ native_source_id: 'codex-default', provider_session_id: 'native-thread' }), profiles: [] });
     const chip = loaded.slice(loaded.indexOf('chat-endpoint'));
     assert.ok(chip.includes('Original client configuration'));
-    // The isolated home is still offered, but not as what this session uses.
     assert.match(loaded, /class="selected" disabled[^>]*><strong[^>]*>Original client configuration/);
-    assert.doesNotMatch(loaded, /class="selected"[^>]*><strong[^>]*>Native · isolated configuration/);
+    assert.ok(!loaded.includes('Blank configuration'));
     // Nor does the welcome chip warn of a fresh home that may ask to sign in.
     assert.match(loaded, /class="chat-context-chip" title="Loaded history uses the original client settings/);
-    const plain = await render(ChatSessionPane, { session: fixture(), profiles: [] });
-    assert.ok(!plain.includes('Original client configuration'));
-    assert.match(plain, /class="selected"[^>]*><strong[^>]*>Native · isolated configuration/);
+    // One from before every session had a configuration says what it has, and is not offered to others.
+    const blank = await render(ChatSessionPane, { session: fixture(), profiles: [] });
+    assert.ok(!blank.includes('Original client configuration'));
+    assert.match(blank, /class="selected" disabled[^>]*><strong[^>]*>Blank configuration · separate sign-in/);
+    const bound = await render(ChatSessionPane, { session: fixture({ endpoint_profile_id: 'codex-profile' }), profiles: [{ id: 'codex-profile', name: 'Codex work', provider: 'codex' }] });
+    assert.ok(!bound.includes('Blank configuration'));
+    assert.ok(!bound.includes('isolated configuration'));
   } finally { globalThis.fetch = savedFetch; }
 });

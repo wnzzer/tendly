@@ -25,16 +25,14 @@ export interface HandoffChoice { provider: ProviderKind; profileId: string | nul
 
 /**
  * Where a conversation with `provider` can be carried: every other client,
- * under each of its profiles and with a fresh isolated home. Offered with an
- * empty conversation too: then it is simply the same work in another client.
- * A terminal has no conversation to carry.
+ * under each of its profiles. Offered with an empty conversation too: then it
+ * is simply the same work in another client. A terminal has no conversation
+ * to carry, and a client with no profile has nowhere to start it.
  */
 export function handoffChoices(provider: ProviderKind, profiles: readonly EndpointProfile[], t: Translate): HandoffChoice[] {
   if (provider === 'terminal') return [];
-  return AGENT_CLIENTS.filter(other => other !== provider).flatMap(other => [
-    ...profiles.filter(profile => profile.provider === other).map(profile => ({ provider: other, profileId: profile.id, name: profile.name, note: profileNote(profile, t) })),
-    { provider: other, profileId: null, name: t('Native · isolated configuration'), note: t('A fresh, empty client home: no host sign-in or settings, so it may ask you to log in.') },
-  ]);
+  return AGENT_CLIENTS.filter(other => other !== provider).flatMap(other =>
+    profiles.filter(profile => profile.provider === other).map(profile => ({ provider: other, profileId: profile.id, name: profile.name, note: profileNote(profile, t) })));
 }
 
 /** The new session's title: the old one, with the branch or client it moved to. */

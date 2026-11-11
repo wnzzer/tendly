@@ -234,6 +234,45 @@ pub(crate) fn start_of(arguments: &Value, keep: bool) -> Result<Start, ApiError>
     })
 }
 
+/// The endpoint a spawned session gets when the call names none, by the rule
+/// the new-session dialog follows: the person's default for that client; else
+/// the only host configuration, or the only profile of any kind. With several,
+/// guessing would pick an account; with none, the client would start in a
+/// blank home with no sign-in. Both are refused with what to do instead.
+async fn default_endpoint(
+    state: &AppState,
+    provider: ProviderKind,
+) -> Result<uuid::Uuid, ApiError> {
+    let profiles: Vec<_> = db(state, |s| s.list_endpoint_profiles())
+        .await?
+        .into_iter()
+        .filter(|profile| profile.provider == provider)
+        .collect();
+    let preferred = crate::preferences::load(state)
+        .await?
+        .for_provider(&provider)
+        .and_then(|preference| preference.endpoint_profile_id);
+    if let Some(id) = preferred.filter(|id| profiles.iter().any(|profile| profile.id == *id)) {
+        return Ok(id);
+    }
+    let host: Vec<uuid::Uuid> = profiles
+        .iter()
+        .filter(|profile| profile.native_config.is_some())
+        .map(|profile| profile.id)
+        .collect();
+    let all: Vec<uuid::Uuid> = profiles.iter().map(|profile| profile.id).collect();
+    match (host.as_slice(), all.as_slice()) {
+        ([only], _) | ([], [only]) => Ok(*only),
+        ([], []) => Err(ApiError::bad(format!(
+            "{} has no endpoint profile yet. Ask the person to link the account signed in on this host, or add an endpoint, in Settings → Endpoint profiles.",
+            provider.label()
+        ))),
+        _ => Err(ApiError::bad(
+            "Several endpoint profiles could start this; name one with endpoint_id (tendly_list shows them).",
+        )),
+    }
+}
+
 /// Sessions started by a session, or by another machine, start no more.
 pub(crate) async fn started_by_another(state: &AppState, id: SessionId) -> Result<bool, ApiError> {
     Ok(state.peers.started_by_peer(id) || db(state, move |s| s.agent_parent(id)).await?.is_some())
@@ -331,6 +370,10 @@ where
         endpoint_id,
         model,
     } = start;
+    let endpoint_id = match endpoint_id {
+        Some(id) => Some(id),
+        None => Some(default_endpoint(state, provider).await?.to_string()),
+    };
     let input: crate::CreateSession = serde_json::from_value(json!({
         "interaction_mode": "structured",
         "provider": provider,

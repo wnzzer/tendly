@@ -173,7 +173,7 @@ async function createDialogRequests(capabilities, run) {
         return bindings;
       },
     };
-    const props = { workspace: reactive(workspace('alpha', 'Frontend')), profiles: [], initialProvider: 'claude_code' };
+    const props = { workspace: reactive(workspace('alpha', 'Frontend')), profiles: [{ id: '11111111-2222-4333-8444-555555555555', name: 'Host Claude', provider: 'claude_code', endpoint_url: null, model: null, permission_mode: 'native', secret_ref: null, native_config: { source_id: 'claude-default', config_dir: '/fixture/claude', config_env: null }, created_at: '2026-01-01T00:00:00Z' }], initialProvider: 'claude_code' };
     await renderToString(createSSRApp(component, props), {});
     return calls;
   } finally {

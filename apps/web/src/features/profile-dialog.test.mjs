@@ -40,8 +40,12 @@ test('multiple imported accounts keep creation disabled until an explicit select
   assert.ok(create&&/\bdisabled\b/.test(create));
   assert.ok(!html.includes('session-model-options'));
 });
-test('a Claude import does not become the default profile for Codex',async()=>{
+test('a Claude import does not become the default profile for Codex; with none, Codex asks for one',async()=>{
   const html=await render([profile(firstId)],'codex');
-  assert.ok(selectedOptions(html).some(tag=>tag.includes('value=""')));
   assert.ok(!html.includes(firstId));
+  // No blank home with no sign-in is offered in its place.
+  assert.ok(!html.includes('<option value=""'));
+  assert.ok(html.includes('session-no-profile'));
+  const create=html.match(/<button\b[^>]*class="primary-button"[^>]*>/g)?.at(-1);
+  assert.ok(create&&/\bdisabled\b/.test(create));
 });

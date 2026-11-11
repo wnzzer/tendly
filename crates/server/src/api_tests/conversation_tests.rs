@@ -693,6 +693,20 @@ async fn agent_chat(fixture: &Fixture) -> (Uuid, String) {
     (id, token)
 }
 
+/// A Codex endpoint profile, which a spawned Codex session starts with when
+/// the call names none: without one there is nothing to start it with.
+async fn codex_profile(fixture: &Fixture) -> Value {
+    let (status, profile) = call(
+        fixture.app(),
+        "POST",
+        "/api/endpoint-profiles",
+        json!({"name":"Codex","provider":"codex"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{profile}");
+    profile
+}
+
 async fn tool(fixture: &Fixture, token: &str, name: &str, arguments: Value) -> Value {
     agent_request(
         fixture.app(),
@@ -707,9 +721,43 @@ async fn tool(fixture: &Fixture, token: &str, name: &str, arguments: Value) -> V
 }
 
 #[tokio::test]
+async fn a_spawn_with_no_profile_for_its_client_is_refused_with_what_to_do() {
+    let fixture = chat_fixture();
+    let (_, token) = agent_chat(&fixture).await;
+    let mut events = fixture.state.activity.subscribe();
+    let app = fixture.app();
+    let spawn = tokio::spawn(async move {
+        agent_request(app, "POST", "/api/agent/call", Some(&token), Some("agent"), json!({"name":"tendly_spawn","arguments":{"provider":"codex","prompt":"Anything","title":"Nowhere to start"}})).await.1
+    });
+    let request = next_event(&mut events, "request").await;
+    call(
+        fixture.app(),
+        "POST",
+        &format!(
+            "/api/agent-activity/requests/{}",
+            request["id"].as_str().unwrap()
+        ),
+        json!({"approve":true}),
+    )
+    .await;
+    let refused = spawn.await.unwrap();
+    assert_eq!(refused["isError"], true, "{refused}");
+    assert!(
+        refused.to_string().contains("no endpoint profile yet"),
+        "{refused}"
+    );
+    let (_, sessions) = call(fixture.app(), "GET", "/api/sessions", Value::Null).await;
+    assert!(
+        !sessions.to_string().contains("Nowhere to start"),
+        "nothing was created: {sessions}"
+    );
+}
+
+#[tokio::test]
 async fn a_session_starts_another_follows_its_reply_and_only_its_own() {
     let fixture = chat_fixture();
     let (parent, token) = agent_chat(&fixture).await;
+    let profile = codex_profile(&fixture).await;
     let mut events = fixture.state.activity.subscribe();
 
     // The first start is the person's call.
@@ -743,6 +791,18 @@ async fn a_session_starts_another_follows_its_reply_and_only_its_own() {
     assert_eq!(
         fixture.state.store.agent_parent(child).unwrap(),
         Some(parent)
+    );
+    // Named no endpoint, it starts with the only Codex profile, never a blank home.
+    assert_eq!(
+        fixture
+            .state
+            .store
+            .get_session(child)
+            .unwrap()
+            .unwrap()
+            .endpoint_profile_id
+            .map(|id| id.to_string()),
+        profile["id"].as_str().map(str::to_owned)
     );
     let session = fixture.state.store.get_session(child).unwrap().unwrap();
     assert!(
@@ -855,6 +915,7 @@ async fn a_session_starts_another_follows_its_reply_and_only_its_own() {
 #[tokio::test]
 async fn an_isolated_child_works_in_a_worktree_of_its_own() {
     let fixture = chat_fixture();
+    codex_profile(&fixture).await;
     let repo = fixture.path.join("repo");
     for args in [
         vec!["checkout", "-qb", "main"],
@@ -1217,6 +1278,14 @@ async fn a_session_starts_one_on_another_machine_and_follows_it() {
     let address = listener.local_addr().unwrap();
     let mut there = Fixture::new(address, None);
     there.state.chat_fixture = here.state.chat_fixture.clone();
+    // Straight into its store: requests here are addressed to the other machine.
+    let profile: tendly_domain::EndpointProfile = serde_json::from_value(json!({
+        "id": Uuid::new_v4(), "name": "Codex", "provider": "codex", "endpoint_url": null,
+        "model": null, "permission_mode": "native", "secret_ref": null,
+        "created_at": "2026-11-11T00:00:00Z",
+    }))
+    .unwrap();
+    there.state.store.create_endpoint_profile(&profile).unwrap();
     // Named like the workspace here, so a start there finds it by default.
     there
         .state

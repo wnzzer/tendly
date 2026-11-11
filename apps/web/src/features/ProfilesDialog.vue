@@ -480,7 +480,7 @@ onBeforeUnmount(()=>{discoveryRevision++;});
             <span><strong>{{ p.name }}</strong><small :class="{'shared-profile-label':!!p.native_config}">{{ profileSummary(p) }}</small></span>
           </button>
         </template>
-        <p v-if="!profiles.length" class="small-empty">{{ t('No profiles yet. Native, isolated sessions also work without one.') }}</p>
+        <p v-if="!profiles.length" class="small-empty">{{ t('No profiles yet. A session needs one: link a host sign-in or add an endpoint.') }}</p>
         <p v-if="embedded" class="small-empty profiles-accounts-hint">{{ t('Already signed in to Claude Code or Codex on this host?') }} <button type="button" class="profiles-accounts-link" @click="requestLeave(() => emit('accounts'))">{{ t('Link it in Official accounts') }} →</button></p>
       </section>
       <div class="profile-details">
