@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-10T11:10:30Z",
+  "updatedAt": "2026-11-11T10:56:01Z",
   "source": "LiteLLM model_prices_and_context_window.json, with data/prices-overrides.json",
   "models": {
     "claude-3-5-haiku": {
@@ -83,6 +83,15 @@
       "maxOutput": 128000,
       "cacheWrite": 12.5,
       "cacheWrite1h": 20
+    },
+    "claude-mythos-5-2": {
+      "input": 8,
+      "output": 40,
+      "cacheRead": 0.2,
+      "contextWindow": 1000000,
+      "maxOutput": 128000,
+      "cacheWrite": 10,
+      "cacheWrite1h": 16
     },
     "claude-mythos-preview": {
       "input": 10,
@@ -391,6 +400,13 @@
       "maxOutput": 65536
     },
     "gemini-4-argon": {
+      "input": 2,
+      "output": 10,
+      "cacheRead": 0.1,
+      "contextWindow": 1048576,
+      "maxOutput": 1048576
+    },
+    "gemini-4-carbon": {
       "input": 2,
       "output": 10,
       "cacheRead": 0.1,
