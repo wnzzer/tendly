@@ -113,7 +113,7 @@ async fn native_history_list_is_metadata_only_and_registry_identity_is_authorita
     fs::create_dir(f.path.join("unrelated-repo")).unwrap();
     let unrelated = dunce::canonicalize(f.path.join("unrelated-repo")).unwrap();
     let (source_id, config) = f.native_source(ProviderKind::ClaudeCode, vec![
-        json!({"id":"claude-thread","provider":"claude_code","title":"长".repeat(300),"cwd":cwd,"updated_at":"2026-09-09T00:00:00Z","imported_session_id":"not-authoritative","api_key":"DO_NOT_EXPOSE_FAKE_KEY","messages":[{"content":"DO_NOT_EXPOSE_FAKE_CONTENT"}],"config_dir":"DO_NOT_EXPOSE_FAKE_CONFIG"}),
+        json!({"id":"claude-thread","provider":"claude_code","title":"长".repeat(300),"cwd":cwd,"updated_at":"2026-09-09T00:00:00Z","imported_session_id":"not-authoritative","model":"claude-opus-5-5","effort":"high","api_key":"DO_NOT_EXPOSE_FAKE_KEY","messages":[{"content":"DO_NOT_EXPOSE_FAKE_CONTENT"}],"config_dir":"DO_NOT_EXPOSE_FAKE_CONFIG"}),
         json!({"id":"unrelated-thread","provider":"claude_code","title":"other","cwd":unrelated,"updated_at":"2026-09-09T00:00:00Z"}),
         json!({"id":"wrong-provider","provider":"codex","title":"wrong","cwd":cwd,"updated_at":"2026-09-09T00:00:00Z"}),
         json!({"id":"../path-id","provider":"claude_code","title":"invalid","cwd":cwd,"updated_at":"2026-09-09T00:00:00Z"}),
@@ -126,6 +126,9 @@ async fn native_history_list_is_metadata_only_and_registry_identity_is_authorita
     assert_eq!(item["id"], "claude-thread");
     assert_eq!(item["title"].as_str().unwrap().chars().count(), 240);
     assert!(item["imported_session_id"].is_null());
+    // What it last ran with, so the person can tell before loading it.
+    assert_eq!(item["model"], "claude-opus-5-5");
+    assert_eq!(item["effort"], "high");
     for field in ["api_key", "messages", "config_dir"] {
         assert!(
             item.get(field).is_none(),

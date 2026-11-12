@@ -17,7 +17,7 @@ for await (const line of createInterface({ input: process.stdin })) {
   else if(request.method==='thread/read') {
     assert.equal(request.params.threadId,'history-1');
     assert.equal(request.params.includeTurns,true);
-    result={thread:{cwd:process.cwd(),turns:[{items:[
+    result={thread:{cwd:process.cwd(),model:'gpt-fixture',reasoningEffort:'high',turns:[{items:[
       {type:'userMessage',id:'u',content:[{type:'text',text:'历史 🦊'}]},
       {type:'agentMessage',id:'a',text:'Loaded reply'},
     ]}]}};
@@ -29,7 +29,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     assert.equal(request.params.sortKey, 'updated_at');
     assert.equal(request.params.limit, 100);
     assert.deepEqual(request.params.sourceKinds, ['cli', 'vscode', 'exec', 'appServer', 'unknown']);
-    const row = { id: 'history-1', name: '修复 🦊 布局', cwd: request.params.cwd, updatedAt: 1700000000 };
+    const row = { id: 'history-1', name: '修复 🦊 布局', cwd: request.params.cwd, updatedAt: 1700000000, model: 'gpt-fixture', reasoningEffort: 'high' };
     result = {
       data: [row, { ...row, id: 'foreign', cwd: '/foreign' }, { id: 'unscoped', updatedAt: 1700000000 }],
       nextCursor: page++ === 0 || process.env.TENDLY_HISTORY_TEST_REPEAT === '1' ? 'next' : null,

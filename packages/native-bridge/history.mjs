@@ -22,8 +22,12 @@ export async function discover(job) {
   if(!client)throw Error("Unsupported history provider");
   if(job.native_id && !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(job.native_id))throw Error("Invalid native session ID");
   const result=await client.history(cwd,configDir,client.configEnv,job.native_id);
-  const {messages,...metadata}=result;
-  return {...metadata,...(job.native_id?{events:transcriptEvents(messages??[])}:{})};
+  const {messages,model,effort,...metadata}=result;
+  if(!job.native_id)return metadata;
+  // What the history last ran with, so the session names its model before
+  // the client starts and says so itself.
+  const settings=typeof model==="string"&&model?[{type:"settings",model,...(typeof effort==="string"&&effort?{effort}:{})}]:[];
+  return {...metadata,events:[...transcriptEvents(messages??[]),...settings]};
 }
 if(process.argv[1] && resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
   try {let input="",bytes=0;const decoder=new StringDecoder("utf8");for await(const chunk of process.stdin){bytes+=chunk.length;if(bytes>32768)throw Error("Job too large");input+=decoder.write(chunk);}input+=decoder.end();

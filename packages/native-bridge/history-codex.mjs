@@ -3,9 +3,11 @@ import { withoutTendlySecrets } from "./native-spawn.mjs";
 import { AppServerClient, AppServerError } from "./app-server.mjs";
 import { LIMIT, normalizeSessions } from "./history-common.mjs";
 
+/** The model and effort a thread last ran with, as thread/read and thread/list report them. */
+const lastRun=thread=>({...(typeof thread.model==="string"&&thread.model?{model:thread.model}:{}),...(typeof thread.reasoningEffort==="string"&&thread.reasoningEffort?{effort:thread.reasoningEffort}:{})});
 // Codex thread/list always carries cwd. Never label an unscoped/old-client row
 // as belonging to this workspace just because it omitted that field.
-export const codexSession=row=>typeof row.cwd!=="string"||!row.cwd?undefined:{id:row.id,cwd:row.cwd,time:row.updatedAt*1000};
+export const codexSession=row=>typeof row.cwd!=="string"||!row.cwd?undefined:{id:row.id,cwd:row.cwd,time:row.updatedAt*1000,model:row.model,effort:row.reasoningEffort};
 /** @param {string} cwd @param {string} configDir @param {string} configEnv */
 export async function codexHistory(cwd,configDir,configEnv,nativeId) {
   const environment=withoutTendlySecrets(process.env);
@@ -27,7 +29,7 @@ export async function codexHistory(cwd,configDir,configEnv,nativeId) {
         if(nativeId) {
           const {thread}=await rpc("thread/read",{threadId:nativeId,includeTurns:true});
           if(await realpath(thread.cwd)!==cwd) throw Error("Native session belongs to another workspace");
-          return {items:[],truncated:false,messages:(thread.turns??[]).flatMap(turn=>(turn.items??[]).flatMap(item=>item.type==="userMessage"?[{id:item.id,role:"user",content:item.content}]:item.type==="agentMessage"?[{id:item.id,role:"assistant",content:item.text}]:[]))};
+          return {items:[],truncated:false,...lastRun(thread),messages:(thread.turns??[]).flatMap(turn=>(turn.items??[]).flatMap(item=>item.type==="userMessage"?[{id:item.id,role:"user",content:item.content}]:item.type==="agentMessage"?[{id:item.id,role:"assistant",content:item.text}]:[]))};
         }
         const items=[],seenIds=new Set(),seenCursors=new Set();let cursor=null,pages=0;
         do{

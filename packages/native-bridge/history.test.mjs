@@ -8,6 +8,8 @@ import { join } from 'node:path';
 import { discover, transcriptEvents } from './history.mjs';
 import { normalizeSessions } from './history-common.mjs';
 import { codexSession } from './history-codex.mjs';
+import { claudeModels, lastModel } from './history-claude.mjs';
+import { mkdir, writeFile } from 'node:fs/promises';
 
 test('native metadata is scoped, bounded, and contains no transcript payload',async()=>{
   const root=await realpath(await mkdtemp(join(tmpdir(),'ad-history-test-')));
@@ -41,6 +43,7 @@ async function runCodexFixture(repeatedCursor=false,nativeId=undefined) {
 test('Node bridge uses only native metadata RPCs, scopes pages and preserves streamed Unicode',async()=>{
   const {code,result,methods}=await runCodexFixture();
   assert.equal(code,0);assert.equal(result.items.length,1);assert.equal(result.items[0].title,'修复 🦊 布局');
+  assert.equal(result.items[0].model,'gpt-fixture');assert.equal(result.items[0].effort,'high');
   assert.equal(result.truncated,false);
   assert.deepEqual(methods,['initialize','initialized','thread/list','thread/list']);
 });
@@ -75,6 +78,23 @@ test('loading Codex history reads saved turns without starting or resuming a tur
   const {code,result,methods}=await runCodexFixture(false,'history-1');
   assert.equal(code,0);
   assert.deepEqual(methods,['initialize','initialized','thread/read']);
-  assert.deepEqual(result.events.map(event=>[event.role,event.text]),[['user','历史 🦊'],['assistant','Loaded reply']]);
+  assert.deepEqual(result.events.filter(event=>event.type==='message').map(event=>[event.role,event.text]),[['user','历史 🦊'],['assistant','Loaded reply']]);
+  // What it last ran with comes along, so the session names its model before the client starts.
+  assert.deepEqual(result.events.at(-1),{type:'settings',model:'gpt-fixture',effort:'high'});
   assert.equal(result.messages,undefined);
+});
+
+test('a Claude session\'s model is the last real one its file names, found by id under projects',async()=>{
+  const root=await realpath(await mkdtemp(join(tmpdir(),'ad-claude-models-')));
+  try {
+    const dir=join(root,'projects','-home-me-repo');await mkdir(dir,{recursive:true});
+    const line=value=>JSON.stringify(value)+'\n';
+    await writeFile(join(dir,'one.jsonl'),line({type:'assistant',message:{model:'claude-old'}})+line({type:'assistant',message:{model:'claude-opus-5-5'}})+line({type:'assistant',message:{model:'<synthetic>'}}));
+    await writeFile(join(dir,'two.jsonl'),line({type:'user',message:{content:'no reply yet'}}));
+    await writeFile(join(dir,'other.jsonl'),line({type:'assistant',message:{model:'not-asked-for'}}));
+    assert.equal(await lastModel(join(dir,'one.jsonl')),'claude-opus-5-5');
+    const models=await claudeModels(root,['one','two','missing']);
+    assert.deepEqual([...models],[['one','claude-opus-5-5']]);
+    assert.deepEqual([...await claudeModels(join(root,'nowhere'),['one'])],[]);
+  }finally{await rm(root,{recursive:true});}
 });

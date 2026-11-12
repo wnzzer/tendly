@@ -31,6 +31,12 @@ pub struct HistoryItem {
     pub cwd: String,
     pub updated_at: String,
     pub imported_session_id: Option<String>,
+    /// The model and reasoning effort it last ran with, where the client
+    /// records them, so the person can tell before loading it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 #[derive(Deserialize, Serialize)]
 pub struct HistoryList {

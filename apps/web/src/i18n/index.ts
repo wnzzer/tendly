@@ -1014,6 +1014,7 @@ export const zhCN: Readonly<Record<string, string>> = {
   "Connecting to the native client.": "正在连接原生客户端。",
   "Reopen this session to continue. No process is restarted automatically after it ends.": "重新打开可继续此会话；会话结束后不会反复自动重启。",
   "Load existing session": "载入已有会话",
+  "Model this history last ran with": "这段历史最后使用的模型",
   "Blank configuration · separate sign-in": "空白配置 · 需单独登录",
   "A blank home of its own, without the host's sign-in or settings. New sessions no longer start this way; switch it to an endpoint profile.": "独立的空白目录，不带宿主机的登录和设置。新会话已不再提供这种配置，可以切换到一个端点配置。",
   "{provider} has no configuration yet. Link the account already signed in on this host, or add an endpoint, in Endpoint profiles.": "{provider} 还没有可用的配置。去端点配置里关联本机已登录的账号，或者添加一个端点。",
