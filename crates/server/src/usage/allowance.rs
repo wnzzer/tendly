@@ -26,7 +26,8 @@ pub struct Allowance {
     pub window_start: i64,
     /// None when the window has run out and the next has not begun.
     pub resets_at: Option<i64>,
-    /// Logged in the window, and only since the plan last changed.
+    /// Logged in the window, only since the plan last changed and only up to
+    /// when the percentage was read.
     pub used_tokens: u64,
     pub used_cost: f64,
     pub estimated_total_tokens: Option<u64>,
@@ -148,6 +149,15 @@ pub(super) fn window_size(
     }
     let share = ((used_percent + 0.5) / 100.0).min(1.0);
     Some(((used_tokens as f64 / share) as u64, used_cost / share))
+}
+
+/// Whether a logged call is one the reading's percentage already counts:
+/// made in the window, under the current plan, and no later than the reading.
+/// Calls made since the percentage was read are not in it yet; dividing them
+/// by it would make the window look larger than it is, and the largest size
+/// seen is the one kept.
+pub(super) fn covered_by_reading(at: i64, from: i64, read_at: i64) -> bool {
+    at >= from && at <= read_at
 }
 
 /// Keep the largest size seen for each window, and only the latest windows.
@@ -295,6 +305,8 @@ pub(super) async fn allowance(State(state): State<AppState>) -> Result<Json<Vec<
                 continue;
             };
             let limits = &limits;
+            // When the percentage was read: use logged after it is not in it.
+            let read_at = observed_at.or(checked_at).unwrap_or(now);
             let first_row = rows.len();
             let calls = collect(&[(PathBuf::from(&account.storage_path), None)]);
             let plan = logged_plan.or_else(|| account.plan.clone());
@@ -342,10 +354,10 @@ pub(super) async fn allowance(State(state): State<AppState>) -> Result<Json<Vec<
                     )
                 };
                 let (mut tokens, mut cost) = (0u64, 0f64);
-                for call in calls
-                    .iter()
-                    .filter(|call| call.provider == provider && call.at >= start.max(plan_since))
-                {
+                for call in calls.iter().filter(|call| {
+                    call.provider == provider
+                        && covered_by_reading(call.at, start.max(plan_since), read_at)
+                }) {
                     tokens += call.tokens.total();
                     cost += prices.cost(call).unwrap_or(0.0);
                 }

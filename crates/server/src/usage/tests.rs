@@ -318,6 +318,20 @@ fn what_is_left_is_the_unused_share_of_the_largest_window_seen() {
 }
 
 #[test]
+fn a_window_counts_only_what_its_percentage_has_seen() {
+    // A week read at 18% an hour ago: use since then is not in that 18%.
+    let (from, read_at) = (1_000, 5_000);
+    assert!(!covered_by_reading(999, from, read_at), "before the window");
+    assert!(covered_by_reading(from, from, read_at));
+    assert!(covered_by_reading(read_at, from, read_at));
+    assert!(!covered_by_reading(read_at + 1, from, read_at), "after the reading");
+    // Had it been counted, the week would look half again as large.
+    let seen = window_size(18.0, 520_000_000, 260.0).unwrap();
+    let with_later = window_size(18.0, 780_000_000, 390.0).unwrap();
+    assert!(with_later.0 > seen.0 * 14 / 10);
+}
+
+#[test]
 fn a_window_counts_only_what_was_used_since_the_plan_changed() {
     let mut learned: HashMap<String, Vec<Learned>> = HashMap::new();
     let mut plans = HashMap::new();
