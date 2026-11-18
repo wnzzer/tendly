@@ -38,6 +38,9 @@ const unavailable = ref("");
 const revision = ref(0), stashCount = ref(0);
 /** A phone shows the list or one detail, not both: picking opens the detail over the list. */
 const mobile = useMobile(), detailOpen = ref(false);
+// A success floats over the pane instead of pushing it down, and leaves on its own.
+let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+watch(notice, text => { clearTimeout(noticeTimer); if (text) noticeTimer = setTimeout(() => { notice.value = ""; }, 3500); });
 const conflicts = computed(() => status.value.files.filter(isConflictedFile).length);
 let statusRevision = 0, alive = true;
 
@@ -136,7 +139,7 @@ watch(place, () => { statusRevision++; busy.value = false; status.value = { bran
 // Files change often while agents work: the status follows every change,
 // history and stashes only while they are on screen.
 watch(() => props.refreshToken, () => { if (busy.value) return; void refresh(); if (view.value !== "changes") revision.value++; });
-onBeforeUnmount(() => { alive = false; statusRevision++; prompt.value?.answer(undefined); });
+onBeforeUnmount(() => { alive = false; clearTimeout(noticeTimer); statusRevision++; prompt.value?.answer(undefined); });
 const tabs = computed(() => [
   { id: "changes" as const, label: t("Changes"), count: status.value.files.length },
   { id: "history" as const, label: t("History") },
@@ -172,7 +175,7 @@ const tabs = computed(() => [
     </div>
     <div v-if="error" class="inline-error git-message" role="alert"><span>{{ error }}</span><button type="button" class="icon-button" :aria-label="t('Dismiss')" @click="error = ''"><Icon name="close" :size="13" /></button></div>
     <div v-else-if="warning && !status.operation" class="inline-notice git-message" role="alert"><span>{{ warning }}</span><button type="button" class="icon-button" :aria-label="t('Dismiss')" @click="warning = ''"><Icon name="close" :size="13" /></button></div>
-    <div v-else-if="notice" class="inline-success git-message" role="status"><span>{{ notice }}</span><button type="button" class="icon-button" :aria-label="t('Dismiss')" @click="notice = ''"><Icon name="close" :size="13" /></button></div>
+    <Transition name="git-toast"><div v-if="notice && !error && !(warning && !status.operation)" :key="notice" class="inline-success git-message git-toast" role="status"><span>{{ notice }}</span><button type="button" class="icon-button" :aria-label="t('Dismiss')" @click="notice = ''"><Icon name="close" :size="13" /></button></div></Transition>
     <div v-if="unavailable" class="pane-empty git-unavailable"><span class="empty-icon"><Icon name="git" :size="24" /></span><h3>{{ t('Git unavailable') }}</h3><p>{{ t('This directory is not a Git repository yet. Create one here to track changes, or register a repository as the workspace.') }}</p><button type="button" class="primary-button" :disabled="busy" @click="init"><Icon name="plus" :size="14" />{{ t('Initialize repository') }}</button><details><summary>{{ t('Details') }}</summary><code>{{ unavailable }}</code></details></div>
     <GitChanges v-else-if="view === 'changes'" @stash="stash" />
     <GitHistory v-else-if="view === 'history'" />
@@ -222,6 +225,13 @@ const tabs = computed(() => [
 .git-operation{flex-shrink:0}
 .git-message{display:flex;align-items:flex-start;gap:8px;white-space:pre-wrap}
 .git-message>span{flex:1;min-width:0;max-height:160px;overflow:auto}
+.git-pane{position:relative}
+.git-toast{position:absolute;left:50%;bottom:14px;z-index:5;width:max-content;max-width:calc(100% - 24px);transform:translateX(-50%);align-items:center;border-radius:var(--radius-md);box-shadow:var(--shadow-lg),inset 3px 0 0 var(--ok)}
+.git-toast-enter-active,.git-toast-leave-active{transition:opacity .18s var(--ease-out),transform .22s var(--ease-out)}
+.git-toast-enter-from,.git-toast-leave-to{opacity:0;transform:translate(-50%,6px)}
+/* While an action runs the controls are disabled; a quick one finishes before
+   they fade, so the pane does not blink on every stage, pull or refresh. */
+.git-pane :is(button,textarea,input):disabled{transition:opacity .15s ease .25s}
 .git-message>.icon-button{width:22px;height:22px;color:inherit;opacity:.7}
 .git-pane .segmented{display:inline-flex;padding:2px;border-radius:var(--radius-full);background:var(--fill)}
 .git-pane .segmented button,.git-repo-tabs button{height:22px;padding:0 9px;border:0;border-radius:var(--radius-full);background:none;color:var(--muted);font-size:var(--text-xs);cursor:pointer;white-space:nowrap}

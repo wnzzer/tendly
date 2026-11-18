@@ -32,18 +32,23 @@ const stagedFiles = computed(() => status.value.files.filter(isStagedFile));
 const changedFiles = computed(() => status.value.files.filter(isChangedFile));
 const groups = computed(() => [{ title: "Staged changes", staged: true, files: stagedFiles.value }, { title: "Changes", staged: false, files: changedFiles.value }]);
 const mobile = useMobile();
-let diffRevision = 0, alive = true;
+let diffRevision = 0, alive = true, blankTimer: ReturnType<typeof setTimeout> | undefined;
 
 async function openDiff(path: string, staged: boolean) {
   const keepVisible = selected.value?.path === path && selected.value?.staged === staged && !!diff.value;
   selected.value = { path, staged };
   const requestId = ++diffRevision;
-  diffLoading.value = !keepVisible; diffError.value = ""; if (!keepVisible) diff.value = undefined;
+  diffLoading.value = !keepVisible; diffError.value = "";
+  // A local diff usually answers within a frame or two: the last one stays,
+  // dimmed, instead of the pane blanking to "Loading" and back. Only a slow
+  // answer clears it, so another file's lines are never read as this one's.
+  clearTimeout(blankTimer);
+  if (!keepVisible) blankTimer = setTimeout(() => { if (alive && requestId === diffRevision && diffLoading.value) diff.value = undefined; }, 200);
   try {
     const result = await gitGet<GitDiff>(git.place(), `diff?path=${encodeURIComponent(path)}&staged=${staged}`);
     if (alive && requestId === diffRevision && JSON.stringify(diff.value) !== JSON.stringify(result)) diff.value = result;
-  } catch (cause) { if (alive && requestId === diffRevision) diffError.value = errorMessage(cause); }
-  finally { if (alive && requestId === diffRevision) diffLoading.value = false; }
+  } catch (cause) { if (alive && requestId === diffRevision) { diffError.value = errorMessage(cause); diff.value = undefined; } }
+  finally { if (alive && requestId === diffRevision) { diffLoading.value = false; clearTimeout(blankTimer); } }
 }
 function show(path: string, staged: boolean) { void openDiff(path, staged); git.detailOpen.value = true; }
 /**
@@ -75,7 +80,7 @@ function reconcile() {
   const still = choice && (all.find(entry => entry.path === choice.path && entry.staged === choice.staged) ?? all.find(entry => entry.path === choice.path));
   const next = still ?? all[0];
   if (next) void openDiff(next.path, next.staged);
-  else { selected.value = undefined; diff.value = undefined; diffRevision++; }
+  else { selected.value = undefined; diff.value = undefined; diffLoading.value = false; diffRevision++; }
 }
 watch(status, reconcile, { immediate: true });
 
@@ -152,7 +157,7 @@ function openFileMenu(event: MouseEvent, staged: boolean, file?: GitFile, confli
 function menuAction(run: () => unknown) { void run(); fileMenu.value = undefined; commitMenu.value = undefined; }
 const ignore = (file: GitFile) => git.run(() => gitPost(git.place(), "ignore", { path: file.path }), t("Added {path} to .gitignore", { path: file.path }));
 const conflictCode = (file: GitFile) => file.index + file.worktree;
-onBeforeUnmount(() => { alive = false; diffRevision++; });
+onBeforeUnmount(() => { alive = false; diffRevision++; clearTimeout(blankTimer); });
 </script>
 
 <template>
@@ -185,10 +190,10 @@ onBeforeUnmount(() => { alive = false; diffRevision++; });
     </div>
     <div class="diff-view">
       <div v-if="selected" class="diff-title"><button v-if="mobile" type="button" class="icon-button git-back" :aria-label="t('Back to changes')" @click="git.detailOpen.value = false"><Icon name="chevron" :size="18" /></button><span class="truncate" :title="selected.path">{{ selected.path }}</span><span class="diff-badge">{{ t(selected.staged ? 'Staged' : 'Working tree') }}</span><button class="icon-button" :aria-label="t('Show file history')" :title="t('Show file history')" @click="git.showHistory(selected.path)"><Icon name="clock" :size="14" /></button><button class="icon-button" :aria-label="t('Open changed file in editor')" @click="git.openFile(selected.path)"><Icon name="file" :size="14" /></button></div>
-      <div v-if="diffLoading" class="pane-empty"><p>{{ t('Loading diff…') }}</p></div>
+      <div v-if="diffLoading && !diff" class="pane-empty"><p>{{ t('Loading diff…') }}</p></div>
       <div v-else-if="diffError" class="inline-error" role="alert">{{ diffError }}</div>
       <div v-else-if="!selected" class="pane-empty"><span class="empty-icon teal"><Icon name="check" :size="26" /></span><h3>{{ t('All clear') }}</h3><p>{{ t('File changes appear here as you and your agents work.') }}</p></div>
-      <template v-else-if="diff"><div v-if="diff.binary" class="inline-notice">{{ t('Binary file changed. Open it in Explorer for a preview.') }}</div><div v-if="diff.truncated" class="inline-notice">{{ t('This diff was truncated by the server output limit.') }}</div><GitDiffLines v-if="diff.diff" :diff="diff.diff" :actions="hunkActions" :busy="busy" @hunk="hunk" /><div v-else class="pane-empty"><p>{{ t('No textual diff for this change.') }}</p></div></template>
+      <div v-else-if="diff" :class="['git-diff-body', { stale: diffLoading }]"><div v-if="diff.binary" class="inline-notice">{{ t('Binary file changed. Open it in Explorer for a preview.') }}</div><div v-if="diff.truncated" class="inline-notice">{{ t('This diff was truncated by the server output limit.') }}</div><GitDiffLines v-if="diff.diff" :diff="diff.diff" :actions="hunkActions" :busy="busy" @hunk="hunk" /><div v-else class="pane-empty"><p>{{ t('No textual diff for this change.') }}</p></div></div>
     </div>
     <ContextMenu v-if="commitMenu" :x="commitMenu.x" :y="commitMenu.y" :width="220" :label="t('More commit actions')" @close="commitMenu = undefined">
       <button role="menuitem" :disabled="!canCommit" @click="menuAction(() => commit('push'))"><Icon name="upload" :size="13" />{{ t('Commit and push') }}</button>
@@ -229,6 +234,12 @@ onBeforeUnmount(() => { alive = false; diffRevision++; });
 
 <style>
 .git-changes.git-content{grid-template-columns:minmax(200px,min(32%,300px)) minmax(0,1fr)}
+.git-diff-body{display:flex;flex-direction:column;flex:1;min-height:0;transition:opacity .15s}
+.git-diff-body.stale{opacity:.55;transition-delay:.08s}
+/* Narrow panes stack the list over the diff; this has to restate the single
+   column, or the two-column rule above outranks the shared one and both halves
+   get squeezed into the first row. */
+@container git (max-width: 570px){.git-changes.git-content{grid-template-columns:minmax(0,1fr)}}
 </style>
 <style scoped>
 .git-group-actions{display:flex;align-items:center;gap:10px}

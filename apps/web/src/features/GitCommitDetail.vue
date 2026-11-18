@@ -28,20 +28,22 @@ async function load() {
   try {
     const next = await gitGet<GitCommitDetail>(git.place(), `commit/detail?rev=${encodeURIComponent(props.rev)}${props.stash ? "&stash=true" : ""}`);
     if (id !== revision) return;
-    detail.value = next;
+    if (JSON.stringify(detail.value) !== JSON.stringify(next)) detail.value = next;
     const keep = file.value && next.files.find(entry => entry.path === file.value!.path && !!entry.untracked === !!file.value!.untracked);
     if (keep) void openFile(keep); else { file.value = undefined; diff.value = undefined; diffRevision++; if (next.files.length === 1) void openFile(next.files[0]); }
   } catch (cause) { if (id === revision) { error.value = errorMessage(cause); detail.value = undefined; } }
   finally { if (id === revision) loading.value = false; }
 }
 async function openFile(entry: GitChangedFile) {
+  // The same file read again after a refresh keeps its lines on screen until the new ones arrive.
+  const same = !!diff.value && file.value?.path === entry.path && !!file.value.untracked === !!entry.untracked;
   file.value = entry;
   const id = ++diffRevision, hash = detail.value?.hash ?? props.rev;
-  diffLoading.value = true; diffError.value = ""; diff.value = undefined;
+  diffLoading.value = !same; diffError.value = ""; if (!same) diff.value = undefined;
   const query = new URLSearchParams({ rev: hash, path: entry.path });
   if (entry.original_path) query.set("original_path", entry.original_path);
   if (entry.untracked) query.set("untracked", "true");
-  try { const result = await gitGet<GitDiff>(git.place(), `commit/diff?${query}`); if (id === diffRevision) diff.value = result; }
+  try { const result = await gitGet<GitDiff>(git.place(), `commit/diff?${query}`); if (id === diffRevision && JSON.stringify(diff.value) !== JSON.stringify(result)) diff.value = result; }
   catch (cause) { if (id === diffRevision) diffError.value = errorMessage(cause); }
   finally { if (id === diffRevision) diffLoading.value = false; }
 }
