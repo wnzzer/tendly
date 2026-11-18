@@ -7,9 +7,11 @@ on:
   pull_request:
   workflow_call:
 
-# A newer push to the same branch makes the running check moot.
+# A newer push to the same branch makes the running check moot. Called from a
+# release, github.workflow is the release's name, so a dry run on main does
+# not cancel the push's own check, nor the push the release's.
 concurrency:
-  group: check-${{ github.ref }}
+  group: check-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
