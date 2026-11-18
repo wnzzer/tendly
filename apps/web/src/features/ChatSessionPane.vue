@@ -49,13 +49,14 @@ import ContextMenu from "./ContextMenu.vue";
 import ChipMenu from "./ChipMenu.vue";
 import ChatEffortChip from "./ChatEffortChip.vue";
 import ChatPermissionChip from "./ChatPermissionChip.vue";
+import ChatEndpointChoices from "./ChatEndpointChoices.vue";
 import TaskReviewDialog from "./TaskReviewDialog.vue";
 import AgentToolsSwitch from "./AgentToolsSwitch.vue";
 import { useMobile } from "./mobile";
 import { describeModel, resolvedDefaultName } from "./model-description";
 import ContextRing from "./ContextRing.vue";
 import BalanceBadge from "./BalanceBadge.vue";
-import { accountFor, balanceFor, balances, refreshBalance, refreshBalanceIfStale } from "./balance-store";
+import { accountFor, balanceFor, refreshBalanceIfStale } from "./balance-store";
 import { measuredUsage, type KnownWindow } from "./context-meter";
 import { modelEfforts } from "./reasoning-effort";
 import {
@@ -70,13 +71,7 @@ import {
 import { ACCESS_LABEL, approvalBody, approvalChoices, DECISION_LABEL, type ApprovalDecision } from "./chat-approvals";
 import { applyCommand, matchCommands, moveHighlight, slashQuery, unsupportedCommand } from "./slash-commands";
 import { MarkdownContent } from "./MarkdownContent";
-import {
-  handoffArrivals,
-  handoffChoices as handoffChoicesFor,
-  handoffTitle,
-  profileNote,
-  type HandoffChoice,
-} from "./handoff";
+import { handoffArrivals, handoffChoices as handoffChoicesFor, handoffTitle, type HandoffChoice } from "./handoff";
 import { messageQueue, queuedContent, type QueuedMessage } from "./message-queue";
 import { lastChatSeq } from "./chat-model";
 import { attachedImagePaths } from "./markdown-model";
@@ -382,8 +377,6 @@ const endpointName = computed(
     activeProfile.value?.name ??
     t(props.session.native_source_id ? "Original client configuration" : "Blank configuration · separate sign-in"),
 );
-/** A session from before every session had a configuration: shown as what it is, no longer offered as a choice. */
-const blankHome = computed(() => !props.session.endpoint_profile_id && !props.session.native_source_id);
 /** What this client's headless mode does differently from its terminal, said before the first message. */
 const chatNote = computed(() => agentClient(props.session.provider)?.chatNote);
 const turnBusy = computed(() => view.value.turn === "running" || view.value.awaitingApproval || !!draft.value.pending);
@@ -3131,89 +3124,20 @@ function keydown(event: KeyboardEvent) {
             ><template #badge
               ><BalanceBadge v-if="!isPreview" :profile-id="session.endpoint_profile_id" compact
             /></template>
-            <nav :aria-label="t('Endpoint profile')">
-              <p v-if="!canConfigure" class="chat-menu-note">
-                {{ t("Wait for the current turn and approvals before changing endpoints.") }}
-              </p>
-              <button
-                v-if="session.native_source_id && !session.endpoint_profile_id"
-                type="button"
-                class="selected"
-                disabled
-              >
-                <strong>{{ t("Original client configuration") }}</strong><small>{{
-                  t("Loaded history uses the original client settings. It does not take over another running terminal.")
-                }}</small></button
-              ><button v-else-if="blankHome" type="button" class="selected" disabled>
-                <strong>{{ t("Blank configuration · separate sign-in") }}</strong><small>{{
-                  t(
-                    "A blank home of its own, without the host's sign-in or settings. New sessions no longer start this way; switch it to an endpoint profile.",
-                  )
-                }}</small></button
-              ><button
-                v-for="profile in matchingProfiles"
-                :key="profile.id"
-                type="button"
-                :class="{ selected: selectedProfile === profile.id }"
-                :disabled="!canConfigure"
-                @click="pickEndpoint(profile.id)"
-              >
-                <strong
-                  ><span>{{ profile.name }}</span
-                  ><BalanceBadge :profile-id="profile.id" /></strong
-                ><small>{{ profileNote(profile, t) }}</small></button
-              ><button
-                v-if="session.endpoint_profile_id && !matchingProfiles.some(p => p.id === session.endpoint_profile_id)"
-                type="button"
-                class="selected"
-                disabled
-              >
-                {{ endpointName }}</button
-              ><template v-if="handoffChoices.length"
-                ><p class="chat-menu-section">
-                  {{ t("Switch to another client")
-                  }}<small>{{
-                    t("Opens a new session with this conversation in its message box; this one stays as it is.")
-                  }}</small>
-                </p>
-                <button
-                  v-for="choice in handoffChoices"
-                  :key="choice.provider + ':' + (choice.profileId ?? '')"
-                  type="button"
-                  class="chat-handoff-choice"
-                  @click="pickHandoff(choice)"
-                >
-                  <strong
-                    ><ProviderIcon :provider="choice.provider" :size="12" /><span
-                      >{{ providerLabel(choice.provider) }} · {{ choice.name }}</span
-                    ><BalanceBadge :profile-id="choice.profileId" /></strong
-                  ><small>{{ choice.note }}</small>
-                </button></template
-              ><button
-                v-if="!isPreview && balanceFor(session.endpoint_profile_id)"
-                type="button"
-                class="chat-endpoint-manage"
-                :disabled="balances.busy.includes(session.endpoint_profile_id!)"
-                @click="refreshBalance(session.endpoint_profile_id!)"
-              >
-                <Icon name="refresh" :size="13" />{{
-                  t(
-                    balances.busy.includes(session.endpoint_profile_id!)
-                      ? "Querying balance…"
-                      : "Query this endpoint's balance again",
-                  )
-                }}</button
-              ><button
-                type="button"
-                class="chat-endpoint-manage"
-                @click="
-                  endpointMenu?.close(true);
-                  emit('profiles');
-                "
-              >
-                <Icon name="account" :size="13" />{{ t("Manage endpoint profiles") }}
-              </button>
-            </nav></ChipMenu
+            <ChatEndpointChoices
+              :session="session"
+              :profiles="matchingProfiles"
+              :selected="selectedProfile"
+              :configurable="canConfigure"
+              :name="endpointName"
+              :handoffs="handoffChoices"
+              :preview="isPreview"
+              @pick="pickEndpoint"
+              @handoff="pickHandoff"
+              @manage="
+                endpointMenu?.close(true);
+                emit('profiles');
+              " /></ChipMenu
           ><span v-if="booting" class="chat-boot-chip" role="status"
             ><ProviderIcon class="chat-working-mark" :provider="session.provider" :size="12" />{{
               t("Starting…")
@@ -3285,79 +3209,22 @@ function keydown(event: KeyboardEvent) {
                 }}
               </p></template
             >
-            <div v-if="mobile" class="chat-card-endpoints">
-              <p class="chat-card-group">
-                <span>{{ t("Endpoint profile") }}</span>
-              </p>
-              <p v-if="!canConfigure" class="chat-menu-note">
-                {{ t("Wait for the current turn and approvals before changing endpoints.") }}
-              </p>
-              <nav :aria-label="t('Endpoint profile')">
-                <button
-                  v-if="session.native_source_id && !session.endpoint_profile_id"
-                  type="button"
-                  class="selected"
-                  disabled
-                >
-                  <strong>{{ t("Original client configuration") }}</strong><small>{{
-                    t(
-                      "Loaded history uses the original client settings. It does not take over another running terminal.",
-                    )
-                  }}</small></button
-                ><button v-else-if="blankHome" type="button" class="selected" disabled>
-                  <strong>{{ t("Blank configuration · separate sign-in") }}</strong><small>{{
-                    t(
-                      "A blank home of its own, without the host's sign-in or settings. New sessions no longer start this way; switch it to an endpoint profile.",
-                    )
-                  }}</small></button
-                ><button
-                  v-for="profile in matchingProfiles"
-                  :key="profile.id"
-                  type="button"
-                  :class="{ selected: selectedProfile === profile.id }"
-                  :disabled="!canConfigure"
-                  @click="pickEndpoint(profile.id)"
-                >
-                  <strong
-                    ><span>{{ profile.name }}</span
-                    ><BalanceBadge :profile-id="profile.id" /></strong
-                  ><small>{{ profileNote(profile, t) }}</small>
-                </button>
-              </nav>
-              <details v-if="handoffChoices.length" class="chat-card-handoff">
-                <summary>
-                  <Icon name="sync" :size="14" /><span>{{ t("Switch to another client") }}</span
-                  ><Icon name="chevron" :size="12" class="chat-card-handoff-caret" />
-                </summary>
-                <p>
-                  {{ t("Opens a new session with this conversation in its message box; this one stays as it is.") }}
-                </p>
-                <nav>
-                  <button
-                    v-for="choice in handoffChoices"
-                    :key="choice.provider + ':' + (choice.profileId ?? '')"
-                    type="button"
-                    @click="pickHandoff(choice)"
-                  >
-                    <strong
-                      ><ProviderIcon :provider="choice.provider" :size="12" /><span
-                        >{{ providerLabel(choice.provider) }} · {{ choice.name }}</span
-                      ><BalanceBadge :profile-id="choice.profileId" /></strong
-                    ><small>{{ choice.note }}</small>
-                  </button>
-                </nav>
-              </details>
-              <button
-                type="button"
-                class="chat-card-manage"
-                @click="
-                  modelMenu?.close();
-                  emit('profiles');
-                "
-              >
-                <Icon name="account" :size="14" />{{ t("Manage endpoint profiles") }}
-              </button>
-            </div></ChipMenu
+            <ChatEndpointChoices
+              v-if="mobile"
+              card
+              :session="session"
+              :profiles="matchingProfiles"
+              :selected="selectedProfile"
+              :configurable="canConfigure"
+              :name="endpointName"
+              :handoffs="handoffChoices"
+              :preview="isPreview"
+              @pick="pickEndpoint"
+              @handoff="pickHandoff"
+              @manage="
+                modelMenu?.close();
+                emit('profiles');
+              " /></ChipMenu
           ><ChatEffortChip
             v-if="effortChoices.length"
             :choices="effortChoices"
@@ -4018,7 +3885,6 @@ details.chat-branch-choices > summary {
 .chat-model nav button {
   white-space: normal;
 }
-.chat-endpoint nav button,
 .chat-model nav button {
   display: block;
   width: 100%;
@@ -4035,11 +3901,9 @@ details.chat-branch-choices > summary {
   text-overflow: ellipsis;
   cursor: pointer;
 }
-.chat-endpoint nav button:hover:not(:disabled),
 .chat-model nav button:hover:not(:disabled) {
   background: var(--fill);
 }
-.chat-endpoint nav button.selected,
 .chat-model nav button.selected {
   color: var(--accent-ink);
   font-weight: 600;
@@ -5221,34 +5085,6 @@ details.chat-branch-choices > summary {
     transform: none;
   }
 }
-.chat-endpoint nav button {
-  white-space: normal;
-}
-.chat-endpoint nav button strong {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  font-size: var(--text-sm);
-  font-weight: 600;
-  white-space: nowrap;
-}
-.chat-endpoint nav button strong > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.chat-endpoint nav button strong > .balance-badge {
-  margin-left: auto;
-}
-.chat-endpoint nav button small {
-  display: block;
-  margin-top: 2px;
-  font-size: var(--text-xs);
-  line-height: 1.5;
-  color: var(--muted);
-  font-weight: 400;
-  overflow-wrap: anywhere;
-}
 @container (max-width:480px) {
   .chat-starters {
     grid-template-columns: 1fr;
@@ -5260,48 +5096,11 @@ details.chat-branch-choices > summary {
     animation: none;
   }
 }
-
-.chat-menu-section {
-  margin: 6px 8px 3px;
-  padding-top: 8px;
-  border-top: 1px solid var(--line);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  color: var(--muted);
-}
-.chat-menu-section small {
-  display: block;
-  margin-top: 2px;
-  font-weight: 400;
-  letter-spacing: 0;
-  line-height: 1.45;
-}
-.chat-menu-note {
+:deep(.chat-menu-note) {
   margin: 6px 10px 6px;
   font-size: var(--text-xs);
   line-height: 1.45;
   color: var(--warn-ink);
-}
-.chat-endpoint nav button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.chat-endpoint nav button.chat-endpoint-manage {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 32px;
-  margin-top: 4px;
-  border-top: 1px solid var(--line);
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
-  font-size: var(--text-xs);
-  color: var(--ink-soft);
-}
-.chat-handoff-choice strong {
-  display: flex !important;
-  align-items: center;
-  gap: 6px;
 }
 .chat-endpoint-target {
   margin-left: 8px;
@@ -5953,11 +5752,11 @@ details.chat-branch-choices > summary {
 .chat-composer.is-phone :deep(.chip-menu-panel nav button:disabled) {
   opacity: 0.5;
 }
-.chat-composer.is-phone .chat-menu-note {
+.chat-composer.is-phone :deep(.chat-menu-note) {
   margin: 6px 12px;
   font-size: var(--text-sm);
 }
-.chat-card-group {
+:deep(.chat-card-group) {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -5968,13 +5767,13 @@ details.chat-branch-choices > summary {
   color: var(--muted);
   text-transform: uppercase;
 }
-.chat-card-group > span {
+:deep(.chat-card-group > span) {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.chat-card-group > em {
+:deep(.chat-card-group > em) {
   flex: none;
   font-style: normal;
   font-size: var(--text-xs);
@@ -6013,96 +5812,6 @@ details.chat-branch-choices > summary {
 .chat-composer.is-phone .chat-model .chat-model-hint {
   margin: 4px 12px 6px;
   font-size: var(--text-sm);
-}
-.chat-card-endpoints {
-  border-top: 1px solid var(--line);
-  margin-top: 6px;
-  padding-top: 2px;
-}
-.chat-card-endpoints nav button {
-  display: block;
-  width: 100%;
-  border: 0;
-  background: none;
-  text-align: left;
-  color: var(--ink-soft);
-  cursor: pointer;
-}
-.chat-card-endpoints nav button strong {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-weight: 600;
-}
-.chat-card-endpoints nav button strong > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.chat-card-endpoints nav button small {
-  display: block;
-  margin-top: 2px;
-  color: var(--muted);
-  overflow-wrap: anywhere;
-}
-.chat-card-endpoints nav button.selected {
-  background: var(--selected);
-}
-.chat-card-handoff {
-  border-top: 1px solid var(--line);
-  margin-top: 4px;
-}
-.chat-card-handoff > summary {
-  list-style: none;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 48px;
-  padding: 0 12px;
-  font-size: var(--text-base);
-  color: var(--ink-soft);
-  cursor: pointer;
-}
-.chat-card-handoff > summary::-webkit-details-marker {
-  display: none;
-}
-.chat-card-handoff > summary > span {
-  flex: 1;
-}
-.chat-card-handoff-caret {
-  transform: rotate(90deg);
-  opacity: 0.55;
-  transition: transform 0.15s;
-}
-.chat-card-handoff[open] .chat-card-handoff-caret {
-  transform: rotate(-90deg);
-}
-.chat-card-handoff > p {
-  margin: 0 12px 6px;
-  font-size: var(--text-sm);
-  line-height: 1.5;
-  color: var(--muted);
-}
-.chat-card-handoff nav button strong {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.chat-card-manage {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 48px;
-  padding: 0 12px;
-  border: 0;
-  border-top: 1px solid var(--line);
-  background: none;
-  font: inherit;
-  font-size: var(--text-base);
-  color: var(--ink-soft);
-  cursor: pointer;
 }
 /* Branches: the card opens down from the top bar. */
 .chat-composer.is-phone .chat-branch-body header {

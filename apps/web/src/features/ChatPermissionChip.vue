@@ -81,6 +81,26 @@ function pick(mode: string) {
 </template>
 
 <style scoped>
+/* The pane's defaults for its controls (ChatSessionPane). Its scoped rules do
+   not reach into this component, so they are repeated here, first, where the
+   pane has them. */
+.chat-pane button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.chat-pane button:focus-visible,
+.chat-pane summary:focus-visible,
+.chat-pane select:focus-visible,
+.chat-pane input:focus-visible,
+.chat-pane textarea:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-pane * {
+    scroll-behavior: auto;
+  }
+}
 .chat-permission :deep(.chip-menu-panel) {
   min-width: 190px;
   width: max-content;
