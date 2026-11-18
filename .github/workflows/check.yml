@@ -45,6 +45,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The web app's layout is Prettier's, as the Rust side's is rustfmt's.
+      - run: pnpm format:check
       # The server embeds apps/web/dist, and rust-embed against a folder that
       # does not exist compiles to a struct with no iter/get rather than to an
       # error naming the folder. So the web build comes before anything cargo,

@@ -43,6 +43,8 @@ pnpm run check
 pnpm run build:web
 ```
 
+`pnpm run check` starts with `prettier --check`; `pnpm run format` lays out `apps/web/src` (Rust stays with `cargo fmt`). Tests that pin a CSS rule or a template attribute read the source through `apps/web/src/source-text.mjs`, which compacts it, so they keep passing however the formatter breaks a line.
+
 See [API contract](api.md) and [acceptance record](mvp-status.md). Earlier design documents describe the broader roadmap, not finished features.
 
 ### Read-only UI preview and deployment caution
