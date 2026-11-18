@@ -48,6 +48,7 @@ import Icon from "./Icon.vue";
 import ContextMenu from "./ContextMenu.vue";
 import ChipMenu from "./ChipMenu.vue";
 import ChatEffortChip from "./ChatEffortChip.vue";
+import ChatPermissionChip from "./ChatPermissionChip.vue";
 import TaskReviewDialog from "./TaskReviewDialog.vue";
 import AgentToolsSwitch from "./AgentToolsSwitch.vue";
 import { useMobile } from "./mobile";
@@ -67,7 +68,6 @@ import {
   type Attachment,
 } from "./attachment-state";
 import { ACCESS_LABEL, approvalBody, approvalChoices, DECISION_LABEL, type ApprovalDecision } from "./chat-approvals";
-import { PERMISSION_LABELS, PERMISSION_NOTES, permissionName as permissionNameFor } from "./permission-modes";
 import { applyCommand, matchCommands, moveHighlight, slashQuery, unsupportedCommand } from "./slash-commands";
 import { MarkdownContent } from "./MarkdownContent";
 import {
@@ -692,15 +692,6 @@ const modelMenu = ref<InstanceType<typeof ChipMenu>>();
 /** Permission changes preserve the thread. Codex applies them at the next turn. */
 const permissionChoices = computed(() => view.value.permissionModes ?? []);
 const livePermission = computed(() => view.value.permissionMode ?? "");
-const permissionName = computed(() => permissionNameFor(livePermission.value, t));
-const permissionDanger = computed(() => livePermission.value === "danger");
-/** A phone's card has room for a mark beside each mode, which is what a glance finds first. */
-const PERMISSION_ICONS: Record<string, string> = {
-  ask: "shield",
-  accept_edits: "edit",
-  plan: "clipboard",
-  danger: "shield",
-};
 /**
  * On a phone the composer keeps one row: attach, approval, model, depth and
  * send, each opening one card above the composer (ChipMenu). The endpoint is
@@ -712,9 +703,8 @@ const mobile = useMobile();
  * phone writes a paragraph. Judged by the pointer, not the width, so a tablet
  * counts and a narrow desktop window does not. */
 const touchFirst = typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
-const permissionMenu = ref<InstanceType<typeof ChipMenu>>();
+/** A mode picked in the approval chip (ChatPermissionChip). */
 async function pickPermission(mode: string) {
-  permissionMenu.value?.close(true);
   if (!canChangePermission.value || mode === livePermission.value) return;
   await runAction(async session => {
     const ack = await request<{ pending?: boolean }>(
@@ -3376,43 +3366,13 @@ function keydown(event: KeyboardEvent) {
             :configurable="canConfigure"
             :adjustable="canPickModel"
             @pick="pickEffort"
-          /><ChipMenu
+          /><ChatPermissionChip
             v-if="permissionChoices.length"
-            ref="permissionMenu"
-            class="chat-permission"
-            :caption="t('How tools are approved')"
-            :class="{ danger: permissionDanger }"
-            :label="permissionName"
-            :tone="permissionDanger ? 'danger' : undefined"
-            :disabled="!canChangePermission"
-            :title="
-              canChangePermission
-                ? t('How tools are approved')
-                : t('Wait for the current turn and approvals to finish before changing this.')
-            "
-            ><template #mark><Icon name="shield" :size="12" /></template>
-            <div class="chat-permission-body">
-              <header>{{ t("How tools are approved") }}</header>
-              <nav :aria-label="t('How tools are approved')">
-                <button
-                  v-for="mode in permissionChoices"
-                  :key="mode"
-                  type="button"
-                  :class="{ selected: mode === livePermission, danger: mode === 'danger' }"
-                  @click="pickPermission(mode)"
-                >
-                  <span
-                    ><Icon
-                      v-if="mobile"
-                      class="chat-permission-mark"
-                      :name="PERMISSION_ICONS[mode] ?? 'shield'"
-                      :size="15" /><strong>{{ t(PERMISSION_LABELS[mode] ?? mode) }}</strong
-                    ><Icon v-if="mode === livePermission" name="check" :size="13" /></span
-                  ><small v-if="PERMISSION_NOTES[mode]">{{ t(PERMISSION_NOTES[mode]) }}</small>
-                </button>
-              </nav>
-            </div></ChipMenu
-          >
+            :choices="permissionChoices"
+            :live="livePermission"
+            :changeable="canChangePermission"
+            @pick="pickPermission"
+          />
         </div>
         <template v-if="view.turn === 'running' && canQueue"
           ><button
@@ -4034,8 +3994,7 @@ details.chat-branch-choices > summary {
    panels shrink-to-fit inside a chip barely a hundred pixels across, which is
    how a description ended up wrapping three times with room to spare. */
 .chat-endpoint :deep(.chip-menu-panel),
-.chat-model :deep(.chip-menu-panel),
-.chat-permission :deep(.chip-menu-panel) {
+.chat-model :deep(.chip-menu-panel) {
   min-width: 190px;
   width: max-content;
   max-width: min(292px, 78cqw);
@@ -4085,75 +4044,6 @@ details.chat-branch-choices > summary {
   color: var(--accent-ink);
   font-weight: 600;
   background: var(--selected);
-}
-/* The unattended mode is the one that stops asking, so it is the one that has
-   to look different from every other chip rather than merely selected. */
-.chat-permission {
-  max-width: 150px;
-}
-/* A panel is as wide as its longest line, within reason. This one was left out
-   of the rules above and fell back to the browser's own buttons, in a column so
-   narrow that a sentence wrapped every three characters. */
-/* Tall enough that a fixed list of four does not scroll by two pixels, and
-   still bounded for a short screen. */
-.chat-permission :deep(.chip-menu-panel) {
-  min-width: 214px;
-}
-.chat-permission-body > header {
-  padding: 8px 10px 6px;
-  font-size: var(--text-xs);
-  color: var(--muted);
-}
-.chat-permission nav button {
-  display: block;
-  width: 100%;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: none;
-  text-align: left;
-  white-space: normal;
-  cursor: pointer;
-}
-.chat-permission nav button + button {
-  margin-top: 1px;
-}
-.chat-permission nav button > span {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.chat-permission nav button strong {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--ink-soft);
-}
-.chat-permission nav button small {
-  display: block;
-  margin-top: 3px;
-  font-size: var(--text-xs);
-  line-height: 1.6;
-  color: var(--muted);
-}
-.chat-permission nav button:hover {
-  background: var(--fill);
-}
-.chat-permission nav button.selected {
-  background: var(--selected);
-}
-.chat-permission nav button.selected strong {
-  color: var(--teal);
-}
-.chat-permission nav button.danger strong {
-  color: #a85c4e;
-}
-.chat-permission nav button.danger:hover,
-.chat-permission nav button.danger.selected {
-  background: var(--danger-soft);
-}
-.chat-permission nav button.danger small {
-  color: #b07a70;
 }
 .chat-send {
   margin-left: auto;
@@ -6028,27 +5918,6 @@ details.chat-branch-choices > summary {
 .chat-composer.is-phone .chat-model :deep(.chip-menu-label) {
   max-width: 30vw;
 }
-/* Approval is a mark alone, and red when nothing is asked: it is the one
-   setting worth seeing without opening anything. */
-.chat-composer.is-phone .chat-permission {
-  order: -1;
-}
-.chat-composer.is-phone .chat-permission :deep(summary) {
-  width: 38px;
-  padding: 0;
-  justify-content: center;
-}
-.chat-composer.is-phone .chat-permission :deep(summary > .chip-menu-label),
-.chat-composer.is-phone .chat-permission :deep(summary > .chip-menu-caret) {
-  display: none;
-}
-.chat-composer.is-phone .chat-permission :deep(summary > svg) {
-  width: 17px;
-  height: 17px;
-}
-.chat-composer.is-phone .chat-permission.danger :deep(summary) {
-  color: var(--danger);
-}
 /* The branch chip lives in the top bar; its card stays here, with its state. */
 .chat-composer.is-phone .chat-branch {
   position: absolute;
@@ -6060,27 +5929,28 @@ details.chat-branch-choices > summary {
   display: none;
 }
 
-/* A control's card on a phone: the pane's width, choices at thumb height. */
+/* A control's card on a phone: the pane's width, choices at thumb height. Deep,
+   because each chip's card is drawn by its own component (ChatEffortChip, …). */
 .chat-composer.is-phone :deep(.chip-menu-panel.is-card) {
   padding: 6px;
 }
-.chat-composer.is-phone .chip-menu-panel nav button {
+.chat-composer.is-phone :deep(.chip-menu-panel nav button) {
   min-height: 52px;
   padding: 10px 12px;
   border-radius: var(--radius-lg);
   font-size: var(--text-lg);
   white-space: normal;
 }
-.chat-composer.is-phone .chip-menu-panel nav button strong {
+.chat-composer.is-phone :deep(.chip-menu-panel nav button strong) {
   font-size: var(--text-base);
 }
-.chat-composer.is-phone .chip-menu-panel nav button small {
+.chat-composer.is-phone :deep(.chip-menu-panel nav button small) {
   font-size: var(--text-sm);
 }
-.chat-composer.is-phone .chip-menu-panel nav button.selected {
+.chat-composer.is-phone :deep(.chip-menu-panel nav button.selected) {
   color: var(--ink);
 }
-.chat-composer.is-phone .chip-menu-panel nav button:disabled {
+.chat-composer.is-phone :deep(.chip-menu-panel nav button:disabled) {
   opacity: 0.5;
 }
 .chat-composer.is-phone .chat-menu-note {
@@ -6233,38 +6103,6 @@ details.chat-branch-choices > summary {
   font-size: var(--text-base);
   color: var(--ink-soft);
   cursor: pointer;
-}
-/* Approval modes: a mark, the name, what it does. */
-.chat-composer.is-phone .chat-permission-body > header {
-  margin: 8px 12px 4px;
-  padding: 0;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-}
-.chat-composer.is-phone .chat-permission nav button > span {
-  justify-content: flex-start;
-  gap: 10px;
-}
-.chat-composer.is-phone .chat-permission nav button > span > svg:last-child:not(.chat-permission-mark) {
-  margin-left: auto;
-}
-.chat-composer.is-phone .chat-permission nav button small {
-  margin-left: 41px;
-}
-.chat-permission-mark {
-  flex: none;
-  width: 31px;
-  height: 31px;
-  padding: 8px;
-  border-radius: var(--radius-md);
-  background: var(--fill);
-  color: var(--ink-soft);
-}
-.chat-permission nav button.danger .chat-permission-mark {
-  background: var(--danger-soft);
-  color: var(--danger);
 }
 /* Branches: the card opens down from the top bar. */
 .chat-composer.is-phone .chat-branch-body header {
