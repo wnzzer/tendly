@@ -1,10 +1,11 @@
 name: Check
 on:
-  # Branches only: a release tag points at a commit already checked here, and
-  # the release workflow builds it again anyway.
+  # Branches only on push: a release tag calls this itself (release.yml), and
+  # publishes only once it passes.
   push:
     branches: ['**']
   pull_request:
+  workflow_call:
 
 # A newer push to the same branch makes the running check moot.
 concurrency:
@@ -27,7 +28,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -37,10 +38,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '10.30.3'
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm

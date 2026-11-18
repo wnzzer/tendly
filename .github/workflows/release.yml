@@ -11,6 +11,13 @@ permissions:
   contents: write
 
 jobs:
+  # The same check every push gets. Building does not wait for it, publishing
+  # does: a tag on a commit whose check failed (0.1.119, 0.1.120) used to ship
+  # anyway, because nothing here looked. The check is the shorter of the two,
+  # so the gate costs no time.
+  check:
+    uses: ./.github/workflows/check.yml
+
   build:
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
@@ -31,14 +38,12 @@ jobs:
           - target: x86_64-pc-windows-msvc
             os: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '10.30.3'
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
@@ -90,7 +95,7 @@ jobs:
           rm -rf "${name}"
           ls -la
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}
           path: dist/*
@@ -98,21 +103,21 @@ jobs:
 
   npm:
     name: npm
-    needs: build
+    needs: [check, build]
     # Runs on workflow_dispatch too, publishing nothing. Putting a package on
     # the registry cannot be undone — unpublishing is allowed only briefly and
     # burns the version number for good — so the job that does it should have
     # been run before the run that matters.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           # Writes the .npmrc that reads NODE_AUTH_TOKEN, so the token never
           # has to be echoed into a file of our own.
           registry-url: 'https://registry.npmjs.org'
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
@@ -179,15 +184,15 @@ jobs:
 
 
   publish:
-    needs: build
+    needs: [check, build]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       # Full history and tags: the notes are the commits since the last release.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -208,7 +213,7 @@ jobs:
           # With no earlier release, the whole history up to this tag.
           git-cliff --config .github/cliff.toml ${previous:+"$previous..$current"} --tag "$current" --output RELEASE_NOTES.md
           cat RELEASE_NOTES.md
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           body_path: RELEASE_NOTES.md
