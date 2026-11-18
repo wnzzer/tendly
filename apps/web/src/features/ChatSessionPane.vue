@@ -50,6 +50,7 @@ import ChipMenu from "./ChipMenu.vue";
 import ChatEffortChip from "./ChatEffortChip.vue";
 import ChatPermissionChip from "./ChatPermissionChip.vue";
 import ChatEndpointChoices from "./ChatEndpointChoices.vue";
+import ChatModelChip from "./ChatModelChip.vue";
 import TaskReviewDialog from "./TaskReviewDialog.vue";
 import AgentToolsSwitch from "./AgentToolsSwitch.vue";
 import { useMobile } from "./mobile";
@@ -583,8 +584,6 @@ const models = computed(() =>
 );
 /** The window the server knows for the model in use (context-meter.ts weighs it against the client's). */
 const modelContext = ref<KnownWindow>();
-/** The menu's list, narrowed by what is typed below it: with an endpoint's hundred models, typing finds one. */
-const visibleModels = computed(() => filterModels(models.value, customModel.value));
 // Before the client speaks, the model in use is the profile's, or the one the
 // catalog marks as its default — the same answer the client would give.
 const currentModel = computed(
@@ -610,44 +609,6 @@ watch(
 );
 const ringUsage = computed(() => measuredUsage(view.value.usage, modelContext.value));
 const currentModelEntry = computed(() => models.value.find(entry => entry.id === currentModel.value));
-/**
- * A model typed by hand rather than picked from the list.
- *
- * The list is whatever the host's client version knows about, so a model newer
- * than that client never appears in it even when the account can run it. The
- * client still accepts any ID and refuses one it cannot serve, so typing the ID
- * is the way onto it without waiting for a client upgrade.
- */
-const customModel = ref("");
-const customPicked = ref("");
-const modelDefault = computed(() =>
-  currentModelEntry.value
-    ? currentModelEntry.value.isDefault === true || currentModelEntry.value.id === "default"
-    : !customPicked.value || currentModel.value !== customPicked.value,
-);
-/**
- * The model chip always names the model in use, the default one too: which
- * model is answering is the first thing a reader of the conversation wants to
- * know. Whether it was chosen shows in the chip's emphasis, not its words.
- */
-const shownModel = computed(
-  () => currentModelEntry.value ?? (currentModel.value ? undefined : models.value.find(entry => entry.isDefault)),
-);
-const modelName = computed(
-  () =>
-    (shownModel.value && resolvedDefaultName(shownModel.value, models.value)) ??
-    shownModel.value?.name ??
-    currentModel.value ??
-    t("Model"),
-);
-function pickCustomModel() {
-  // A model's name typed by hand goes out as its ID, which is what the endpoint knows.
-  const id = resolveModel(customModel.value, endpointCatalog.value);
-  if (!id) return;
-  customPicked.value = id;
-  customModel.value = "";
-  void pickModel(id);
-}
 const canPickModel = computed(
   () =>
     canTuneModel.value &&
@@ -681,7 +642,7 @@ function pickEffort(stop: string) {
   if (stop) void applyEffort(stop);
 }
 const endpointMenu = ref<InstanceType<typeof ChipMenu>>();
-const modelMenu = ref<InstanceType<typeof ChipMenu>>();
+const modelMenu = ref<InstanceType<typeof ChatModelChip>>();
 /** Permission changes preserve the thread. Codex applies them at the next turn. */
 const permissionChoices = computed(() => view.value.permissionModes ?? []);
 const livePermission = computed(() => view.value.permissionMode ?? "");
@@ -3142,74 +3103,20 @@ function keydown(event: KeyboardEvent) {
             ><ProviderIcon class="chat-working-mark" :provider="session.provider" :size="12" />{{
               t("Starting…")
             }}</span
-          ><ChipMenu
+          ><ChatModelChip
             v-if="tunableModel || (mobile && !isPreview)"
             ref="modelMenu"
-            class="chat-model"
-            :caption="t('Model')"
-            :label="tunableModel ? modelName : endpointName"
-            :active="tunableModel && !modelDefault"
-            :disabled="mobile ? !canPickModel && !canOpenEndpoint : !canPickModel"
-            :title="canPickModel ? t('Model') : t('Model: {model}', { model: modelName })"
-            ><template #mark
-              ><ProviderIcon v-if="mobile" :provider="session.provider" :size="13" /><Icon
-                v-else
-                name="spark"
-                :size="12" /></template
-            ><template v-if="tunableModel"
-              ><p v-if="mobile" class="chat-card-group">
-                <span>{{ endpointName }}</span><em>{{ t("Current endpoint") }}</em>
-              </p>
-              <p v-if="mobile && !canPickModel" class="chat-menu-note">
-                {{ t("Wait for the current turn and approvals to finish before changing this.") }}
-              </p>
-              <nav :aria-label="t('Model')">
-                <button
-                  v-for="entry in visibleModels"
-                  :key="entry.id"
-                  type="button"
-                  :class="{ selected: entry.id === currentModel }"
-                  :disabled="!canPickModel"
-                  @click="pickModel(entry.id)"
-                >
-                  <strong>{{ entry.name }}</strong><code
-                    v-if="entry.id.toLocaleLowerCase() !== entry.name.toLocaleLowerCase()"
-                    class="chat-model-id"
-                    >{{ entry.id }}</code
-                  ><small v-if="entry.description">{{ describeModel(entry.description, t) }}</small></button
-                ><button
-                  v-if="customPicked && !models.some(entry => entry.id === customPicked)"
-                  type="button"
-                  :class="{ selected: customPicked === currentModel }"
-                  @click="pickModel(customPicked)"
-                >
-                  <strong>{{ customPicked }}</strong><small>{{ t("Entered by hand") }}</small>
-                </button>
-              </nav>
-              <div class="chat-model-custom">
-                <input
-                  v-model="customModel"
-                  type="text"
-                  autocomplete="off"
-                  spellcheck="false"
-                  maxlength="128"
-                  :placeholder="t('Find a model, or enter an ID')"
-                  :aria-label="t('Other model ID')"
-                  @keydown.enter.prevent.stop="pickCustomModel"
-                /><button type="button" :disabled="!customModel.trim()" @click="pickCustomModel">{{ t("Use") }}</button>
-              </div>
-              <p class="chat-model-hint">
-                {{
-                  t(
-                    profileCatalog.length
-                      ? "From the {provider} client on the host and from this endpoint. Type to find a model, or enter an ID."
-                      : "This list comes from the {provider} client on the host. Upgrade it there to see newer models, or enter an ID.",
-                    { provider: providerLabel(session.provider) },
-                  )
-                }}
-              </p></template
-            >
-            <ChatEndpointChoices
+            :session="session"
+            :models="models"
+            :current="currentModel"
+            :tunable="tunableModel"
+            :pickable="canPickModel"
+            :openable="canOpenEndpoint"
+            :endpoint-name="endpointName"
+            :endpoint-catalog="endpointCatalog"
+            :from-endpoint="profileCatalog.length > 0"
+            @pick="pickModel"
+            ><ChatEndpointChoices
               v-if="mobile"
               card
               :session="session"
@@ -3224,7 +3131,7 @@ function keydown(event: KeyboardEvent) {
               @manage="
                 modelMenu?.close();
                 emit('profiles');
-              " /></ChipMenu
+              " /></ChatModelChip
           ><ChatEffortChip
             v-if="effortChoices.length"
             :choices="effortChoices"
@@ -3854,60 +3761,16 @@ details.chat-branch-choices > summary {
 .chat-endpoint:has(.balance-badge) :deep(.chip-menu-label) {
   min-width: 3em;
 }
-.chat-model {
-  max-width: min(34%, 170px);
-}
 /* Wide enough for the line it holds, not for the chip it hangs from: these
    panels shrink-to-fit inside a chip barely a hundred pixels across, which is
    how a description ended up wrapping three times with room to spare. */
-.chat-endpoint :deep(.chip-menu-panel),
-.chat-model :deep(.chip-menu-panel) {
+.chat-endpoint :deep(.chip-menu-panel) {
   min-width: 190px;
   width: max-content;
   max-width: min(292px, 78cqw);
   max-height: min(340px, 66vh);
   overflow-y: auto;
   padding: 5px;
-}
-.chat-model nav button strong {
-  display: block;
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
-.chat-model nav button small {
-  display: block;
-  margin-top: 2px;
-  font-size: var(--text-xs);
-  color: var(--muted);
-  white-space: normal;
-  line-height: 1.5;
-}
-.chat-model nav button {
-  white-space: normal;
-}
-.chat-model nav button {
-  display: block;
-  width: 100%;
-  min-height: 38px;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: none;
-  text-align: left;
-  font-size: var(--text-sm);
-  color: var(--ink-soft);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-.chat-model nav button:hover:not(:disabled) {
-  background: var(--fill);
-}
-.chat-model nav button.selected {
-  color: var(--accent-ink);
-  font-weight: 600;
-  background: var(--selected);
 }
 .chat-send {
   margin-left: auto;
@@ -4857,57 +4720,6 @@ details.chat-branch-choices > summary {
     transform: none;
   }
 }
-.chat-model-custom {
-  display: flex;
-  gap: 6px;
-  margin: 5px 3px 3px;
-  padding-top: 6px;
-  border-top: 1px solid var(--line);
-  position: sticky;
-  bottom: -5px;
-  background: var(--surface);
-  padding-bottom: 5px;
-}
-/* The ID a model goes out as, under the name it is known by. */
-.chat-model nav button .chat-model-id {
-  display: block;
-  margin-top: 2px;
-  font-family: var(--mono);
-  font-size: var(--text-xs);
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.chat-model-custom input {
-  flex: 1;
-  min-width: 0;
-  height: 30px;
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  font: inherit;
-  font-size: var(--text-xs);
-  background: var(--surface);
-  color: inherit;
-}
-.chat-model-custom button {
-  height: 30px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--teal);
-  color: var(--on-accent);
-  font-size: var(--text-xs);
-  cursor: pointer;
-}
-.chat-model-hint {
-  margin: 4px 5px 3px;
-  font-size: var(--text-xs);
-  line-height: 1.5;
-  color: var(--muted);
-  white-space: normal;
-}
 @media (prefers-reduced-motion: reduce) {
   .chat-boot-bar i,
   .chat-boot-chip,
@@ -5710,13 +5522,6 @@ details.chat-branch-choices > summary {
   width: 10px;
   height: 10px;
 }
-.chat-composer.is-phone .chat-model {
-  min-width: 0;
-  flex: 0 1 auto;
-}
-.chat-composer.is-phone .chat-model :deep(.chip-menu-label) {
-  max-width: 30vw;
-}
 /* The branch chip lives in the top bar; its card stays here, with its state. */
 .chat-composer.is-phone .chat-branch {
   position: absolute;
@@ -5783,35 +5588,6 @@ details.chat-branch-choices > summary {
   background: var(--accent-soft);
   padding: 1px 7px;
   border-radius: var(--radius-full);
-}
-/* The model's card: find a model first, then its models, then the endpoints they come from. */
-.chat-composer.is-phone .chat-model :deep(.chip-menu-panel) {
-  display: flex;
-  flex-direction: column;
-}
-.chat-composer.is-phone .chat-model .chat-model-custom {
-  order: -1;
-  position: static;
-  margin: 4px 6px 4px;
-  padding: 0;
-  border-top: 0;
-  background: none;
-}
-.chat-composer.is-phone .chat-model .chat-model-custom input {
-  height: 44px;
-  padding: 0 12px;
-  border-radius: var(--radius-md);
-  font-size: var(--input-text);
-}
-.chat-composer.is-phone .chat-model .chat-model-custom button {
-  height: 44px;
-  padding: 0 16px;
-  border-radius: var(--radius-md);
-  font-size: var(--text-base);
-}
-.chat-composer.is-phone .chat-model .chat-model-hint {
-  margin: 4px 12px 6px;
-  font-size: var(--text-sm);
 }
 /* Branches: the card opens down from the top bar. */
 .chat-composer.is-phone .chat-branch-body header {
