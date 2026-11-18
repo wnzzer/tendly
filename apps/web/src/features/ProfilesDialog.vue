@@ -3,7 +3,13 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import type { AgentProviderKind, EndpointProfile, KeyHeader, ModelCatalog } from "@tendly/protocol";
 import { errorMessage, json, providerLabel, request } from "./api";
 import { parseModelAliases, formatModelAliases } from "./endpoint-models";
-import { sharesHostConfig, nativeProfileRenamePayload, nativeProfileUpdatePayload, profileEnvironmentPayload, profileEnvironmentDraftChanged } from "./native-profiles";
+import {
+  sharesHostConfig,
+  nativeProfileRenamePayload,
+  nativeProfileUpdatePayload,
+  profileEnvironmentPayload,
+  profileEnvironmentDraftChanged,
+} from "./native-profiles";
 import { environmentRows, newEnvironmentRow, type EnvironmentRow } from "./environment-model";
 import { limitKey, nextLimits, validWindow, windowValue, type KnownWindow, type Limits } from "./model-limits";
 import ModelSelection from "./ModelSelection.vue";
@@ -25,8 +31,21 @@ import ContextMenu from "./ContextMenu.vue";
 import ProfileCopyDialog from "./ProfileCopyDialog.vue";
 import { loadPreferences, preferenceFor } from "./preferences";
 import { showToast } from "./toasts";
-import { isStored, ownStoredSecret, referencedSecret, secretNameFor, secretStatus, type SecretName } from "./secret-names";
-import { keyHeaderProblem, keyMode, profilePayload, profileSummary as describeProfile, type KeyMode } from "./profile-form";
+import {
+  isStored,
+  ownStoredSecret,
+  referencedSecret,
+  secretNameFor,
+  secretStatus,
+  type SecretName,
+} from "./secret-names";
+import {
+  keyHeaderProblem,
+  keyMode,
+  profilePayload,
+  profileSummary as describeProfile,
+  type KeyMode,
+} from "./profile-form";
 const { t } = useI18n();
 const props = defineProps<{ profiles: EndpointProfile[]; embedded?: boolean }>();
 const embedded = computed(() => props.embedded === true);
@@ -34,31 +53,66 @@ const emit = defineEmits<{ close: []; changed: [profile?: EndpointProfile]; acco
 // The settings shell owns the outer close, so it needs this page's unsaved guard.
 defineExpose({ requestLeave: (action: () => void) => requestLeave(action) });
 const balanceEditor = ref<InstanceType<typeof EndpointBalanceEditor>>();
-const editing = ref<string>(), deleteId = ref<string>();
+const editing = ref<string>(),
+  deleteId = ref<string>();
 const editingRecord = ref<EndpointProfile>();
-const editingProfile = computed(() => props.profiles.find(profile => profile.id === editing.value) ?? editingRecord.value);
+const editingProfile = computed(
+  () => props.profiles.find(profile => profile.id === editing.value) ?? editingRecord.value,
+);
 const editingNative = computed(() => editingProfile.value?.native_config);
-const editingManaged = computed(() => editingNative.value?.source_id.startsWith('account:'));
-const formVisible = ref(true), busy = ref(false), discovering = ref(false);
-const error = ref(""), modelError = ref("");
-const models = ref<ModelCatalog>(), aliasesText = ref("");
-const environmentDraft = ref<EnvironmentRow[]>([]), initialEnvironment = ref<EnvironmentRow[]>([]);
-const environmentDirty = computed(() => profileEnvironmentDraftChanged(environmentDraft.value, initialEnvironment.value));
-const environmentError = computed(() => { try { profileEnvironmentPayload(environmentDraft.value, backendCapabilities.environment, initialEnvironment.value); return ""; } catch (cause) { return errorMessage(cause); } });
-const pendingNavigation = ref<(() => void)>();
-const form = reactive({ name: "", provider: DEFAULT_CLIENT as AgentProviderKind, endpoint_url: "", api: "", model: "", effort: "", permission_mode: "native" as EndpointProfile["permission_mode"], secret_ref: "", proxy_url: "", key_mode: "" as KeyMode, key_name: "", key_value: "" });
+const editingManaged = computed(() => editingNative.value?.source_id.startsWith("account:"));
+const formVisible = ref(true),
+  busy = ref(false),
+  discovering = ref(false);
+const error = ref(""),
+  modelError = ref("");
+const models = ref<ModelCatalog>(),
+  aliasesText = ref("");
+const environmentDraft = ref<EnvironmentRow[]>([]),
+  initialEnvironment = ref<EnvironmentRow[]>([]);
+const environmentDirty = computed(() =>
+  profileEnvironmentDraftChanged(environmentDraft.value, initialEnvironment.value),
+);
+const environmentError = computed(() => {
+  try {
+    profileEnvironmentPayload(environmentDraft.value, backendCapabilities.environment, initialEnvironment.value);
+    return "";
+  } catch (cause) {
+    return errorMessage(cause);
+  }
+});
+const pendingNavigation = ref<() => void>();
+const form = reactive({
+  name: "",
+  provider: DEFAULT_CLIENT as AgentProviderKind,
+  endpoint_url: "",
+  api: "",
+  model: "",
+  effort: "",
+  permission_mode: "native" as EndpointProfile["permission_mode"],
+  secret_ref: "",
+  proxy_url: "",
+  key_mode: "" as KeyMode,
+  key_name: "",
+  key_value: "",
+});
 /** Why the form's key header cannot be saved, or "". */
 const keyProblem = computed(() => keyHeaderProblem(form));
-const secretValid = computed(() => secretMode.value === "stored" || !form.secret_ref || /^env:TENDLY_SECRET_[A-Z0-9_]+$/.test(form.secret_ref));
+const secretValid = computed(
+  () => secretMode.value === "stored" || !form.secret_ref || /^env:TENDLY_SECRET_[A-Z0-9_]+$/.test(form.secret_ref),
+);
 /**
  * Where the endpoint's key lives. "stored": pasted here and kept by Tendly
  * in the state directory (secrets.rs), usable at once. "env": a variable set
  * on the server by hand, as before. Either way the profile only ever holds
  * the reference, and the key itself never comes back to the browser.
  */
-const secretMode = ref<"stored" | "env">("stored"), apiKey = ref("");
+const secretMode = ref<"stored" | "env">("stored"),
+  apiKey = ref("");
 const storedSecrets = ref<SecretName[]>([]);
-const otherReferences = computed(() => props.profiles.filter(profile => profile.id !== editing.value).map(profile => profile.secret_ref));
+const otherReferences = computed(() =>
+  props.profiles.filter(profile => profile.id !== editing.value).map(profile => profile.secret_ref),
+);
 const secret = computed(() => secretStatus(form.secret_ref, storedSecrets.value));
 /** The stored key this profile uses now, shown as "saved". */
 const storedKey = computed(() => secret.value.stored);
@@ -71,53 +125,110 @@ const adopting = ref(false);
 async function adoptKey() {
   const name = adoptable.value;
   if (!name || adopting.value) return;
-  adopting.value = true; error.value = "";
-  try { await request<SecretName>(`/secrets/${encodeURIComponent(name)}/adopt`, json("POST")); await loadSecrets(); secretMode.value = "stored"; }
-  catch (cause) { error.value = errorMessage(cause); }
-  finally { adopting.value = false; }
+  adopting.value = true;
+  error.value = "";
+  try {
+    await request<SecretName>(`/secrets/${encodeURIComponent(name)}/adopt`, json("POST"));
+    await loadSecrets();
+    secretMode.value = "stored";
+  } catch (cause) {
+    error.value = errorMessage(cause);
+  } finally {
+    adopting.value = false;
+  }
 }
 async function loadSecrets() {
   if (!backendCapabilities.storedSecrets) return;
-  try { storedSecrets.value = await request<SecretName[]>("/secrets"); } catch { /* The form still works with references. */ }
+  try {
+    storedSecrets.value = await request<SecretName[]>("/secrets");
+  } catch {
+    /* The form still works with references. */
+  }
 }
 // The backend's capabilities can arrive after this page opens (a reload
 // straight onto Settings); until they do, no key list is read, and the form
 // would think every key lives only on the server.
-watch(() => backendCapabilities.storedSecrets, available => {
-  if (available) void loadSecrets().then(() => { if (!apiKey.value) chooseSecretMode(form.secret_ref); });
-});
+watch(
+  () => backendCapabilities.storedSecrets,
+  available => {
+    if (available)
+      void loadSecrets().then(() => {
+        if (!apiKey.value) chooseSecretMode(form.secret_ref);
+      });
+  },
+);
 function chooseSecretMode(reference: string | null | undefined) {
   const name = referencedSecret(reference);
-  secretMode.value = !backendCapabilities.storedSecrets || (name && !isStored(storedSecrets.value, name)) ? "env" : "stored";
+  secretMode.value =
+    !backendCapabilities.storedSecrets || (name && !isStored(storedSecrets.value, name)) ? "env" : "stored";
 }
 /** Store a pasted key and point the form at it. Its own key is replaced in
  * place; otherwise a fresh name, so no other profile's key is overwritten. */
 async function storePastedKey() {
   const value = apiKey.value.trim();
   if (secretMode.value !== "stored" || !value) return;
-  const name = ownStoredSecret(form.secret_ref, storedSecrets.value, otherReferences.value)
-    ?? secretNameFor(form.name.trim() || providerLabel(form.provider), [...storedSecrets.value.map(entry => entry.name), ...otherReferences.value.map(referencedSecret).filter((item): item is string => !!item)]);
+  const name =
+    ownStoredSecret(form.secret_ref, storedSecrets.value, otherReferences.value) ??
+    secretNameFor(form.name.trim() || providerLabel(form.provider), [
+      ...storedSecrets.value.map(entry => entry.name),
+      ...otherReferences.value.map(referencedSecret).filter((item): item is string => !!item),
+    ]);
   await request<SecretName>("/secrets/" + encodeURIComponent(name), json("PUT", { value }));
-  form.secret_ref = "env:" + name; apiKey.value = "";
+  form.secret_ref = "env:" + name;
+  apiKey.value = "";
   await loadSecrets();
 }
 /** A stored key no profile points at any more is deleted with it. */
 async function releaseSecret(reference: string | null | undefined, remaining: Array<string | null | undefined>) {
   const name = referencedSecret(reference);
-  if (!name || !isStored(storedSecrets.value, name) || remaining.some(other => referencedSecret(other) === name)) return;
-  try { await request("/secrets/" + encodeURIComponent(name), json("DELETE")); } catch { /* An orphaned key is harmless. */ }
+  if (!name || !isStored(storedSecrets.value, name) || remaining.some(other => referencedSecret(other) === name))
+    return;
+  try {
+    await request("/secrets/" + encodeURIComponent(name), json("DELETE"));
+  } catch {
+    /* An orphaned key is harmless. */
+  }
   await loadSecrets();
 }
-const deletingProfile = computed(() => props.profiles.find(p => p.id === deleteId.value) ?? (editingRecord.value?.id === deleteId.value ? editingRecord.value : undefined));
-const aliases = computed(() => { try { return { value: parseModelAliases(aliasesText.value), error: "" }; } catch (cause) { return { value: {} as Record<string,string>, error: errorMessage(cause) }; } });
+const deletingProfile = computed(
+  () =>
+    props.profiles.find(p => p.id === deleteId.value) ??
+    (editingRecord.value?.id === deleteId.value ? editingRecord.value : undefined),
+);
+const aliases = computed(() => {
+  try {
+    return { value: parseModelAliases(aliasesText.value), error: "" };
+  } catch (cause) {
+    return { value: {} as Record<string, string>, error: errorMessage(cause) };
+  }
+});
 const resolved = computed(() => aliases.value.value[form.model] ?? form.model);
 const offered = computed(() => offeredModels(models.value?.models ?? [], chosenModels.value));
-const choices = computed(() => [...Object.entries(aliases.value.value).map(([id, actual]) => ({id,name:id + " → " + actual})), ...offered.value]);
-const effortOptions = computed(() => modelEfforts(form.provider, resolved.value || undefined, models.value, form.effort, !editingNative.value));
-const canSave = computed(() => !!form.name.trim() && !environmentError.value && contextValid.value && (!!editingNative.value || (secretValid.value && !aliases.value.error && !keyProblem.value)));
+const choices = computed(() => [
+  ...Object.entries(aliases.value.value).map(([id, actual]) => ({ id, name: id + " → " + actual })),
+  ...offered.value,
+]);
+const effortOptions = computed(() =>
+  modelEfforts(form.provider, resolved.value || undefined, models.value, form.effort, !editingNative.value),
+);
+const canSave = computed(
+  () =>
+    !!form.name.trim() &&
+    !environmentError.value &&
+    contextValid.value &&
+    (!!editingNative.value || (secretValid.value && !aliases.value.error && !keyProblem.value)),
+);
 let discoveryRevision = 0;
-function resetDiscovery() { discoveryRevision++; models.value = undefined; modelError.value = ""; discovering.value = false; }
-watch(() => [form.provider, form.endpoint_url, form.proxy_url, form.secret_ref, form.api, apiKey.value], resetDiscovery);
+function resetDiscovery() {
+  discoveryRevision++;
+  models.value = undefined;
+  modelError.value = "";
+  discovering.value = false;
+}
+watch(
+  () => [form.provider, form.endpoint_url, form.proxy_url, form.secret_ref, form.api, apiKey.value],
+  resetDiscovery,
+);
 
 /**
  * Context windows, kept per model (server model_limits.rs) so every session
@@ -126,26 +237,43 @@ watch(() => [form.provider, form.endpoint_url, form.proxy_url, form.secret_ref, 
  * published window is shown as a reference but never applied on its own,
  * since an account may not have all of it.
  */
-const savedLimits = ref<Limits>(), contextDrafts = reactive<Record<string, string>>({});
+const savedLimits = ref<Limits>(),
+  contextDrafts = reactive<Record<string, string>>({});
 const publishedWindows = reactive<Record<string, number | null>>({});
 async function loadLimits() {
   for (const key of Object.keys(contextDrafts)) delete contextDrafts[key];
   try {
     const saved = await request<{ models: Record<string, { context_window: number }> }>("/models/limits");
-    savedLimits.value = Object.fromEntries(Object.entries(saved.models).map(([model, limit]) => [model, limit.context_window]));
-  } catch { savedLimits.value = undefined; /* An older backend: no windows to set. */ }
+    savedLimits.value = Object.fromEntries(
+      Object.entries(saved.models).map(([model, limit]) => [model, limit.context_window]),
+    );
+  } catch {
+    savedLimits.value = undefined; /* An older backend: no windows to set. */
+  }
 }
-function windowText(model: string) { const key = limitKey(model); return contextDrafts[key] ?? (savedLimits.value?.[key] ? String(savedLimits.value[key]) : ""); }
-function setWindow(model: string, text: string) { contextDrafts[limitKey(model)] = text; }
+function windowText(model: string) {
+  const key = limitKey(model);
+  return contextDrafts[key] ?? (savedLimits.value?.[key] ? String(savedLimits.value[key]) : "");
+}
+function setWindow(model: string, text: string) {
+  contextDrafts[limitKey(model)] = text;
+}
 async function lookPublished(model: string) {
   const key = limitKey(model);
   if (!key || key in publishedWindows) return;
   publishedWindows[key] = null;
-  try { publishedWindows[key] = (await request<{ published: number | null }>(`/models/context?model=${encodeURIComponent(model.trim())}`)).published; } catch { /* Unknown stays unknown. */ }
+  try {
+    publishedWindows[key] = (
+      await request<{ published: number | null }>(`/models/context?model=${encodeURIComponent(model.trim())}`)
+    ).published;
+  } catch {
+    /* Unknown stays unknown. */
+  }
 }
 /** The window known for a model without one set: the endpoint's own word first, then the published one. */
 function knownWindow(model: string): KnownWindow | undefined {
-  const key = limitKey(model), entry = models.value?.models.find(item => limitKey(item.id) === key);
+  const key = limitKey(model),
+    entry = models.value?.models.find(item => limitKey(item.id) === key);
   if (entry?.context_window) return { tokens: entry.context_window, source: "endpoint" };
   const published = entry?.published_context ?? publishedWindows[key];
   return published ? { tokens: published, source: "published" } : undefined;
@@ -153,20 +281,39 @@ function knownWindow(model: string): KnownWindow | undefined {
 function windowPlaceholder(model: string) {
   const known = knownWindow(model);
   if (!known) return t("Unknown · the client decides");
-  return t(known.source === "endpoint" ? "Endpoint reports: {tokens} tokens" : "Published: {tokens} tokens", { tokens: known.tokens.toLocaleString() });
+  return t(known.source === "endpoint" ? "Endpoint reports: {tokens} tokens" : "Published: {tokens} tokens", {
+    tokens: known.tokens.toLocaleString(),
+  });
 }
-watch(() => form.model, model => { if (model.trim()) void lookPublished(model); });
+watch(
+  () => form.model,
+  model => {
+    if (model.trim()) void lookPublished(model);
+  },
+);
 const contextValid = computed(() => Object.values(contextDrafts).every(validWindow));
 /** Write the windows set here, and where the client reads the window from a variable (Claude Code), make sure the default model's is passed, as one listed below. */
 async function saveContextWindows() {
   if (!savedLimits.value || !contextValid.value) return;
   const variable = client.value.contextWindow.variable;
-  if (windowValue(windowText(form.model)) && variable && !environmentDraft.value.some(row => row.name.trim() === variable)) {
-    environmentDraft.value = [...environmentDraft.value, { ...newEnvironmentRow(), name: variable, kind: "main_model_context" }];
+  if (
+    windowValue(windowText(form.model)) &&
+    variable &&
+    !environmentDraft.value.some(row => row.name.trim() === variable)
+  ) {
+    environmentDraft.value = [
+      ...environmentDraft.value,
+      { ...newEnvironmentRow(), name: variable, kind: "main_model_context" },
+    ];
   }
   const next = nextLimits(savedLimits.value, contextDrafts);
   if (!next) return;
-  await request("/models/limits", json("PUT", { models: Object.fromEntries(Object.entries(next).map(([model, window]) => [model, { context_window: window }])) }));
+  await request(
+    "/models/limits",
+    json("PUT", {
+      models: Object.fromEntries(Object.entries(next).map(([model, window]) => [model, { context_window: window }])),
+    }),
+  );
   savedLimits.value = next;
   for (const key of Object.keys(contextDrafts)) delete contextDrafts[key];
 }
@@ -175,23 +322,42 @@ const chosenModels = ref<string[]>([]);
 /** What the form offers and explains for the chosen client (clients.ts). */
 const client = computed(() => clientInfo(form.provider));
 /** A client with one wire protocol names it; the ones with a choice say nothing here. */
-const fixedApi = computed(() => client.value.apis?.length ? "" : PROBE_APIS[FIXED_APIS[form.provider]]?.label ?? "");
+const fixedApi = computed(() =>
+  client.value.apis?.length ? "" : (PROBE_APIS[FIXED_APIS[form.provider]]?.label ?? ""),
+);
 
 /**
  * Claude Code's model slots, edited here and kept as the environment
  * variables listed below: the same rows, so nothing about them is hidden.
  */
 const slotMode = (variable: SlotVariable) => slotState(environmentDraft.value, variable).mode;
-function slotModel(variable: SlotVariable) { const state = slotState(environmentDraft.value, variable); return state.mode === "model" ? state.model : ""; }
-function chooseSlot(variable: SlotVariable, mode: string) {
-  environmentDraft.value = setSlot(environmentDraft.value, variable, mode === "model" ? { mode: "model", model: slotModel(variable) } : mode === "main" ? { mode: "main" } : { mode: "client" });
+function slotModel(variable: SlotVariable) {
+  const state = slotState(environmentDraft.value, variable);
+  return state.mode === "model" ? state.model : "";
 }
-function pinSlot(variable: SlotVariable, model: string) { environmentDraft.value = setSlot(environmentDraft.value, variable, { mode: "model", model }); }
-const slotsText = computed(() => t({
-  main: "Opus, Sonnet and Haiku follow the main model.",
-  client: "Opus, Sonnet and Haiku use Claude Code's own models.",
-  mixed: "Opus, Sonnet and Haiku are set one by one.",
-}[slotSummary(environmentDraft.value)]));
+function chooseSlot(variable: SlotVariable, mode: string) {
+  environmentDraft.value = setSlot(
+    environmentDraft.value,
+    variable,
+    mode === "model"
+      ? { mode: "model", model: slotModel(variable) }
+      : mode === "main"
+        ? { mode: "main" }
+        : { mode: "client" },
+  );
+}
+function pinSlot(variable: SlotVariable, model: string) {
+  environmentDraft.value = setSlot(environmentDraft.value, variable, { mode: "model", model });
+}
+const slotsText = computed(() =>
+  t(
+    {
+      main: "Opus, Sonnet and Haiku follow the main model.",
+      client: "Opus, Sonnet and Haiku use Claude Code's own models.",
+      mixed: "Opus, Sonnet and Haiku are set one by one.",
+    }[slotSummary(environmentDraft.value)],
+  ),
+);
 /**
  * What most profiles never change sits under "Advanced": closed unless
  * something there is set, which its summary counts, or wrong, which opens it.
@@ -201,23 +367,53 @@ const advancedCount = computed(() => {
   const own = environmentDraft.value.filter(row => !SLOTS.some(slot => slot.variable === row.name.trim())).length;
   if (editingNative.value) return own;
   const slots = client.value.modelSlots && slotSummary(environmentDraft.value) !== "main" ? 1 : 0;
-  return own + slots + [form.proxy_url.trim(), Object.keys(aliases.value.value).length, form.model.trim() && windowText(form.model)].filter(Boolean).length;
+  return (
+    own +
+    slots +
+    [
+      form.proxy_url.trim(),
+      Object.keys(aliases.value.value).length,
+      form.model.trim() && windowText(form.model),
+    ].filter(Boolean).length
+  );
 });
 const advancedTrouble = computed(() => !!aliases.value.error || !contextValid.value || !!environmentError.value);
-watch(advancedTrouble, trouble => { if (trouble) advancedOpen.value = true; });
-const proxyHelp = computed(() => [t("Applied on the server. Empty uses the host network."), client.value.proxyNote ? t(client.value.proxyNote) : ""].filter(Boolean).join(" "));
+watch(advancedTrouble, trouble => {
+  if (trouble) advancedOpen.value = true;
+});
+const proxyHelp = computed(() =>
+  [t("Applied on the server. Empty uses the host network."), client.value.proxyNote ? t(client.value.proxyNote) : ""]
+    .filter(Boolean)
+    .join(" "),
+);
 // A new profile's slots follow its main model on a client that has them
 // (Claude Code), and are not there at all on one with a single model (Codex).
-watch(() => form.provider, provider => {
-  if (editing.value || editingRecord.value) return;
-  const plain = environmentDraft.value.filter(row => !SLOTS.some(slot => slot.variable === row.name.trim()));
-  environmentDraft.value = clientInfo(provider).modelSlots ? followingRows(plain) : plain;
-  initialEnvironment.value = environmentDraft.value.map(row => ({ ...row }));
-});
+watch(
+  () => form.provider,
+  provider => {
+    if (editing.value || editingRecord.value) return;
+    const plain = environmentDraft.value.filter(row => !SLOTS.some(slot => slot.variable === row.name.trim()));
+    environmentDraft.value = clientInfo(provider).modelSlots ? followingRows(plain) : plain;
+    initialEnvironment.value = environmentDraft.value.map(row => ({ ...row }));
+  },
+);
 function payload(includeEnvironment = true) {
-  if (editingNative.value) return includeEnvironment ? nativeProfileUpdatePayload(form.name, environmentDraft.value, backendCapabilities.environment, initialEnvironment.value) : nativeProfileRenamePayload(form.name);
-  const environment = includeEnvironment ? profileEnvironmentPayload(environmentDraft.value, backendCapabilities.environment, initialEnvironment.value) : {};
-  return { ...profilePayload(form, editingProfile.value, aliases.value.value, chosenModels.value, !!client.value.apis?.length), ...environment };
+  if (editingNative.value)
+    return includeEnvironment
+      ? nativeProfileUpdatePayload(
+          form.name,
+          environmentDraft.value,
+          backendCapabilities.environment,
+          initialEnvironment.value,
+        )
+      : nativeProfileRenamePayload(form.name);
+  const environment = includeEnvironment
+    ? profileEnvironmentPayload(environmentDraft.value, backendCapabilities.environment, initialEnvironment.value)
+    : {};
+  return {
+    ...profilePayload(form, editingProfile.value, aliases.value.value, chosenModels.value, !!client.value.apis?.length),
+    ...environment,
+  };
 }
 function requestLeave(action: () => void) {
   if (busy.value || balanceEditor.value?.busy) return;
@@ -225,39 +421,101 @@ function requestLeave(action: () => void) {
     // An open profile keeps itself saved; leaving saves what is still waiting,
     // and asks only about what cannot be saved as it stands.
     const unsaved = (changed.value && !canSave.value) || (balanceEditor.value?.dirty && !balanceEditor.value.ready);
-    if (unsaved) { pendingNavigation.value = action; return; }
-    if (changed.value || balanceEditor.value?.dirty) { void Promise.all([flush(), balanceEditor.value?.flush()]).then(action); return; }
+    if (unsaved) {
+      pendingNavigation.value = action;
+      return;
+    }
+    if (changed.value || balanceEditor.value?.dirty) {
+      void Promise.all([flush(), balanceEditor.value?.flush()]).then(action);
+      return;
+    }
   }
-  if (formVisible.value && environmentDirty.value) { pendingNavigation.value = action; return; }
+  if (formVisible.value && environmentDirty.value) {
+    pendingNavigation.value = action;
+    return;
+  }
   action();
 }
-function discardEnvironmentDraft() { balanceEditor.value?.reset(); const action = pendingNavigation.value; pendingNavigation.value = undefined; environmentDraft.value = initialEnvironment.value.map(row => ({ ...row })); action?.(); }
+function discardEnvironmentDraft() {
+  balanceEditor.value?.reset();
+  const action = pendingNavigation.value;
+  pendingNavigation.value = undefined;
+  environmentDraft.value = initialEnvironment.value.map(row => ({ ...row }));
+  action?.();
+}
 function edit(p?: EndpointProfile) {
   pendingNavigation.value = undefined;
   // A new profile starts on the default client, whose slots follow its main model.
-  environmentDraft.value = p ? environmentRows(p.environment) : clientInfo(DEFAULT_CLIENT).modelSlots ? followingRows() : [];
+  environmentDraft.value = p
+    ? environmentRows(p.environment)
+    : clientInfo(DEFAULT_CLIENT).modelSlots
+      ? followingRows()
+      : [];
   initialEnvironment.value = environmentDraft.value.map(row => ({ ...row }));
-  resetDiscovery(); editingRecord.value=p; advancedOpen.value=false;
-  editing.value=p?.id; formVisible.value=true; error.value=""; deleteId.value=undefined;
-  Object.assign(form,{name:p?.name??"",provider:p?.provider??DEFAULT_CLIENT,endpoint_url:p?.endpoint_url??"",api:p?.api??"",model:p?.model??"",effort:p?.effort??"",permission_mode:p?.permission_mode??"native",secret_ref:p?.secret_ref??"",proxy_url:p?.proxy_url??"",...keyMode(p?.key_header)});
-  apiKey.value = ""; chooseSecretMode(p?.secret_ref);
-  aliasesText.value=formatModelAliases(p?.model_aliases); models.value=undefined; modelError.value="";
-  chosenModels.value=[...(p?.models??[])]; void loadLimits();
-  clearTimeout(autosaveTimer); saveState.value = "idle"; saveError.value = ""; lastSaved.value = snapshot();
+  resetDiscovery();
+  editingRecord.value = p;
+  advancedOpen.value = false;
+  editing.value = p?.id;
+  formVisible.value = true;
+  error.value = "";
+  deleteId.value = undefined;
+  Object.assign(form, {
+    name: p?.name ?? "",
+    provider: p?.provider ?? DEFAULT_CLIENT,
+    endpoint_url: p?.endpoint_url ?? "",
+    api: p?.api ?? "",
+    model: p?.model ?? "",
+    effort: p?.effort ?? "",
+    permission_mode: p?.permission_mode ?? "native",
+    secret_ref: p?.secret_ref ?? "",
+    proxy_url: p?.proxy_url ?? "",
+    ...keyMode(p?.key_header),
+  });
+  apiKey.value = "";
+  chooseSecretMode(p?.secret_ref);
+  aliasesText.value = formatModelAliases(p?.model_aliases);
+  models.value = undefined;
+  modelError.value = "";
+  chosenModels.value = [...(p?.models ?? [])];
+  void loadLimits();
+  clearTimeout(autosaveTimer);
+  saveState.value = "idle";
+  saveError.value = "";
+  lastSaved.value = snapshot();
 }
 async function discover() {
-  if (!backendCapabilities.models || editingNative.value || discovering.value || !secretValid.value || aliases.value.error) return;
+  if (
+    !backendCapabilities.models ||
+    editingNative.value ||
+    discovering.value ||
+    !secretValid.value ||
+    aliases.value.error
+  )
+    return;
   // A pasted key is stored first: discovery resolves the reference on the
   // server, and storing it changes the reference, which resets discovery.
   if (secretMode.value === "stored" && apiKey.value.trim()) {
-    try { await storePastedKey(); await nextTick(); } catch (cause) { modelError.value = errorMessage(cause); return; }
+    try {
+      await storePastedKey();
+      await nextTick();
+    } catch (cause) {
+      modelError.value = errorMessage(cause);
+      return;
+    }
   }
-  const revision=++discoveryRevision; discovering.value=true; modelError.value="";
+  const revision = ++discoveryRevision;
+  discovering.value = true;
+  modelError.value = "";
   // Model discovery is not a child-process launch: never send draft environment
   // values or secret references to that endpoint.
-  try { const result=await request<ModelCatalog>("/endpoint-profiles/discover-models",json("POST",payload(false))); if(revision===discoveryRevision) models.value=result; }
-  catch(cause){if(revision===discoveryRevision)modelError.value=errorMessage(cause);}
-  finally {if(revision===discoveryRevision)discovering.value=false;}
+  try {
+    const result = await request<ModelCatalog>("/endpoint-profiles/discover-models", json("POST", payload(false)));
+    if (revision === discoveryRevision) models.value = result;
+  } catch (cause) {
+    if (revision === discoveryRevision) modelError.value = errorMessage(cause);
+  } finally {
+    if (revision === discoveryRevision) discovering.value = false;
+  }
 }
 /**
  * Which of the listed models the endpoint actually runs. The form asks one
@@ -267,8 +525,13 @@ async function discover() {
  * but not yet saved is stored first so the endpoint sees the same credential
  * discovery did.
  */
-async function probeModels(batch: string[], api?: ModelProbeApi, header?: KeyHeader | null): Promise<ModelProbeResult[]> {
-  if (!backendCapabilities.modelProbe || editingNative.value || !secretValid.value || aliases.value.error) throw new Error(t("This profile cannot be checked as it stands; fix the fields above first."));
+async function probeModels(
+  batch: string[],
+  api?: ModelProbeApi,
+  header?: KeyHeader | null,
+): Promise<ModelProbeResult[]> {
+  if (!backendCapabilities.modelProbe || editingNative.value || !secretValid.value || aliases.value.error)
+    throw new Error(t("This profile cannot be checked as it stands; fix the fields above first."));
   if (secretMode.value === "stored" && apiKey.value.trim()) {
     // Stored first: the server resolves the reference, so the check must see
     // the same key discovery did. A failure here is the run's failure.
@@ -277,19 +540,32 @@ async function probeModels(batch: string[], api?: ModelProbeApi, header?: KeyHea
   }
   // Pi is tried over each protocol in turn, and a refused key in the other
   // header: the draft names the one asked about.
-  const profile = { ...payload(false), ...(api ? { api } : {}), ...(header !== undefined ? { key_header: header } : {}) };
+  const profile = {
+    ...payload(false),
+    ...(api ? { api } : {}),
+    ...(header !== undefined ? { key_header: header } : {}),
+  };
   return request<ModelProbeResult[]>("/endpoint-profiles/probe-models", json("POST", { profile, models: batch }));
 }
 const modelSelection = ref<InstanceType<typeof ModelSelection>>();
 /** What the form's check tries first: the default model, else the first chosen one. */
 const checkModel = computed(() => resolved.value.trim() || chosenModels.value[0] || "");
-const checkBlocked = computed(() => !backendCapabilities.modelProbe ? t("Backend upgrade required")
-  : !secretValid.value || aliases.value.error ? t("This profile cannot be checked as it stands; fix the fields above first.") : undefined);
+const checkBlocked = computed(() =>
+  !backendCapabilities.modelProbe
+    ? t("Backend upgrade required")
+    : !secretValid.value || aliases.value.error
+      ? t("This profile cannot be checked as it stands; fix the fields above first.")
+      : undefined,
+);
 const checkApis = computed(() => (client.value.apis ?? []).map(api => api.value as ModelProbeApi));
 /** The header a client sends its key in by itself, for the protocol it speaks. */
 const ownKeyHeader = computed(() => {
-  const api = form.provider === "pi" ? (form.api || probePlan.value?.api) : FIXED_APIS[form.provider];
-  return api === "anthropic-messages" ? "x-api-key" : api === "google-generative-ai" ? "x-goog-api-key" : "Authorization: Bearer";
+  const api = form.provider === "pi" ? form.api || probePlan.value?.api : FIXED_APIS[form.provider];
+  return api === "anthropic-messages"
+    ? "x-api-key"
+    : api === "google-generative-ai"
+      ? "x-goog-api-key"
+      : "Authorization: Bearer";
 });
 /** Answers about one endpoint say nothing about another: a new endpoint, key or client starts the check over. */
 /** Counts the person's own edits to the key. Storing a pasted key changes the
@@ -311,21 +587,34 @@ async function askPlan() {
   try {
     const answer = await request<ModelProbePlan>("/endpoint-profiles/probe-plan", json("POST", payload(false)));
     if (revision === planRevision) probePlan.value = answer;
-  } catch { /* A plan is a hint: a form that cannot be checked shows none. */ }
+  } catch {
+    /* A plan is a hint: a form that cannot be checked shows none. */
+  }
 }
 watch(() => [form.provider, form.endpoint_url, form.api, editingNative.value], askPlan);
 /** Creating is the one explicit step: until then there is nothing to keep saved. */
 async function create() {
-  if(busy.value||!canSave.value||editing.value)return;
-  busy.value=true;error.value="";
-  try{
+  if (busy.value || !canSave.value || editing.value) return;
+  busy.value = true;
+  error.value = "";
+  try {
     await storePastedKey();
     await saveContextWindows();
-    const saved=await request<EndpointProfile>("/endpoint-profiles",json("POST",payload()));
+    const saved = await request<EndpointProfile>("/endpoint-profiles", json("POST", payload()));
     await loadPreferences(true);
-    const message=preferenceFor(saved.provider)?.endpoint_profile_id === saved.id ? "Profile created and set as the default endpoint in Preferences." : "Profile created. Select it when creating a session.";
-    pendingNavigation.value=undefined;edit(saved);showToast(t(message));emit("changed",saved);
-  }catch(cause){error.value=errorMessage(cause);}finally{busy.value=false;}
+    const message =
+      preferenceFor(saved.provider)?.endpoint_profile_id === saved.id
+        ? "Profile created and set as the default endpoint in Preferences."
+        : "Profile created. Select it when creating a session.";
+    pendingNavigation.value = undefined;
+    edit(saved);
+    showToast(t(message));
+    emit("changed", saved);
+  } catch (cause) {
+    error.value = errorMessage(cause);
+  } finally {
+    busy.value = false;
+  }
 }
 
 /**
@@ -336,55 +625,85 @@ async function create() {
  * ever reaches sessions started after it.
  */
 const formElement = ref<HTMLFormElement>();
-const saveState = ref<"idle" | "saving" | "saved" | "error">("idle"), saveError = ref("");
+const saveState = ref<"idle" | "saving" | "saved" | "error">("idle"),
+  saveError = ref("");
 const lastSaved = ref("");
 let autosaveTimer: ReturnType<typeof setTimeout> | undefined, saving: Promise<void> | undefined;
 /** Everything a save would send. A draft that cannot be sent yet reads as its error. */
 function snapshot() {
-  try { return JSON.stringify([payload(), contextDrafts, apiKey.value]); }
-  catch (cause) { return "invalid:" + errorMessage(cause); }
+  try {
+    return JSON.stringify([payload(), contextDrafts, apiKey.value]);
+  } catch (cause) {
+    return "invalid:" + errorMessage(cause);
+  }
 }
 const changed = computed(() => !!editing.value && formVisible.value && snapshot() !== lastSaved.value);
 /** Text being typed into is saved when it is left, not on each keystroke. */
 function typing() {
   const active = document.activeElement as HTMLElement | null;
-  return !!active && !!formElement.value?.contains(active) && (active.isContentEditable || active instanceof HTMLTextAreaElement || (active instanceof HTMLInputElement && !["checkbox", "radio", "range", "button"].includes(active.type)));
+  return (
+    !!active &&
+    !!formElement.value?.contains(active) &&
+    (active.isContentEditable ||
+      active instanceof HTMLTextAreaElement ||
+      (active instanceof HTMLInputElement && !["checkbox", "radio", "range", "button"].includes(active.type)))
+  );
 }
 function schedule() {
   clearTimeout(autosaveTimer);
-  autosaveTimer = setTimeout(() => { if (!typing()) void flush(); }, 300);
+  autosaveTimer = setTimeout(() => {
+    if (!typing()) void flush();
+  }, 300);
 }
-watch(() => changed.value && snapshot(), value => { if (value) schedule(); });
+watch(
+  () => changed.value && snapshot(),
+  value => {
+    if (value) schedule();
+  },
+);
 /** Leaving a field saves it; checked after focus settles, so the next field taking focus is not mistaken for typing. */
-function leaveField() { if (editing.value) setTimeout(() => void flush()); }
+function leaveField() {
+  if (editing.value) setTimeout(() => void flush());
+}
 async function flush(): Promise<void> {
   clearTimeout(autosaveTimer);
-  if (saving) { await saving; if (!changed.value) return; }
+  if (saving) {
+    await saving;
+    if (!changed.value) return;
+  }
   if (!changed.value || !canSave.value || !editing.value) return;
-  saving = persist().finally(() => { saving = undefined; });
+  saving = persist().finally(() => {
+    saving = undefined;
+  });
   return saving;
 }
 async function persist() {
   const id = editing.value!;
-  saveState.value = "saving"; saveError.value = "";
+  saveState.value = "saving";
+  saveError.value = "";
   try {
     const previous = editingProfile.value?.secret_ref;
     await storePastedKey();
     await saveContextWindows();
     const sent = snapshot();
-    const saved = await request<EndpointProfile>("/endpoint-profiles/" + encodeURIComponent(id), json("PATCH", payload()));
+    const saved = await request<EndpointProfile>(
+      "/endpoint-profiles/" + encodeURIComponent(id),
+      json("PATCH", payload()),
+    );
     if (editing.value !== id) return;
     await loadPreferences(true);
     if (previous !== saved.secret_ref) await releaseSecret(previous, [saved.secret_ref, ...otherReferences.value]);
     // The saved environment is the new baseline: removals are counted from it.
     const unchanged = snapshot() === sent;
-    editingRecord.value = saved; initialEnvironment.value = environmentDraft.value.map(row => ({ ...row }));
+    editingRecord.value = saved;
+    initialEnvironment.value = environmentDraft.value.map(row => ({ ...row }));
     lastSaved.value = unchanged ? snapshot() : sent;
     saveState.value = "saved";
     emit("changed", saved);
   } catch (cause) {
     if (editing.value !== id) return;
-    saveState.value = "error"; saveError.value = errorMessage(cause);
+    saveState.value = "error";
+    saveError.value = errorMessage(cause);
     // Marked as tried, so a failure is not retried on every keystroke; the next edit tries again.
     lastSaved.value = snapshot();
   }
@@ -392,17 +711,49 @@ async function persist() {
 /** What the status beside the title says. */
 const saveStatus = computed(() => {
   if (saveState.value === "saving" || busy.value) return { tone: "busy", text: t("Saving…") };
-  if (saveState.value === "error") return { tone: "error", text: t("Not saved: {reason}", { reason: saveError.value }) };
-  if (changed.value && !canSave.value) return { tone: "warn", text: !form.name.trim() ? t("Not saved: a name is needed") : t("Not saved until the marked fields are fixed") };
+  if (saveState.value === "error")
+    return { tone: "error", text: t("Not saved: {reason}", { reason: saveError.value }) };
+  if (changed.value && !canSave.value)
+    return {
+      tone: "warn",
+      text: !form.name.trim() ? t("Not saved: a name is needed") : t("Not saved until the marked fields are fixed"),
+    };
   if (changed.value) return { tone: "busy", text: t("Saves when you leave the field") };
   if (saveState.value === "saved") return { tone: "ok", text: t("Saved") };
   return { tone: "idle", text: t("Changes save automatically") };
 });
-async function remove(){
-  if(!deleteId.value||busy.value)return;const id=deleteId.value,native=!!deletingProfile.value?.native_config;busy.value=true;error.value="";
-  const reference=deletingProfile.value?.secret_ref;
-  try{await request("/endpoint-profiles/"+encodeURIComponent(id),json("DELETE"));await releaseSecret(reference,props.profiles.filter(p=>p.id!==id).map(p=>p.secret_ref));deleteId.value=undefined;if(editing.value===id){formVisible.value=false;editing.value=undefined;editingRecord.value=undefined;}showToast(t(native?"Profile reference removed. Native settings, credentials and history remain on the host.":"Profile deleted; no credentials were deleted from the host."));emit("changed");}
-  catch(cause){error.value=errorMessage(cause);}finally{busy.value=false;}
+async function remove() {
+  if (!deleteId.value || busy.value) return;
+  const id = deleteId.value,
+    native = !!deletingProfile.value?.native_config;
+  busy.value = true;
+  error.value = "";
+  const reference = deletingProfile.value?.secret_ref;
+  try {
+    await request("/endpoint-profiles/" + encodeURIComponent(id), json("DELETE"));
+    await releaseSecret(
+      reference,
+      props.profiles.filter(p => p.id !== id).map(p => p.secret_ref),
+    );
+    deleteId.value = undefined;
+    if (editing.value === id) {
+      formVisible.value = false;
+      editing.value = undefined;
+      editingRecord.value = undefined;
+    }
+    showToast(
+      t(
+        native
+          ? "Profile reference removed. Native settings, credentials and history remain on the host."
+          : "Profile deleted; no credentials were deleted from the host.",
+      ),
+    );
+    emit("changed");
+  } catch (cause) {
+    error.value = errorMessage(cause);
+  } finally {
+    busy.value = false;
+  }
 }
 /** One line per profile: the provider is already its icon, and the directory
  * is shown once the profile is opened. */
@@ -411,26 +762,32 @@ const profileSummary = (p: EndpointProfile) => describeProfile(p, t);
 function cancelForm() {
   requestLeave(() => {
     const back = props.profiles.find(profile => profile.id === editing.value) ?? props.profiles[0];
-    if (back) edit(back); else formVisible.value = false;
+    if (back) edit(back);
+    else formVisible.value = false;
   });
 }
 /** A new profile started from another, in a short form of its own (ProfileCopyDialog). */
 const copySource = ref<EndpointProfile>();
 function duplicate(p: EndpointProfile) {
   menu.value = undefined;
-  if (!p.native_config) requestLeave(() => { copySource.value = p; });
+  if (!p.native_config)
+    requestLeave(() => {
+      copySource.value = p;
+    });
 }
 function copied(saved: EndpointProfile) {
   copySource.value = undefined;
   // Opened in the full form, for whatever the short one did not ask.
-  pendingNavigation.value = undefined; edit(saved);
+  pendingNavigation.value = undefined;
+  edit(saved);
   showToast(t("Profile created. Select it when creating a session."));
   emit("changed", saved);
 }
 
 /** Right-click on a profile in the list: rename it in place, copy it, or delete it. */
 const menu = ref<{ x: number; y: number; profile: EndpointProfile }>();
-const renamingId = ref<string>(), renameText = ref("");
+const renamingId = ref<string>(),
+  renameText = ref("");
 const renameInput = ref<HTMLInputElement[]>();
 function openMenu(event: MouseEvent, p: EndpointProfile) {
   event.preventDefault();
@@ -439,262 +796,1184 @@ function openMenu(event: MouseEvent, p: EndpointProfile) {
 }
 const removable = (p: EndpointProfile) => !p.native_config?.source_id.startsWith("account:");
 function startRename(p: EndpointProfile) {
-  menu.value = undefined; renamingId.value = p.id; renameText.value = p.name;
-  void nextTick(() => { renameInput.value?.[0]?.focus(); renameInput.value?.[0]?.select(); });
+  menu.value = undefined;
+  renamingId.value = p.id;
+  renameText.value = p.name;
+  void nextTick(() => {
+    renameInput.value?.[0]?.focus();
+    renameInput.value?.[0]?.select();
+  });
 }
 async function commitRename() {
-  const id = renamingId.value, name = renameText.value.trim();
+  const id = renamingId.value,
+    name = renameText.value.trim();
   // Cleared first: the input's blur follows Enter and must not save twice.
   renamingId.value = undefined;
   const p = props.profiles.find(profile => profile.id === id);
   if (!id || !p || !name || name === p.name || busy.value) return;
-  busy.value = true; error.value = "";
+  busy.value = true;
+  error.value = "";
   try {
-    const saved = await request<EndpointProfile>("/endpoint-profiles/" + encodeURIComponent(id), json("PATCH", { name }));
-    if (editing.value === id) { form.name = saved.name; editingRecord.value = saved; }
+    const saved = await request<EndpointProfile>(
+      "/endpoint-profiles/" + encodeURIComponent(id),
+      json("PATCH", { name }),
+    );
+    if (editing.value === id) {
+      form.name = saved.name;
+      editingRecord.value = saved;
+    }
     showToast(t("Renamed to {name}", { name: saved.name }));
     emit("changed", saved);
-  } catch (cause) { error.value = errorMessage(cause); }
-  finally { busy.value = false; }
+  } catch (cause) {
+    error.value = errorMessage(cause);
+  } finally {
+    busy.value = false;
+  }
 }
-function askDelete(p: EndpointProfile) { menu.value = undefined; deleteId.value = p.id; }
+function askDelete(p: EndpointProfile) {
+  menu.value = undefined;
+  deleteId.value = p.id;
+}
 
 // Open on something to read rather than on a blank page that asks for a click.
 if (props.profiles.length) edit(props.profiles[0]);
 void loadSecrets().then(() => chooseSecretMode(form.secret_ref));
-onBeforeUnmount(()=>{discoveryRevision++;});
+onBeforeUnmount(() => {
+  discoveryRevision++;
+});
 </script>
 
 <template>
-  <ModalDialog :title="t('Endpoint profiles')" wide :closable="!busy" :embedded="embedded" @close="requestLeave(() => emit('close'))">
-    <div class="profiles-frame"><div class="profiles-layout">
-      <section class="profiles-list">
-        <button class="secondary-button" :disabled="busy" @click="requestLeave(() => edit())"><Icon name="plus" :size="14" />{{ t('New profile') }}</button>
-        <template v-for="p in profiles" :key="p.id">
-          <div v-if="renamingId===p.id" class="profile-card selected profile-renaming">
-            <span :class="['provider-mark',p.provider]"><ProviderIcon :provider="p.provider" /></span>
-            <input ref="renameInput" v-model="renameText" maxlength="120" :aria-label="t('Profile name')" @keydown.enter.prevent="commitRename" @keydown.esc.prevent.stop="renamingId=undefined" @blur="commitRename" />
-          </div>
-          <button v-else :class="['profile-card',{selected:editing===p.id&&formVisible}]" :disabled="busy" @click="requestLeave(() => edit(p))" @contextmenu="openMenu($event, p)">
-            <span :class="['provider-mark',p.provider]"><ProviderIcon :provider="p.provider" /></span>
-            <span><strong>{{ p.name }}</strong><small :class="{'shared-profile-label':!!p.native_config}">{{ profileSummary(p) }}</small></span>
+  <ModalDialog
+    :title="t('Endpoint profiles')"
+    wide
+    :closable="!busy"
+    :embedded="embedded"
+    @close="requestLeave(() => emit('close'))"
+  >
+    <div class="profiles-frame">
+      <div class="profiles-layout">
+        <section class="profiles-list">
+          <button class="secondary-button" :disabled="busy" @click="requestLeave(() => edit())">
+            <Icon name="plus" :size="14" />{{ t("New profile") }}
           </button>
-        </template>
-        <p v-if="!profiles.length" class="small-empty">{{ t('No profiles yet. A session needs one: link a host sign-in or add an endpoint.') }}</p>
-        <p v-if="embedded" class="small-empty profiles-accounts-hint">{{ t('Already signed in to Claude Code or Codex on this host?') }} <button type="button" class="profiles-accounts-link" @click="requestLeave(() => emit('accounts'))">{{ t('Link it in Official accounts') }} →</button></p>
-      </section>
-      <div class="profile-details">
-        <div v-if="!formVisible" class="profile-banner">
-          <div v-if="error" class="inline-error" role="alert">{{ error }}</div>
-          <div v-if="deleteId" class="confirmation-bar">{{ t(deletingProfile?.native_config?'Remove this profile reference? Native settings, sign-in and history stay on the host. Existing sessions retain their reference.':'Delete this profile? Existing session snapshots remain.') }} {{ deletingProfile?.name }}<div class="toolbar-buttons"><button class="small-button danger" :disabled="busy" @click="remove">{{ t('Confirm delete') }}</button><button class="small-button" :disabled="busy" @click="deleteId=undefined">{{ t('Keep profile') }}</button></div></div>
-        </div>
-        <div v-if="pendingNavigation" class="confirmation-bar" role="alert">{{ t('Discard unsaved configuration changes?') }}<div class="toolbar-buttons"><button type="button" class="small-button danger" @click="discardEnvironmentDraft">{{ t('Discard changes') }}</button><button type="button" class="small-button" @click="pendingNavigation=undefined">{{ t('Keep editing') }}</button></div></div>
-        <form v-if="formVisible" ref="formElement" :class="['form-stack','profile-form',{embedded}]" @submit.prevent="editing ? flush() : create()" @focusout="leaveField">
-          <header :class="['profile-hero',{editing}]">
-            <span class="profile-hero-mark" :style="clientTone(form.provider)"><ProviderIcon :provider="form.provider" :size="20" /></span>
-            <div class="profile-hero-text">
-              <h3>{{ editing ? (form.name.trim() || editingProfile?.name) : t('Create profile') }}</h3>
-              <span v-if="editing" :class="['profile-save-state',saveStatus.tone]" role="status" :title="saveStatus.text"><Icon v-if="saveStatus.tone==='ok'" name="check" :size="12" />{{ saveStatus.text }}</span>
-              <small v-else>{{ t('Name it, point it at an endpoint, and pick its models.') }}</small>
+          <template v-for="p in profiles" :key="p.id">
+            <div v-if="renamingId === p.id" class="profile-card selected profile-renaming">
+              <span :class="['provider-mark', p.provider]"><ProviderIcon :provider="p.provider" /></span>
+              <input
+                ref="renameInput"
+                v-model="renameText"
+                maxlength="120"
+                :aria-label="t('Profile name')"
+                @keydown.enter.prevent="commitRename"
+                @keydown.esc.prevent.stop="renamingId = undefined"
+                @blur="commitRename"
+              />
             </div>
-            <button v-if="editing && !editingNative" type="button" class="small-button" :disabled="busy" @click="duplicate(editingProfile!)">{{ t('Duplicate') }}</button>
-            <button v-if="editing && !editingManaged" type="button" class="small-button danger" :disabled="busy" @click="deleteId=editing">{{ t(editingNative?'Remove reference':'Delete') }}</button>
-          </header>
-          <template v-if="editing">
+            <button
+              v-else
+              :class="['profile-card', { selected: editing === p.id && formVisible }]"
+              :disabled="busy"
+              @click="requestLeave(() => edit(p))"
+              @contextmenu="openMenu($event, p)"
+            >
+              <span :class="['provider-mark', p.provider]"><ProviderIcon :provider="p.provider" /></span>
+              <span
+                ><strong>{{ p.name }}</strong
+                ><small :class="{ 'shared-profile-label': !!p.native_config }">{{ profileSummary(p) }}</small></span
+              >
+            </button>
+          </template>
+          <p v-if="!profiles.length" class="small-empty">
+            {{ t("No profiles yet. A session needs one: link a host sign-in or add an endpoint.") }}
+          </p>
+          <p v-if="embedded" class="small-empty profiles-accounts-hint">
+            {{ t("Already signed in to Claude Code or Codex on this host?") }}
+            <button type="button" class="profiles-accounts-link" @click="requestLeave(() => emit('accounts'))">
+              {{ t("Link it in Official accounts") }} →
+            </button>
+          </p>
+        </section>
+        <div class="profile-details">
+          <div v-if="!formVisible" class="profile-banner">
             <div v-if="error" class="inline-error" role="alert">{{ error }}</div>
-            <div v-if="deleteId" class="confirmation-bar">{{ t(deletingProfile?.native_config?'Remove this profile reference? Native settings, sign-in and history stay on the host. Existing sessions retain their reference.':'Delete this profile? Existing session snapshots remain.') }} {{ deletingProfile?.name }}<div class="toolbar-buttons"><button class="small-button danger" :disabled="busy" @click="remove">{{ t('Confirm delete') }}</button><button class="small-button" :disabled="busy" @click="deleteId=undefined">{{ t('Keep profile') }}</button></div></div>
-          </template>
-
-          <section class="setting-card">
-            <header class="setting-card-head"><span class="setting-mark"><Icon name="globe" :size="16" /></span><strong>{{ t('Connection') }}</strong></header>
-            <label class="setting-row"><span class="setting-label"><strong>{{ t('Name') }}</strong><small>{{ t('How it is listed when a session picks an endpoint.') }}</small></span><input v-model="form.name" required :disabled="busy" :placeholder="t('Personal {client}', { client: providerLabel(form.provider) })" maxlength="120" /></label>
-            <label class="setting-row"><span class="setting-label"><strong>{{ t('Provider') }}</strong><small>{{ editing ? t('Fixed once the profile exists.') : t('The official client its sessions run.') }}</small></span><select v-model="form.provider" :disabled="!!editing||busy"><option v-for="id in AGENT_CLIENTS" :key="id" :value="id">{{ clientLabel(id) }}</option></select></label>
-            <div v-if="editingNative" class="setting-row stack">
-              <div class="shared-config-panel"><strong><ProviderIcon :provider="editingProfile!.provider" :size="17" />{{ sharesHostConfig(editingNative) ? t('Host configuration · shared sign-in') : t('Isolated configuration · this account only') }}</strong><code>{{ editingNative.config_dir }}</code><p v-if="sharesHostConfig(editingNative)">{{ t('Shared with the host: sign-in, model and permissions come from this directory, and anything else that edits it changes this profile too. Tendly never copies or rewrites it.') }}</p><p v-else>{{ t('Tendly created this directory for this account, and nothing else signs in through it.') }}</p></div>
-            </div>
-            <template v-else>
-              <label class="setting-row"><span class="setting-label"><strong>{{ t('Endpoint URL') }}<span v-if="fixedApi" class="api-badge" :title="t('{client} speaks {api} to every endpoint; there is no protocol to choose.', { client: client.label, api: fixedApi })">{{ fixedApi }}</span></strong><small>{{ t('Empty uses the official endpoint.') }}</small></span><input v-model="form.endpoint_url" type="url" class="field-mono" placeholder="https://api.example.com" autocomplete="off" spellcheck="false" /></label>
-              <label v-if="client.apis?.length" class="setting-row"><span class="setting-label"><strong>{{ t('Endpoint API') }}</strong><small>{{ t('The protocol it speaks to this endpoint.') }}</small></span><select v-model="form.api"><option value="">{{ t('Guess from the URL') }}</option><option v-for="api in client.apis" :key="api.value" :value="api.value">{{ api.label }}</option></select></label>
-              <template v-if="secretMode==='stored'">
-                <label class="setting-row"><span class="setting-label"><strong>{{ t('API key') }}</strong>
-                  <small v-if="storedKey">{{ t('Kept as {name} in the state directory, readable only by you. It never returns to the browser.', { name: storedKey }) }}</small>
-                  <small v-else>{{ t('Kept in the state directory, readable only by you, and usable at once. It never returns to the browser.') }}</small>
-                  <small v-if="shadowed" class="warn">{{ t("The server's environment also sets {name}, and that value is used until it is removed there.", { name: storedKey ?? '' }) }}</small>
-                  <small class="setting-links"><button v-if="storedKey" type="button" class="setting-link danger" @click="form.secret_ref=''; keyEdits++">{{ t('Stop using this key') }}</button><button v-if="backendCapabilities.storedSecrets" type="button" class="setting-link" @click="secretMode='env'">{{ t('Use a server environment variable instead') }}</button></small>
-                </span><input v-model="apiKey" type="password" @input="keyEdits++" autocomplete="new-password" spellcheck="false" :placeholder="storedKey ? t('Saved · leave empty to keep it') : t('Empty for an endpoint without a key')" /></label>
-              </template>
-              <template v-else>
-                <div v-if="adoptable && backendCapabilities.storedSecrets" class="setting-row stack"><div class="inline-notice secret-adopt"><span>{{ t("This profile reads its key from {name} in the server's environment.", { name: adoptable }) }}</span><button type="button" class="small-button" :disabled="adopting" @click="adoptKey">{{ t('Keep it in Tendly') }}</button></div></div>
-                <label class="setting-row"><span class="setting-label"><strong>{{ t('Secret reference') }}</strong>
-                  <small :class="{error:!secretValid}">{{ secretValid?t('Name a server environment variable such as env:TENDLY_SECRET_WORK. Its value never reaches the browser.'):t('Enter an environment reference, not the secret itself.') }}</small>
-                  <small v-if="backendCapabilities.storedSecrets" class="setting-links"><button type="button" class="setting-link" @click="secretMode='stored'">{{ t('Save the key in Tendly instead') }}</button></small>
-                </span><input v-model="form.secret_ref" class="field-mono" @input="keyEdits++" placeholder="env:TENDLY_SECRET_PROVIDER_KEY" autocomplete="off" spellcheck="false" /></label>
-              </template>
-              <label class="setting-row"><span class="setting-label"><strong>{{ t('Key header') }}</strong><small>{{ t('Where the endpoint reads the key. Most read the protocol\'s own header.') }}</small></span><select v-model="form.key_mode"><option value="">{{ t('Protocol default · {header}', { header: ownKeyHeader }) }}</option><option value="x-api-key">x-api-key</option><option value="bearer">Authorization: Bearer</option><option value="custom">{{ t('Custom header') }}</option></select></label>
-              <div v-if="form.key_mode==='custom'" class="setting-row">
-                <span class="setting-label"><strong>{{ t('Custom header') }}</strong><small :class="{error:!!keyProblem}">{{ keyProblem ? t(keyProblem) : t('{key} is replaced by the key on the server.') }}</small></span>
-                <span class="setting-pair"><input v-model="form.key_name" class="field-mono" :aria-label="t('Header name')" placeholder="X-Token" autocomplete="off" spellcheck="false" /><input v-model="form.key_value" class="field-mono" :aria-label="t('Header value')" placeholder="Token {key}" autocomplete="off" spellcheck="false" /></span>
+            <div v-if="deleteId" class="confirmation-bar">
+              {{
+                t(
+                  deletingProfile?.native_config
+                    ? "Remove this profile reference? Native settings, sign-in and history stay on the host. Existing sessions retain their reference."
+                    : "Delete this profile? Existing session snapshots remain.",
+                )
+              }}
+              {{ deletingProfile?.name }}
+              <div class="toolbar-buttons">
+                <button class="small-button danger" :disabled="busy" @click="remove">
+                  {{ t("Confirm delete") }}</button><button
+                  class="small-button"
+                  :disabled="busy"
+                  @click="deleteId = undefined"
+                >
+                  {{ t("Keep profile") }}
+                </button>
               </div>
-            </template>
-          </section>
-
-          <template v-if="!editingNative">
-            <section class="setting-card">
-              <header class="setting-card-head"><span class="setting-mark"><Icon name="spark" :size="16" /></span><strong>{{ t('Models') }}</strong><button type="button" class="small-button setting-card-action" :disabled="discovering||!backendCapabilities.models||!secretValid||!!aliases.error" :title="!backendCapabilities.models?t('Backend upgrade required'):t('Reads the endpoint\'s model list. No model is run.')" @click="discover"><Icon name="refresh" :size="13" />{{ discovering?t('Loading models…'):t('Load models from endpoint') }}</button></header>
-              <div v-if="modelError" class="setting-row stack"><div class="inline-error" role="alert">{{ modelError }} {{ t('You can still enter a model ID or alias manually.') }}</div></div>
-              <div class="setting-row"><span class="setting-label"><strong>{{ t('Default model') }}</strong><small v-if="form.model && resolved !== form.model">{{ t('Effective model') }}: <code>{{ resolved }}</code></small><small v-else-if="models">{{ t('{count} models returned', {count:models.models.length}) }}<template v-if="models.has_more"> · {{ t('The endpoint has more models; this is the first page.') }}</template></small><small v-else>{{ t('What new sessions on this profile start with.') }}</small></span><ModelPicker v-model="form.model" class="setting-picker" :models="choices" :placeholder="t('Choose a model or enter an ID')" /></div>
-              <div class="setting-row setting-check"><span class="setting-label"><strong>{{ t('Check models') }}</strong><small>{{ t('Sends one minimal request per model to see which ones the endpoint runs.') }}</small></span><EndpointCheck :key="checkKey" :client="providerLabel(form.provider)" :apis="checkApis" :fixed-api="FIXED_APIS[form.provider]" :named="(form.api || undefined) as ModelProbeApi | undefined" :plan="probePlan" :model="checkModel" :batch="!!modelSelection" :blocked="checkBlocked" :probe="probeModels" :key-mode="form.key_mode" @use-api="form.api = $event" @use-key="form.key_mode = $event" @checked="modelSelection?.checkModels()" /></div>
-              <div v-if="models?.models.length || chosenModels.length" class="setting-row stack"><ModelSelection ref="modelSelection" v-model:selected="chosenModels" :catalog="models?.models ?? []" :window-text="windowText" :placeholder="windowPlaceholder" :known-window="knownWindow" :probe="backendCapabilities.modelProbe ? probeModels : undefined" :plan="probePlan" @window="setWindow" @look="lookPublished" /></div>
-            </section>
-
-            <section class="setting-card">
-              <header class="setting-card-head"><span class="setting-mark"><Icon name="shield" :size="16" /></span><strong>{{ t('Behavior') }}</strong></header>
-              <label class="setting-row"><span class="setting-label"><strong>{{ t('Thinking depth') }}</strong><small>{{ effortOptions.length ? t('Actual effort support depends on the endpoint and model.') : t('Load a model list to show the reasoning levels supported by this model.') }}</small></span><select v-if="effortOptions.length" v-model="form.effort"><option value="">{{ t('Automatic · provider default') }}</option><option v-for="effort in effortOptions" :key="effort" :value="effort">{{ effortLabel(effort) }}</option></select></label>
-              <label class="setting-row"><span class="setting-label"><strong>{{ t('Permission intent') }}</strong><small>{{ t('What its sessions may do without asking.') }}</small></span><select v-model="form.permission_mode"><option value="native">{{ t('Native · provider defaults') }}</option><template v-if="client.approvals"><option value="interactive">{{ t('Interactive · conservative native prompts') }}</option><option value="trusted">{{ t('Trusted · native file-edit trust') }}</option></template><option v-if="client.profilePlan" value="plan">{{ t('Plan · review before edits') }}</option><option value="blocked">{{ t('Blocked · do not start') }}</option></select></label>
-            </section>
-          </template>
-
-          <details class="setting-card profile-advanced" :open="advancedOpen" @toggle="advancedOpen=($event.target as HTMLDetailsElement).open">
-            <summary class="setting-card-head"><span class="setting-mark"><Icon name="settings" :size="16" /></span><strong>{{ t('Advanced') }}</strong><small>{{ advancedCount ? t('{count} set', { count: advancedCount }) : editingNative ? t('Environment') : t('Proxy, model aliases, context window and environment') }}</small></summary>
-            <template v-if="!editingNative">
-              <label class="setting-row"><span class="setting-label"><strong>{{ t('Proxy URL') }}</strong><small>{{ proxyHelp }}</small></span><input v-model="form.proxy_url" type="url" class="field-mono" placeholder="http://127.0.0.1:7890" autocomplete="off" spellcheck="false" /></label>
-              <label v-if="form.model.trim() && savedLimits" class="setting-row"><span class="setting-label"><strong>{{ t('Context window') }}</strong><small :class="{error:!validWindow(windowText(form.model))}">{{ !validWindow(windowText(form.model)) ? t('A context window is between 1,000 and 100,000,000 tokens.') : t('tokens, for this model in every profile') + ' · ' + t(client.contextWindow.help) }}</small></span><input :value="windowText(form.model)" class="field-mono" inputmode="numeric" autocomplete="off" spellcheck="false" :placeholder="windowPlaceholder(form.model)" @input="setWindow(form.model, ($event.target as HTMLInputElement).value)" /></label>
-              <label class="setting-row stack"><span class="setting-label"><strong>{{ t('Model aliases') }}</strong><small :class="{error:!!aliases.error}">{{ aliases.error ? t(aliases.error) : t('One alias = model-id per line. Aliases change display selection, not the provider protocol.') }}</small></span><textarea v-model="aliasesText" rows="3" spellcheck="false" placeholder="fast = actual-model-id&#10;review = another-model-id" /></label>
-              <div v-if="client.modelSlots" class="setting-row stack">
-                <span class="setting-label"><strong>{{ t('Model slots') }}</strong><small>{{ slotsText }} {{ t('Claude Code also runs these slots, for background work, subagents and its Opus, Sonnet and Haiku choices. Each is an environment variable, listed with the others below.') }}</small></span>
-                <div v-for="slot in SLOTS" :key="slot.key" class="model-slot">
-                  <span>{{ slot.label }}</span>
-                  <select :value="slotMode(slot.variable)" :aria-label="slot.label" @change="chooseSlot(slot.variable, ($event.target as HTMLSelectElement).value)">
-                    <option value="main">{{ t('Follow the main model') }}</option>
-                    <option value="client">{{ t("Claude Code's own model") }}</option>
-                    <option value="model">{{ t('A model of its own') }}</option>
-                  </select>
-                  <ModelPicker v-if="slotMode(slot.variable)==='model'" :model-value="slotModel(slot.variable)" :models="choices" :placeholder="t('Choose a model or enter an ID')" @update:model-value="pinSlot(slot.variable, $event)" />
-                  <code v-else>{{ slot.variable }}</code>
+            </div>
+          </div>
+          <div v-if="pendingNavigation" class="confirmation-bar" role="alert">
+            {{ t("Discard unsaved configuration changes?") }}
+            <div class="toolbar-buttons">
+              <button type="button" class="small-button danger" @click="discardEnvironmentDraft">
+                {{ t("Discard changes") }}</button><button
+                type="button"
+                class="small-button"
+                @click="pendingNavigation = undefined"
+              >
+                {{ t("Keep editing") }}
+              </button>
+            </div>
+          </div>
+          <form
+            v-if="formVisible"
+            ref="formElement"
+            :class="['form-stack', 'profile-form', { embedded }]"
+            @submit.prevent="editing ? flush() : create()"
+            @focusout="leaveField"
+          >
+            <header :class="['profile-hero', { editing }]">
+              <span class="profile-hero-mark" :style="clientTone(form.provider)"
+                ><ProviderIcon :provider="form.provider" :size="20"
+              /></span>
+              <div class="profile-hero-text">
+                <h3>{{ editing ? form.name.trim() || editingProfile?.name : t("Create profile") }}</h3>
+                <span
+                  v-if="editing"
+                  :class="['profile-save-state', saveStatus.tone]"
+                  role="status"
+                  :title="saveStatus.text"
+                  ><Icon v-if="saveStatus.tone === 'ok'" name="check" :size="12" />{{ saveStatus.text }}</span
+                >
+                <small v-else>{{ t("Name it, point it at an endpoint, and pick its models.") }}</small>
+              </div>
+              <button
+                v-if="editing && !editingNative"
+                type="button"
+                class="small-button"
+                :disabled="busy"
+                @click="duplicate(editingProfile!)"
+              >
+                {{ t("Duplicate") }}
+              </button>
+              <button
+                v-if="editing && !editingManaged"
+                type="button"
+                class="small-button danger"
+                :disabled="busy"
+                @click="deleteId = editing"
+              >
+                {{ t(editingNative ? "Remove reference" : "Delete") }}
+              </button>
+            </header>
+            <template v-if="editing">
+              <div v-if="error" class="inline-error" role="alert">{{ error }}</div>
+              <div v-if="deleteId" class="confirmation-bar">
+                {{
+                  t(
+                    deletingProfile?.native_config
+                      ? "Remove this profile reference? Native settings, sign-in and history stay on the host. Existing sessions retain their reference."
+                      : "Delete this profile? Existing session snapshots remain.",
+                  )
+                }}
+                {{ deletingProfile?.name }}
+                <div class="toolbar-buttons">
+                  <button class="small-button danger" :disabled="busy" @click="remove">
+                    {{ t("Confirm delete") }}</button><button
+                    class="small-button"
+                    :disabled="busy"
+                    @click="deleteId = undefined"
+                  >
+                    {{ t("Keep profile") }}
+                  </button>
                 </div>
               </div>
             </template>
-            <div class="setting-row stack">
-              <EnvironmentEditor v-model="environmentDraft" :supported="backendCapabilities.environment" :disabled="busy" />
-              <p v-if="environmentError" class="inline-error" role="alert">{{ t(environmentError) }}</p>
+
+            <section class="setting-card">
+              <header class="setting-card-head">
+                <span class="setting-mark"><Icon name="globe" :size="16" /></span><strong>{{ t("Connection") }}</strong>
+              </header>
+              <label class="setting-row"
+                ><span class="setting-label"
+                  ><strong>{{ t("Name") }}</strong
+                  ><small>{{ t("How it is listed when a session picks an endpoint.") }}</small></span
+                ><input
+                  v-model="form.name"
+                  required
+                  :disabled="busy"
+                  :placeholder="t('Personal {client}', { client: providerLabel(form.provider) })"
+                  maxlength="120"
+              /></label>
+              <label class="setting-row"
+                ><span class="setting-label"
+                  ><strong>{{ t("Provider") }}</strong
+                  ><small>{{
+                    editing ? t("Fixed once the profile exists.") : t("The official client its sessions run.")
+                  }}</small></span
+                ><select v-model="form.provider" :disabled="!!editing || busy">
+                  <option v-for="id in AGENT_CLIENTS" :key="id" :value="id">{{ clientLabel(id) }}</option>
+                </select></label
+              >
+              <div v-if="editingNative" class="setting-row stack">
+                <div class="shared-config-panel">
+                  <strong
+                    ><ProviderIcon :provider="editingProfile!.provider" :size="17" />{{
+                      sharesHostConfig(editingNative)
+                        ? t("Host configuration · shared sign-in")
+                        : t("Isolated configuration · this account only")
+                    }}</strong
+                  ><code>{{ editingNative.config_dir }}</code>
+                  <p v-if="sharesHostConfig(editingNative)">
+                    {{
+                      t(
+                        "Shared with the host: sign-in, model and permissions come from this directory, and anything else that edits it changes this profile too. Tendly never copies or rewrites it.",
+                      )
+                    }}
+                  </p>
+                  <p v-else>
+                    {{ t("Tendly created this directory for this account, and nothing else signs in through it.") }}
+                  </p>
+                </div>
+              </div>
+              <template v-else>
+                <label class="setting-row"
+                  ><span class="setting-label"
+                    ><strong
+                      >{{ t("Endpoint URL")
+                      }}<span
+                        v-if="fixedApi"
+                        class="api-badge"
+                        :title="
+                          t('{client} speaks {api} to every endpoint; there is no protocol to choose.', {
+                            client: client.label,
+                            api: fixedApi,
+                          })
+                        "
+                        >{{ fixedApi }}</span
+                      ></strong
+                    ><small>{{ t("Empty uses the official endpoint.") }}</small></span
+                  ><input
+                    v-model="form.endpoint_url"
+                    type="url"
+                    class="field-mono"
+                    placeholder="https://api.example.com"
+                    autocomplete="off"
+                    spellcheck="false"
+                /></label>
+                <label v-if="client.apis?.length" class="setting-row"
+                  ><span class="setting-label"
+                    ><strong>{{ t("Endpoint API") }}</strong
+                    ><small>{{ t("The protocol it speaks to this endpoint.") }}</small></span
+                  ><select v-model="form.api">
+                    <option value="">{{ t("Guess from the URL") }}</option>
+                    <option v-for="api in client.apis" :key="api.value" :value="api.value">{{ api.label }}</option>
+                  </select></label
+                >
+                <template v-if="secretMode === 'stored'">
+                  <label class="setting-row"
+                    ><span class="setting-label"
+                      ><strong>{{ t("API key") }}</strong>
+                      <small v-if="storedKey">{{
+                        t(
+                          "Kept as {name} in the state directory, readable only by you. It never returns to the browser.",
+                          { name: storedKey },
+                        )
+                      }}</small>
+                      <small v-else>{{
+                        t(
+                          "Kept in the state directory, readable only by you, and usable at once. It never returns to the browser.",
+                        )
+                      }}</small>
+                      <small v-if="shadowed" class="warn">{{
+                        t(
+                          "The server's environment also sets {name}, and that value is used until it is removed there.",
+                          { name: storedKey ?? "" },
+                        )
+                      }}</small>
+                      <small class="setting-links"
+                        ><button
+                          v-if="storedKey"
+                          type="button"
+                          class="setting-link danger"
+                          @click="
+                            form.secret_ref = '';
+                            keyEdits++;
+                          "
+                        >
+                          {{ t("Stop using this key") }}</button
+                        ><button
+                          v-if="backendCapabilities.storedSecrets"
+                          type="button"
+                          class="setting-link"
+                          @click="secretMode = 'env'"
+                        >
+                          {{ t("Use a server environment variable instead") }}
+                        </button></small
+                      > </span
+                    ><input
+                      v-model="apiKey"
+                      type="password"
+                      @input="keyEdits++"
+                      autocomplete="new-password"
+                      spellcheck="false"
+                      :placeholder="
+                        storedKey ? t('Saved · leave empty to keep it') : t('Empty for an endpoint without a key')
+                      "
+                  /></label>
+                </template>
+                <template v-else>
+                  <div v-if="adoptable && backendCapabilities.storedSecrets" class="setting-row stack">
+                    <div class="inline-notice secret-adopt">
+                      <span>{{
+                        t("This profile reads its key from {name} in the server's environment.", { name: adoptable })
+                      }}</span><button type="button" class="small-button" :disabled="adopting" @click="adoptKey">
+                        {{ t("Keep it in Tendly") }}
+                      </button>
+                    </div>
+                  </div>
+                  <label class="setting-row"
+                    ><span class="setting-label"
+                      ><strong>{{ t("Secret reference") }}</strong>
+                      <small :class="{ error: !secretValid }">{{
+                        secretValid
+                          ? t(
+                              "Name a server environment variable such as env:TENDLY_SECRET_WORK. Its value never reaches the browser.",
+                            )
+                          : t("Enter an environment reference, not the secret itself.")
+                      }}</small>
+                      <small v-if="backendCapabilities.storedSecrets" class="setting-links"
+                        ><button type="button" class="setting-link" @click="secretMode = 'stored'">
+                          {{ t("Save the key in Tendly instead") }}
+                        </button></small
+                      > </span
+                    ><input
+                      v-model="form.secret_ref"
+                      class="field-mono"
+                      @input="keyEdits++"
+                      placeholder="env:TENDLY_SECRET_PROVIDER_KEY"
+                      autocomplete="off"
+                      spellcheck="false"
+                  /></label>
+                </template>
+                <label class="setting-row"
+                  ><span class="setting-label"
+                    ><strong>{{ t("Key header") }}</strong
+                    ><small>{{
+                      t("Where the endpoint reads the key. Most read the protocol's own header.")
+                    }}</small></span
+                  ><select v-model="form.key_mode">
+                    <option value="">{{ t("Protocol default · {header}", { header: ownKeyHeader }) }}</option>
+                    <option value="x-api-key">x-api-key</option>
+                    <option value="bearer">Authorization: Bearer</option>
+                    <option value="custom">{{ t("Custom header") }}</option>
+                  </select></label
+                >
+                <div v-if="form.key_mode === 'custom'" class="setting-row">
+                  <span class="setting-label"
+                    ><strong>{{ t("Custom header") }}</strong
+                    ><small :class="{ error: !!keyProblem }">{{
+                      keyProblem ? t(keyProblem) : t("{key} is replaced by the key on the server.")
+                    }}</small></span
+                  >
+                  <span class="setting-pair"
+                    ><input
+                      v-model="form.key_name"
+                      class="field-mono"
+                      :aria-label="t('Header name')"
+                      placeholder="X-Token"
+                      autocomplete="off"
+                      spellcheck="false" /><input
+                      v-model="form.key_value"
+                      class="field-mono"
+                      :aria-label="t('Header value')"
+                      placeholder="Token {key}"
+                      autocomplete="off"
+                      spellcheck="false"
+                  /></span>
+                </div>
+              </template>
+            </section>
+
+            <template v-if="!editingNative">
+              <section class="setting-card">
+                <header class="setting-card-head">
+                  <span class="setting-mark"><Icon name="spark" :size="16" /></span><strong>{{ t("Models") }}</strong
+                  ><button
+                    type="button"
+                    class="small-button setting-card-action"
+                    :disabled="discovering || !backendCapabilities.models || !secretValid || !!aliases.error"
+                    :title="
+                      !backendCapabilities.models
+                        ? t('Backend upgrade required')
+                        : t('Reads the endpoint\'s model list. No model is run.')
+                    "
+                    @click="discover"
+                  >
+                    <Icon name="refresh" :size="13" />{{
+                      discovering ? t("Loading models…") : t("Load models from endpoint")
+                    }}
+                  </button>
+                </header>
+                <div v-if="modelError" class="setting-row stack">
+                  <div class="inline-error" role="alert">
+                    {{ modelError }} {{ t("You can still enter a model ID or alias manually.") }}
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <span class="setting-label"
+                    ><strong>{{ t("Default model") }}</strong
+                    ><small v-if="form.model && resolved !== form.model"
+                      >{{ t("Effective model") }}: <code>{{ resolved }}</code></small
+                    ><small v-else-if="models"
+                      >{{ t("{count} models returned", { count: models.models.length })
+                      }}<template v-if="models.has_more">
+                        · {{ t("The endpoint has more models; this is the first page.") }}</template
+                      ></small
+                    ><small v-else>{{ t("What new sessions on this profile start with.") }}</small></span
+                  ><ModelPicker
+                    v-model="form.model"
+                    class="setting-picker"
+                    :models="choices"
+                    :placeholder="t('Choose a model or enter an ID')"
+                  />
+                </div>
+                <div class="setting-row setting-check">
+                  <span class="setting-label"
+                    ><strong>{{ t("Check models") }}</strong
+                    ><small>{{
+                      t("Sends one minimal request per model to see which ones the endpoint runs.")
+                    }}</small></span
+                  ><EndpointCheck
+                    :key="checkKey"
+                    :client="providerLabel(form.provider)"
+                    :apis="checkApis"
+                    :fixed-api="FIXED_APIS[form.provider]"
+                    :named="(form.api || undefined) as ModelProbeApi | undefined"
+                    :plan="probePlan"
+                    :model="checkModel"
+                    :batch="!!modelSelection"
+                    :blocked="checkBlocked"
+                    :probe="probeModels"
+                    :key-mode="form.key_mode"
+                    @use-api="form.api = $event"
+                    @use-key="form.key_mode = $event"
+                    @checked="modelSelection?.checkModels()"
+                  />
+                </div>
+                <div v-if="models?.models.length || chosenModels.length" class="setting-row stack">
+                  <ModelSelection
+                    ref="modelSelection"
+                    v-model:selected="chosenModels"
+                    :catalog="models?.models ?? []"
+                    :window-text="windowText"
+                    :placeholder="windowPlaceholder"
+                    :known-window="knownWindow"
+                    :probe="backendCapabilities.modelProbe ? probeModels : undefined"
+                    :plan="probePlan"
+                    @window="setWindow"
+                    @look="lookPublished"
+                  />
+                </div>
+              </section>
+
+              <section class="setting-card">
+                <header class="setting-card-head">
+                  <span class="setting-mark"><Icon name="shield" :size="16" /></span
+                  ><strong>{{ t("Behavior") }}</strong>
+                </header>
+                <label class="setting-row"
+                  ><span class="setting-label"
+                    ><strong>{{ t("Thinking depth") }}</strong
+                    ><small>{{
+                      effortOptions.length
+                        ? t("Actual effort support depends on the endpoint and model.")
+                        : t("Load a model list to show the reasoning levels supported by this model.")
+                    }}</small></span
+                  ><select v-if="effortOptions.length" v-model="form.effort">
+                    <option value="">{{ t("Automatic · provider default") }}</option>
+                    <option v-for="effort in effortOptions" :key="effort" :value="effort">
+                      {{ effortLabel(effort) }}
+                    </option>
+                  </select></label
+                >
+                <label class="setting-row"
+                  ><span class="setting-label"
+                    ><strong>{{ t("Permission intent") }}</strong
+                    ><small>{{ t("What its sessions may do without asking.") }}</small></span
+                  ><select v-model="form.permission_mode">
+                    <option value="native">{{ t("Native · provider defaults") }}</option>
+                    <template v-if="client.approvals"
+                      ><option value="interactive">{{ t("Interactive · conservative native prompts") }}</option>
+                      <option value="trusted">{{ t("Trusted · native file-edit trust") }}</option></template
+                    >
+                    <option v-if="client.profilePlan" value="plan">{{ t("Plan · review before edits") }}</option>
+                    <option value="blocked">{{ t("Blocked · do not start") }}</option>
+                  </select></label
+                >
+              </section>
+            </template>
+
+            <details
+              class="setting-card profile-advanced"
+              :open="advancedOpen"
+              @toggle="advancedOpen = ($event.target as HTMLDetailsElement).open"
+            >
+              <summary class="setting-card-head">
+                <span class="setting-mark"><Icon name="settings" :size="16" /></span><strong>{{ t("Advanced") }}</strong
+                ><small>{{
+                  advancedCount
+                    ? t("{count} set", { count: advancedCount })
+                    : editingNative
+                      ? t("Environment")
+                      : t("Proxy, model aliases, context window and environment")
+                }}</small>
+              </summary>
+              <template v-if="!editingNative">
+                <label class="setting-row"
+                  ><span class="setting-label"
+                    ><strong>{{ t("Proxy URL") }}</strong
+                    ><small>{{ proxyHelp }}</small></span
+                  ><input
+                    v-model="form.proxy_url"
+                    type="url"
+                    class="field-mono"
+                    placeholder="http://127.0.0.1:7890"
+                    autocomplete="off"
+                    spellcheck="false"
+                /></label>
+                <label v-if="form.model.trim() && savedLimits" class="setting-row"
+                  ><span class="setting-label"
+                    ><strong>{{ t("Context window") }}</strong
+                    ><small :class="{ error: !validWindow(windowText(form.model)) }">{{
+                      !validWindow(windowText(form.model))
+                        ? t("A context window is between 1,000 and 100,000,000 tokens.")
+                        : t("tokens, for this model in every profile") + " · " + t(client.contextWindow.help)
+                    }}</small></span
+                  ><input
+                    :value="windowText(form.model)"
+                    class="field-mono"
+                    inputmode="numeric"
+                    autocomplete="off"
+                    spellcheck="false"
+                    :placeholder="windowPlaceholder(form.model)"
+                    @input="setWindow(form.model, ($event.target as HTMLInputElement).value)"
+                /></label>
+                <label class="setting-row stack"
+                  ><span class="setting-label"
+                    ><strong>{{ t("Model aliases") }}</strong
+                    ><small :class="{ error: !!aliases.error }">{{
+                      aliases.error
+                        ? t(aliases.error)
+                        : t(
+                            "One alias = model-id per line. Aliases change display selection, not the provider protocol.",
+                          )
+                    }}</small></span
+                  ><textarea
+                    v-model="aliasesText"
+                    rows="3"
+                    spellcheck="false"
+                    placeholder="fast = actual-model-id&#10;review = another-model-id"
+                  />
+                </label>
+                <div v-if="client.modelSlots" class="setting-row stack">
+                  <span class="setting-label"
+                    ><strong>{{ t("Model slots") }}</strong
+                    ><small
+                      >{{ slotsText }}
+                      {{
+                        t(
+                          "Claude Code also runs these slots, for background work, subagents and its Opus, Sonnet and Haiku choices. Each is an environment variable, listed with the others below.",
+                        )
+                      }}</small
+                    ></span
+                  >
+                  <div v-for="slot in SLOTS" :key="slot.key" class="model-slot">
+                    <span>{{ slot.label }}</span>
+                    <select
+                      :value="slotMode(slot.variable)"
+                      :aria-label="slot.label"
+                      @change="chooseSlot(slot.variable, ($event.target as HTMLSelectElement).value)"
+                    >
+                      <option value="main">{{ t("Follow the main model") }}</option>
+                      <option value="client">{{ t("Claude Code's own model") }}</option>
+                      <option value="model">{{ t("A model of its own") }}</option>
+                    </select>
+                    <ModelPicker
+                      v-if="slotMode(slot.variable) === 'model'"
+                      :model-value="slotModel(slot.variable)"
+                      :models="choices"
+                      :placeholder="t('Choose a model or enter an ID')"
+                      @update:model-value="pinSlot(slot.variable, $event)"
+                    />
+                    <code v-else>{{ slot.variable }}</code>
+                  </div>
+                </div>
+              </template>
+              <div class="setting-row stack">
+                <EnvironmentEditor
+                  v-model="environmentDraft"
+                  :supported="backendCapabilities.environment"
+                  :disabled="busy"
+                />
+                <p v-if="environmentError" class="inline-error" role="alert">{{ t(environmentError) }}</p>
+              </div>
+              <p v-if="backendCapabilities.customBalances && !editing" class="setting-row setting-note">
+                {{ t("Save this profile first to configure a custom balance query.") }}
+              </p>
+            </details>
+            <p v-if="editingManaged" class="form-help">
+              {{
+                t(
+                  "Manage this account from Official accounts. Its profile cannot be removed separately from its account.",
+                )
+              }}
+            </p>
+            <EndpointBalanceEditor
+              v-if="backendCapabilities.customBalances && editing && !editingNative"
+              :key="editing"
+              ref="balanceEditor"
+              :profile-id="editing"
+              :disabled="busy"
+            />
+            <div v-if="!editing" class="profile-actions">
+              <div v-if="error" class="inline-error" role="alert">{{ error }}</div>
+              <div class="dialog-actions">
+                <button type="button" class="secondary-button" :disabled="busy" @click="cancelForm">
+                  {{ t("Cancel") }}</button><button class="primary-button" :disabled="busy || !canSave">
+                  {{ busy ? t("Creating…") : t("Create profile") }}
+                </button>
+              </div>
             </div>
-            <p v-if="backendCapabilities.customBalances && !editing" class="setting-row setting-note">{{ t('Save this profile first to configure a custom balance query.') }}</p>
-          </details>
-          <p v-if="editingManaged" class="form-help">{{ t('Manage this account from Official accounts. Its profile cannot be removed separately from its account.') }}</p>
-          <EndpointBalanceEditor v-if="backendCapabilities.customBalances && editing && !editingNative" :key="editing" ref="balanceEditor" :profile-id="editing" :disabled="busy" />
-          <div v-if="!editing" class="profile-actions">
-            <div v-if="error" class="inline-error" role="alert">{{ error }}</div>
-            <div class="dialog-actions"><button type="button" class="secondary-button" :disabled="busy" @click="cancelForm">{{ t('Cancel') }}</button><button class="primary-button" :disabled="busy||!canSave">{{ busy?t('Creating…'):t('Create profile') }}</button></div>
+          </form>
+          <div v-else class="pane-empty">
+            <p>{{ t("Select a profile to edit, or create one for a different account or endpoint.") }}</p>
           </div>
-        </form>
-        <div v-else class="pane-empty"><p>{{ t('Select a profile to edit, or create one for a different account or endpoint.') }}</p></div>
+        </div>
       </div>
-    </div></div>
-    <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :label="t('Actions for {profile}', { profile: menu.profile.name })" @close="menu = undefined">
-      <button role="menuitem" @click="startRename(menu!.profile)"><Icon name="edit" :size="14" />{{ t('Rename') }}</button>
-      <button v-if="!menu.profile.native_config" role="menuitem" @click="duplicate(menu!.profile)"><Icon name="clipboard" :size="14" />{{ t('Duplicate as new profile') }}</button>
-      <template v-if="removable(menu.profile)"><hr /><button role="menuitem" class="danger" @click="askDelete(menu!.profile)">{{ t(menu.profile.native_config ? 'Remove profile reference' : 'Delete profile') }}</button></template>
+    </div>
+    <ContextMenu
+      v-if="menu"
+      :x="menu.x"
+      :y="menu.y"
+      :label="t('Actions for {profile}', { profile: menu.profile.name })"
+      @close="menu = undefined"
+    >
+      <button role="menuitem" @click="startRename(menu!.profile)">
+        <Icon name="edit" :size="14" />{{ t("Rename") }}
+      </button>
+      <button v-if="!menu.profile.native_config" role="menuitem" @click="duplicate(menu!.profile)">
+        <Icon name="clipboard" :size="14" />{{ t("Duplicate as new profile") }}
+      </button>
+      <template v-if="removable(menu.profile)"
+        ><hr />
+        <button role="menuitem" class="danger" @click="askDelete(menu!.profile)">
+          {{ t(menu.profile.native_config ? "Remove profile reference" : "Delete profile") }}
+        </button></template
+      >
     </ContextMenu>
-    <ProfileCopyDialog v-if="copySource" :source="copySource" :profiles="profiles" @close="copySource = undefined" @created="copied" />
+    <ProfileCopyDialog
+      v-if="copySource"
+      :source="copySource"
+      :profiles="profiles"
+      @close="copySource = undefined"
+      @created="copied"
+    />
   </ModalDialog>
 </template>
 <style scoped>
-.secret-adopt{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
-.model-slot{display:grid;grid-template-columns:64px minmax(0,240px) minmax(0,1fr);align-items:center;gap:8px}
-.model-slot select{height:32px;min-height:32px;padding:0 10px;font-size:var(--text-sm)}
-.model-slot>span{font-size:var(--text-sm);font-weight:550;color:var(--ink)}
-.model-slot code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-xs);color:var(--muted)}
-@media(max-width:520px){.model-slot{grid-template-columns:56px minmax(0,1fr)}.model-slot>:last-child{grid-column:1/-1}}
+.secret-adopt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.model-slot {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 240px) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+.model-slot select {
+  height: 32px;
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: var(--text-sm);
+}
+.model-slot > span {
+  font-size: var(--text-sm);
+  font-weight: 550;
+  color: var(--ink);
+}
+.model-slot code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+@media (max-width: 520px) {
+  .model-slot {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+  .model-slot > :last-child {
+    grid-column: 1/-1;
+  }
+}
 /* Three groups, each under a quiet heading; what is rarely changed folds
    away under Advanced, and the actions stay in reach however long it gets. */
 /* Each group is a card, as each client is on the clients page: a mark, a
    title with one line on what it holds, then its fields. */
-.profile-form{gap:10px}
-.profile-form .setting-picker :deep(.model-picker-input>input){height:32px;min-height:32px;padding:0 34px 0 10px;border:1px solid var(--line);font-size:var(--text-sm)}
-.profile-form .setting-picker :deep(.model-picker-toggle){width:28px;height:28px}
-.setting-check :deep(.endpoint-check){width:min(340px,52%);flex-shrink:0;align-items:flex-end}
-.setting-check :deep(.endpoint-check-tip){display:none}
-.setting-check :deep(.endpoint-check ul){width:100%}
-.profile-advanced>summary{list-style:none;cursor:pointer;margin-bottom:6px}
-.profile-advanced:not([open])>summary{margin-bottom:9px}
+.profile-form {
+  gap: 10px;
+}
+.profile-form .setting-picker :deep(.model-picker-input > input) {
+  height: 32px;
+  min-height: 32px;
+  padding: 0 34px 0 10px;
+  border: 1px solid var(--line);
+  font-size: var(--text-sm);
+}
+.profile-form .setting-picker :deep(.model-picker-toggle) {
+  width: 28px;
+  height: 28px;
+}
+.setting-check :deep(.endpoint-check) {
+  width: min(340px, 52%);
+  flex-shrink: 0;
+  align-items: flex-end;
+}
+.setting-check :deep(.endpoint-check-tip) {
+  display: none;
+}
+.setting-check :deep(.endpoint-check ul) {
+  width: 100%;
+}
+.profile-advanced > summary {
+  list-style: none;
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+.profile-advanced:not([open]) > summary {
+  margin-bottom: 9px;
+}
 /* Labels sit one step below the group headings, and every secondary action
    is the same quiet link; a destructive one turns red only on approach. */
 /* One level of boxes: what sits inside a group or under Advanced is not
    framed again. */
-.profile-form :deep(.model-panel){border-radius:var(--radius-md);padding:12px}
-.profile-advanced :deep(.environment-editor>summary){color:var(--ink-soft);font-weight:500}
-.api-badge{padding:0 7px;border:1px solid var(--border);border-radius:var(--radius-full);background:var(--sunken);font-size:var(--text-xs);font-weight:500;line-height:18px;color:var(--muted);white-space:nowrap;cursor:help}
-.profile-advanced>summary::-webkit-details-marker{display:none}
-.profile-advanced>summary::after{content:"";flex-shrink:0;margin:0 4px;width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform var(--duration-fast)}
-.profile-advanced[open]>summary::after{transform:rotate(45deg)}
-.profile-advanced>summary::after{margin-left:auto}
-.profile-advanced :deep(.environment-editor){border:0;border-radius:0;padding:0;background:none}
+.profile-form :deep(.model-panel) {
+  border-radius: var(--radius-md);
+  padding: 12px;
+}
+.profile-advanced :deep(.environment-editor > summary) {
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+.api-badge {
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--sunken);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: help;
+}
+.profile-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+.profile-advanced > summary::after {
+  content: "";
+  flex-shrink: 0;
+  margin: 0 4px;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--duration-fast);
+}
+.profile-advanced[open] > summary::after {
+  transform: rotate(45deg);
+}
+.profile-advanced > summary::after {
+  margin-left: auto;
+}
+.profile-advanced :deep(.environment-editor) {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: none;
+}
 /* Stuck over the scroller's bottom padding too, so nothing shows below it. */
-.profile-hero{display:flex;align-items:center;gap:12px}
-.profile-hero{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface);padding:12px 14px}
-.profile-hero.editing{position:sticky;top:calc(-1 * var(--space-6, 24px) + 8px);z-index:3;box-shadow:var(--shadow-sm)}
-.profile-hero-mark{display:grid;place-items:center;width:40px;height:40px;flex-shrink:0;border-radius:var(--radius-lg);background:var(--client-soft,var(--fill));color:var(--client-ink,var(--ink-soft))}
-.profile-hero-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.profile-hero-text h3{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-lg);font-weight:600;line-height:1.3;color:var(--ink)}
-.profile-hero-text small{font-size:var(--text-xs);color:var(--muted)}
-.profile-save-state{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-xs);color:var(--muted)}
-.profile-save-state.ok{color:var(--ok-ink)}
-.profile-save-state.warn{color:var(--warn-ink)}
-.profile-save-state.error{color:var(--danger-ink)}
-.profile-actions>.dialog-actions{margin:0;padding:0}
-.profile-actions>.inline-error,.profile-actions>.confirmation-bar{margin:0}
-.profile-actions{--under:22px;position:sticky;bottom:calc(-1 * var(--under));z-index:2;display:flex;flex-direction:column;gap:8px;margin:0;padding:12px 0;border-top:1px solid var(--border);background:color-mix(in srgb,var(--surface) 95%,transparent);backdrop-filter:blur(10px)}
-.profile-form.embedded .profile-actions{--under:var(--space-6);background:color-mix(in srgb,var(--bg) 95%,transparent)}
-.shared-config-panel{border:1px solid var(--accent-line);border-radius:var(--radius-md);background:var(--sunken);padding:12px}.shared-config-panel>strong{display:flex;align-items:center;gap:7px;font-size:var(--text-xs);font-weight:550;color:var(--accent-ink)}.shared-config-panel>code{display:block;margin-top:8px;font-size:var(--text-xs);overflow-wrap:anywhere;color:var(--ink-soft)}.shared-config-panel p{font-size:var(--text-xs);line-height:18px;color:var(--ink-soft);margin-top:8px}.shared-config-consent{padding:12px;border:1px solid var(--warn-line);border-radius:var(--radius-md);background:var(--warn-soft)}.shared-config-consent p{font-size:var(--text-xs);line-height:18px;color:#837e66;margin:0 0 8px}.shared-config-consent>label{flex-direction:row;align-items:flex-start;gap:8px;line-height:17px;color:var(--ink-soft)}.shared-config-consent input{width:14px;height:14px;margin-top:2px;flex-shrink:0;accent-color:var(--accent)}.profile-card .shared-profile-label{color:var(--accent-ink)}.profile-card .profile-path{max-width:143px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--faint)}
+.profile-hero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.profile-hero {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 12px 14px;
+}
+.profile-hero.editing {
+  position: sticky;
+  top: calc(-1 * var(--space-6, 24px) + 8px);
+  z-index: 3;
+  box-shadow: var(--shadow-sm);
+}
+.profile-hero-mark {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: var(--radius-lg);
+  background: var(--client-soft, var(--fill));
+  color: var(--client-ink, var(--ink-soft));
+}
+.profile-hero-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.profile-hero-text h3 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink);
+}
+.profile-hero-text small {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.profile-save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.profile-save-state.ok {
+  color: var(--ok-ink);
+}
+.profile-save-state.warn {
+  color: var(--warn-ink);
+}
+.profile-save-state.error {
+  color: var(--danger-ink);
+}
+.profile-actions > .dialog-actions {
+  margin: 0;
+  padding: 0;
+}
+.profile-actions > .inline-error,
+.profile-actions > .confirmation-bar {
+  margin: 0;
+}
+.profile-actions {
+  --under: 22px;
+  position: sticky;
+  bottom: calc(-1 * var(--under));
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 95%, transparent);
+  backdrop-filter: blur(10px);
+}
+.profile-form.embedded .profile-actions {
+  --under: var(--space-6);
+  background: color-mix(in srgb, var(--bg) 95%, transparent);
+}
+.shared-config-panel {
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-md);
+  background: var(--sunken);
+  padding: 12px;
+}
+.shared-config-panel > strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--text-xs);
+  font-weight: 550;
+  color: var(--accent-ink);
+}
+.shared-config-panel > code {
+  display: block;
+  margin-top: 8px;
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+  color: var(--ink-soft);
+}
+.shared-config-panel p {
+  font-size: var(--text-xs);
+  line-height: 18px;
+  color: var(--ink-soft);
+  margin-top: 8px;
+}
+.shared-config-consent {
+  padding: 12px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--radius-md);
+  background: var(--warn-soft);
+}
+.shared-config-consent p {
+  font-size: var(--text-xs);
+  line-height: 18px;
+  color: #837e66;
+  margin: 0 0 8px;
+}
+.shared-config-consent > label {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 17px;
+  color: var(--ink-soft);
+}
+.shared-config-consent input {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+.profile-card .shared-profile-label {
+  color: var(--accent-ink);
+}
+.profile-card .profile-path {
+  max-width: 143px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--faint);
+}
 
 /* Settings-page type scale: the shared form styles run from 8px to 11px in a
    pale grey, which read as faint rather than calm at this density. */
-.profiles-layout{margin-top:0;grid-template-columns:210px minmax(0,1fr)}
-.profile-card{align-items:center;padding:9px 10px;border-radius:var(--radius-md);margin-bottom:3px}
-.profile-card.selected{background:var(--teal-soft);border-color:var(--teal-line)}
-.profile-card strong{font-size:var(--text-md);line-height:18px;color:var(--ink);font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.profile-card small{font-size:var(--text-xs);line-height:15px;color:var(--muted);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.profile-card>span:last-child{flex:1}
-.profile-renaming{display:flex;gap:10px;border:1px solid var(--teal-line)}
-.profile-renaming>input{flex:1;min-width:0;padding:4px 6px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);font-size:var(--text-md);color:var(--ink)}
-.profile-banner{display:flex;flex-direction:column;gap:8px;scroll-margin-top:8px}
-.profile-banner:empty{display:none}
-.profiles-list>.secondary-button{font-size:var(--text-sm);min-height:36px}
-.profiles-accounts-hint{margin-top:14px;font-size:var(--text-xs);line-height:1.6;color:var(--muted);text-align:left}
-.profiles-accounts-link{border:0;background:none;padding:0;font:inherit;color:var(--teal);cursor:pointer}
-.profiles-accounts-link:hover{text-decoration:underline}
-.form-stack{gap:14px}
-.form-stack label{font-size:var(--text-sm);color:var(--ink-soft)}
-.form-stack label>small{font-size:var(--text-xs);color:var(--muted)}
-.form-stack textarea{display:block;width:100%;padding:9px 11px;border:1px solid var(--border);line-height:1.6;font-family:var(--mono);font-size:var(--text-sm);resize:vertical;outline:0}
-.form-stack textarea:focus{border-color:var(--ok-line)}
-.form-stack textarea::placeholder{color:var(--faint)}
-.form-help{font-size:var(--text-xs);line-height:1.7;color:var(--muted)}
-.shared-config-panel>strong{font-size:var(--text-sm)}
-.shared-config-panel>code{font-size:var(--text-xs)}
-.shared-config-panel p,.shared-config-consent p{font-size:var(--text-sm);line-height:1.7}
-.pane-empty p{font-size:var(--text-sm);color:var(--muted)}
+.profiles-layout {
+  margin-top: 0;
+  grid-template-columns: 210px minmax(0, 1fr);
+}
+.profile-card {
+  align-items: center;
+  padding: 9px 10px;
+  border-radius: var(--radius-md);
+  margin-bottom: 3px;
+}
+.profile-card.selected {
+  background: var(--teal-soft);
+  border-color: var(--teal-line);
+}
+.profile-card strong {
+  font-size: var(--text-md);
+  line-height: 18px;
+  color: var(--ink);
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-card small {
+  font-size: var(--text-xs);
+  line-height: 15px;
+  color: var(--muted);
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-card > span:last-child {
+  flex: 1;
+}
+.profile-renaming {
+  display: flex;
+  gap: 10px;
+  border: 1px solid var(--teal-line);
+}
+.profile-renaming > input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: var(--text-md);
+  color: var(--ink);
+}
+.profile-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  scroll-margin-top: 8px;
+}
+.profile-banner:empty {
+  display: none;
+}
+.profiles-list > .secondary-button {
+  font-size: var(--text-sm);
+  min-height: 36px;
+}
+.profiles-accounts-hint {
+  margin-top: 14px;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--muted);
+  text-align: left;
+}
+.profiles-accounts-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--teal);
+  cursor: pointer;
+}
+.profiles-accounts-link:hover {
+  text-decoration: underline;
+}
+.form-stack {
+  gap: 14px;
+}
+.form-stack label {
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+}
+.form-stack label > small {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.form-stack textarea {
+  display: block;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  line-height: 1.6;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  resize: vertical;
+  outline: 0;
+}
+.form-stack textarea:focus {
+  border-color: var(--ok-line);
+}
+.form-stack textarea::placeholder {
+  color: var(--faint);
+}
+.form-help {
+  font-size: var(--text-xs);
+  line-height: 1.7;
+  color: var(--muted);
+}
+.shared-config-panel > strong {
+  font-size: var(--text-sm);
+}
+.shared-config-panel > code {
+  font-size: var(--text-xs);
+}
+.shared-config-panel p,
+.shared-config-consent p {
+  font-size: var(--text-sm);
+  line-height: 1.7;
+}
+.pane-empty p {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
 /* The list stays put while a long form scrolls beside it. */
-.profiles-list{position:sticky;top:0;align-self:start}
-.form-stack :deep(.model-picker-input>input){width:auto;flex:1 1 0;min-width:0;font-weight:400;font-family:var(--mono);font-size:var(--text-sm);color:var(--ink);background:var(--surface);border-color:var(--border);border-radius:var(--radius-md)}
-.form-stack :deep(.model-picker-input>input::placeholder){font-family:var(--font-ui)}
+.profiles-list {
+  position: sticky;
+  top: 0;
+  align-self: start;
+}
+.form-stack :deep(.model-picker-input > input) {
+  width: auto;
+  flex: 1 1 0;
+  min-width: 0;
+  font-weight: 400;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--border);
+  border-radius: var(--radius-md);
+}
+.form-stack :deep(.model-picker-input > input::placeholder) {
+  font-family: var(--font-ui);
+}
 /* The settings page beside a sidebar and a file panel can be narrower than
    the window suggests, so the layout follows the room it has. */
-.profiles-frame{container:profiles/inline-size}
-@container profiles (max-width:700px){
-  .profiles-layout{grid-template-columns:minmax(0,1fr)}
-  .profiles-list{position:static;border-right:0;padding-right:0;border-bottom:1px solid var(--border);padding-bottom:10px}
+.profiles-frame {
+  container: profiles/inline-size;
 }
-@container card (max-width:460px){
-  .form-columns,.endpoint-columns{grid-template-columns:minmax(0,1fr)}
-  .model-slot{grid-template-columns:56px minmax(0,1fr)}
-  .model-slot>:last-child{grid-column:1/-1}
+@container profiles (max-width:700px) {
+  .profiles-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .profiles-list {
+    position: static;
+    border-right: 0;
+    padding-right: 0;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+  }
 }
-@media(max-width:760px){
-  .profiles-layout{grid-template-columns:minmax(0,1fr)}
-  .profiles-list{position:static;border-right:0;padding-right:0;border-bottom:1px solid var(--border);padding-bottom:10px}
-  .endpoint-columns{grid-template-columns:minmax(0,1fr)}
-  .profile-actions{--under:17px}
-  .profile-form.embedded .profile-actions{--under:var(--space-4)}
+@container card (max-width:460px) {
+  .form-columns,
+  .endpoint-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .model-slot {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+  .model-slot > :last-child {
+    grid-column: 1/-1;
+  }
+}
+@media (max-width: 760px) {
+  .profiles-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .profiles-list {
+    position: static;
+    border-right: 0;
+    padding-right: 0;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+  }
+  .endpoint-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .profile-actions {
+    --under: 17px;
+  }
+  .profile-form.embedded .profile-actions {
+    --under: var(--space-4);
+  }
 }
 </style>

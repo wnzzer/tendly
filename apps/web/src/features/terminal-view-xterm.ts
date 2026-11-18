@@ -12,7 +12,10 @@ import { rowAt, type TerminalTheme, type TerminalView, type TerminalViewEvents }
  */
 export function createXtermView(host: HTMLElement, theme: TerminalTheme, events: TerminalViewEvents): TerminalView {
   const terminal = new Terminal({
-    cursorBlink: true, fontSize: 12, lineHeight: 1.22, scrollback: 5000,
+    cursorBlink: true,
+    fontSize: 12,
+    lineHeight: 1.22,
+    scrollback: 5000,
     // A wheel notch glides instead of jumping three lines at once; a trackpad
     // already sends fine steps and is followed as it moves.
     smoothScrollDuration: 100,
@@ -59,14 +62,24 @@ export function createXtermView(host: HTMLElement, theme: TerminalTheme, events:
       touch.stop();
       terminal.scrollToBottom();
     },
-    applyTheme(next) { terminal.options.theme = next; },
+    applyTheme(next) {
+      terminal.options.theme = next;
+    },
     dispose() {
       touch.dispose();
       for (const subscription of subscriptions) {
-        try { subscription.dispose(); } catch { /* Best-effort cleanup after partial initialization. */ }
+        try {
+          subscription.dispose();
+        } catch {
+          /* Best-effort cleanup after partial initialization. */
+        }
       }
       // A broken renderer should still leave the pane able to retry.
-      try { terminal.dispose(); } catch { /* Already gone. */ }
+      try {
+        terminal.dispose();
+      } catch {
+        /* Already gone. */
+      }
     },
   };
 }
@@ -84,10 +97,16 @@ function useWebgl(target: Terminal) {
   try {
     const webgl = new WebglAddon();
     webgl.onContextLoss(() => {
-      try { webgl.dispose(); } catch { /* Already gone with the context. */ }
+      try {
+        webgl.dispose();
+      } catch {
+        /* Already gone with the context. */
+      }
     });
     target.loadAddon(webgl);
-  } catch { /* No WebGL here; the DOM renderer stays. */ }
+  } catch {
+    /* No WebGL here; the DOM renderer stays. */
+  }
 }
 
 /**
@@ -115,10 +134,14 @@ function touchScrolling(terminal: Terminal, host: HTMLElement, scrolled: () => v
   function start(event: TouchEvent) {
     stop();
     const touch = event.touches[0];
-    drag = event.touches.length === 1 && touch ? { x: touch.clientX, y: touch.clientY, carry: 0, samples: [{ y: touch.clientY, at: event.timeStamp }] } : undefined;
+    drag =
+      event.touches.length === 1 && touch
+        ? { x: touch.clientX, y: touch.clientY, carry: 0, samples: [{ y: touch.clientY, at: event.timeStamp }] }
+        : undefined;
   }
   function move(event: TouchEvent) {
-    const current = drag, touch = event.touches[0];
+    const current = drag,
+      touch = event.touches[0];
     if (!current || !touch || event.touches.length !== 1) {
       drag = undefined;
       return;
@@ -143,7 +166,9 @@ function touchScrolling(terminal: Terminal, host: HTMLElement, scrolled: () => v
     fling = { frame: 0, velocity, carry: current.carry, at: performance.now(), x: current.x, y: current.y };
     fling.frame = requestAnimationFrame(coast);
   }
-  function cancel() { drag = undefined; }
+  function cancel() {
+    drag = undefined;
+  }
   function coast(now: number) {
     const current = fling;
     if (!current) return;
@@ -153,7 +178,10 @@ function touchScrolling(terminal: Terminal, host: HTMLElement, scrolled: () => v
     current.carry = scrollByPixels(current.carry + step.distance, current.x, current.y);
     // Coasting into either end of the scrollback stops there rather than pressing on.
     const buffer = terminal.buffer.active;
-    const atEnd = buffer.type === "normal" && terminal.modes.mouseTrackingMode === "none" && (current.velocity > 0 ? buffer.viewportY >= buffer.baseY : buffer.viewportY <= 0);
+    const atEnd =
+      buffer.type === "normal" &&
+      terminal.modes.mouseTrackingMode === "none" &&
+      (current.velocity > 0 ? buffer.viewportY >= buffer.baseY : buffer.viewportY <= 0);
     if (!current.velocity || atEnd) {
       fling = undefined;
       return;
@@ -174,7 +202,16 @@ function touchScrolling(terminal: Terminal, host: HTMLElement, scrolled: () => v
     }
     // One wheel notch per line, so xterm.js reports or translates each exactly as it would a real one.
     for (let step = 0; step < Math.abs(lines); step++) {
-      screen.dispatchEvent(new WheelEvent("wheel", { deltaY: Math.sign(lines), deltaMode: WheelEvent.DOM_DELTA_LINE, clientX, clientY, bubbles: true, cancelable: true }));
+      screen.dispatchEvent(
+        new WheelEvent("wheel", {
+          deltaY: Math.sign(lines),
+          deltaMode: WheelEvent.DOM_DELTA_LINE,
+          clientX,
+          clientY,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
     }
     return pixels - lines * rowHeight;
   }

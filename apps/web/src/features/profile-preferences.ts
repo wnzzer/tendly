@@ -11,41 +11,61 @@ export const PROFILE_NONE = "__no_profile__";
 const ISOLATED_PROFILE = "__isolated_profile__";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type PreferenceStorage = Pick<Storage, "getItem" | "setItem">;
-interface RememberedChoice { value: string; unsaved: boolean }
+interface RememberedChoice {
+  value: string;
+  unsaved: boolean;
+}
 const storageMemory = new WeakMap<PreferenceStorage, Map<ProviderKind, RememberedChoice>>();
 const unavailableStorageMemory = new Map<ProviderKind, RememberedChoice>();
 
 function browserStorage(): PreferenceStorage | undefined {
-  try { return typeof window === "undefined" ? undefined : window.localStorage; } catch { return undefined; }
+  try {
+    return typeof window === "undefined" ? undefined : window.localStorage;
+  } catch {
+    return undefined;
+  }
 }
 
 function memory(storage: PreferenceStorage | undefined): Map<ProviderKind, RememberedChoice> {
   if (!storage) return unavailableStorageMemory;
   let choices = storageMemory.get(storage);
-  if (!choices) { choices = new Map(); storageMemory.set(storage, choices); }
+  if (!choices) {
+    choices = new Map();
+    storageMemory.set(storage, choices);
+  }
   return choices;
 }
 
-function key(provider: ProviderKind): string { return `tendly.profile-selection.v1:${provider}`; }
+function key(provider: ProviderKind): string {
+  return `tendly.profile-selection.v1:${provider}`;
+}
 function decode(value: string | null | undefined): string | undefined {
   if (value === ISOLATED_PROFILE) return undefined;
   return typeof value === "string" && UUID.test(value) ? value : undefined;
 }
 
 function rememberedSelection(provider: ProviderKind, storage: PreferenceStorage | undefined): string | undefined {
-  const choices = memory(storage), cached = choices.get(provider);
+  const choices = memory(storage),
+    cached = choices.get(provider);
   // A failed write must not be replaced by an older value still in localStorage.
   if (!storage || cached?.unsaved) return decode(cached?.value);
   try {
-    const value = storage.getItem(key(provider)), selection = decode(value);
+    const value = storage.getItem(key(provider)),
+      selection = decode(value);
     if (selection === undefined) choices.delete(provider);
     else choices.set(provider, { value: value!, unsaved: false });
     return selection;
-  } catch { return decode(cached?.value); }
+  } catch {
+    return decode(cached?.value);
+  }
 }
 
 /** A terminal needs no configuration; an agent client always runs with one. */
-export function isProfileSelectionValid(provider: ProviderKind, selection: string, profiles: EndpointProfile[]): boolean {
+export function isProfileSelectionValid(
+  provider: ProviderKind,
+  selection: string,
+  profiles: EndpointProfile[],
+): boolean {
   if (selection === "") return provider === "terminal";
   return UUID.test(selection) && profiles.some(profile => profile.id === selection && profile.provider === provider);
 }
@@ -55,7 +75,12 @@ export function isProfileSelectionValid(provider: ProviderKind, selection: strin
  * sole host profile, or else a sole profile of any kind. Several with neither
  * require an explicit choice, and none at all means one has to be added.
  */
-export function preferredProfileSelection(provider: ProviderKind, profiles: EndpointProfile[], storage?: PreferenceStorage, preferred?: string | null): string {
+export function preferredProfileSelection(
+  provider: ProviderKind,
+  profiles: EndpointProfile[],
+  storage?: PreferenceStorage,
+  preferred?: string | null,
+): string {
   if (provider === "terminal") return "";
   if (preferred && isProfileSelectionValid(provider, preferred, profiles)) return preferred;
   const remembered = rememberedSelection(provider, storage ?? browserStorage());
@@ -75,6 +100,12 @@ export function rememberProfileSelection(provider: ProviderKind, selection: stri
   const target = storage ?? browserStorage();
   const remembered = { value: selection, unsaved: true };
   memory(target).set(provider, remembered);
-  try { if (target) { target.setItem(key(provider), remembered.value); remembered.unsaved = false; } }
-  catch { /* Keep the explicit choice in memory when browser storage is unavailable. */ }
+  try {
+    if (target) {
+      target.setItem(key(provider), remembered.value);
+      remembered.unsaved = false;
+    }
+  } catch {
+    /* Keep the explicit choice in memory when browser storage is unavailable. */
+  }
 }

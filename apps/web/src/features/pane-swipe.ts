@@ -34,7 +34,13 @@ export function swipeOffset(dx: number, hasNeighbor: boolean): number {
  * the previous one, `0` back to where it was. A short flick counts as much as
  * a long drag, which is how a phone's own pagers behave.
  */
-export function swipeOutcome(gesture: { dx: number; elapsedMs: number; width: number; hasPrevious: boolean; hasNext: boolean }): -1 | 0 | 1 {
+export function swipeOutcome(gesture: {
+  dx: number;
+  elapsedMs: number;
+  width: number;
+  hasPrevious: boolean;
+  hasNext: boolean;
+}): -1 | 0 | 1 {
   const { dx, elapsedMs, width, hasPrevious, hasNext } = gesture;
   const distance = Math.abs(dx);
   const flick = distance >= 36 && distance / Math.max(elapsedMs, 1) >= 0.45;
@@ -56,7 +62,11 @@ export interface SwipeTarget {
  * typed in, a control that drags, or anything that itself scrolls sideways --
  * a code block, a diff, a wide table. `overflowX` reads the computed style.
  */
-export function swipeBlockedAt(target: SwipeTarget | null, root: SwipeTarget | null, overflowX: (element: SwipeTarget) => string): boolean {
+export function swipeBlockedAt(
+  target: SwipeTarget | null,
+  root: SwipeTarget | null,
+  overflowX: (element: SwipeTarget) => string,
+): boolean {
   for (let element = target; element && element !== root; element = element.parentElement) {
     const tag = element.tagName?.toLowerCase();
     if (tag === "input" || tag === "textarea" || tag === "select" || element.isContentEditable) return true;

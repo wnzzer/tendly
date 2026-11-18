@@ -13,11 +13,18 @@ import { markEphemeralPanes, scopeLegacyLayout } from "./pane-context";
  * agent saved first.
  */
 
-export interface SharedCanvas { layout: LayoutDocument | null; revision: number }
+export interface SharedCanvas {
+  layout: LayoutDocument | null;
+  revision: number;
+}
 
 /** A server answer worth believing: a whole, non-negative revision, and a layout that is either absent or valid. */
 export function isSharedCanvas(shared: SharedCanvas): boolean {
-  return Number.isSafeInteger(shared.revision) && shared.revision >= 0 && (shared.layout === null || validateLayout(shared.layout));
+  return (
+    Number.isSafeInteger(shared.revision) &&
+    shared.revision >= 0 &&
+    (shared.layout === null || validateLayout(shared.layout))
+  );
 }
 
 /** The pane to focus in a layout just loaded: the first pane, or the tab a stack had in front. */
@@ -31,7 +38,9 @@ export function initialPane(node: LayoutNode): PaneNode | undefined {
 export const LAYOUT_TROUBLE = ["Save failed", "Save conflict", "Memory only"];
 export const layoutInTrouble = (status: string) => LAYOUT_TROUBLE.includes(status);
 
-export function copyLayout(document: LayoutDocument): LayoutDocument { return JSON.parse(JSON.stringify(document)); }
+export function copyLayout(document: LayoutDocument): LayoutDocument {
+  return JSON.parse(JSON.stringify(document));
+}
 
 export interface CanvasPersistenceOptions {
   layout: Ref<LayoutDocument>;
@@ -44,64 +53,110 @@ export interface CanvasPersistenceOptions {
   onReady: (preferred: Workspace) => void;
 }
 
-export function useCanvasPersistence({ layout, selectedPaneId, sessions, storage, storageKey, report, onReady }: CanvasPersistenceOptions) {
-  const canvasReady = ref(false), layoutStatus = ref("Saved"), canvasRevision = ref(0), canvasConflict = ref(false);
+export function useCanvasPersistence({
+  layout,
+  selectedPaneId,
+  sessions,
+  storage,
+  storageKey,
+  report,
+  onReady,
+}: CanvasPersistenceOptions) {
+  const canvasReady = ref(false),
+    layoutStatus = ref("Saved"),
+    canvasRevision = ref(0),
+    canvasConflict = ref(false);
   const localRecovery = ref<LayoutDocument>();
   // While a layout is being put in place from outside, the watcher below must
   // not read it as an edit and save it straight back.
-  let suspendLayoutSave = true, disposed = false;
+  let suspendLayoutSave = true,
+    disposed = false;
   let layoutTimer: ReturnType<typeof setTimeout> | undefined, pendingLayout: LayoutDocument | undefined;
   let saveQueue: Promise<void> = Promise.resolve();
 
   /** Everything that leaves this page — server canvas, browser cache, recovery
    * snapshot — marks temporary windows, so a reload keeps them open (and
    * closable) while their session lives, and drops them once it is discarded. */
-  function persistableLayout(document: LayoutDocument) { return markEphemeralPanes(document, sessions.value); }
-  function cacheLayout(document: LayoutDocument, pending: boolean) { return writeCanvasCache(storage, storageKey.value, persistableLayout(document), pending); }
+  function persistableLayout(document: LayoutDocument) {
+    return markEphemeralPanes(document, sessions.value);
+  }
+  function cacheLayout(document: LayoutDocument, pending: boolean) {
+    return writeCanvasCache(storage, storageKey.value, persistableLayout(document), pending);
+  }
   function queueLayout(document: LayoutDocument) {
     const snapshot = persistableLayout(copyLayout(document));
     const cached = cacheLayout(snapshot, backendCapabilities.sharedCanvas);
-    if (!backendCapabilities.sharedCanvas) { layoutStatus.value = cached ? "Saved in this browser" : "Memory only"; return; }
-    pendingLayout = snapshot; layoutStatus.value = canvasConflict.value ? "Save conflict" : "Unsaved";
-    clearTimeout(layoutTimer); layoutTimer = setTimeout(() => void flushLayout(), 450);
+    if (!backendCapabilities.sharedCanvas) {
+      layoutStatus.value = cached ? "Saved in this browser" : "Memory only";
+      return;
+    }
+    pendingLayout = snapshot;
+    layoutStatus.value = canvasConflict.value ? "Save conflict" : "Unsaved";
+    clearTimeout(layoutTimer);
+    layoutTimer = setTimeout(() => void flushLayout(), 450);
   }
   function persist(document: LayoutDocument) {
     saveQueue = saveQueue.then(async () => {
       if (canvasConflict.value || disposed) return;
       layoutStatus.value = "Saving…";
       try {
-        const saved = await request<{ revision: number }>("/canvas/layout", json("PUT", { layout: document, expected_revision: canvasRevision.value }));
+        const saved = await request<{ revision: number }>(
+          "/canvas/layout",
+          json("PUT", { layout: document, expected_revision: canvasRevision.value }),
+        );
         canvasRevision.value = saved.revision;
-        if (!pendingLayout && sameCanvasLayout(document, persistableLayout(layout.value))) { cacheLayout(document, false); layoutStatus.value = "Saved"; }
+        if (!pendingLayout && sameCanvasLayout(document, persistableLayout(layout.value))) {
+          cacheLayout(document, false);
+          layoutStatus.value = "Saved";
+        }
       } catch (cause) {
         if (cause instanceof ApiError && cause.status === 409) {
-          canvasConflict.value = true; layoutStatus.value = "Save conflict";
-        } else { layoutStatus.value = "Save failed"; report(cause); }
+          canvasConflict.value = true;
+          layoutStatus.value = "Save conflict";
+        } else {
+          layoutStatus.value = "Save failed";
+          report(cause);
+        }
       }
     });
     return saveQueue;
   }
   async function flushLayout() {
     clearTimeout(layoutTimer);
-    if (pendingLayout) { const document = pendingLayout; pendingLayout = undefined; void persist(document); }
+    if (pendingLayout) {
+      const document = pendingLayout;
+      pendingLayout = undefined;
+      void persist(document);
+    }
     await saveQueue;
   }
-  watch(layout, document => {
-    if (suspendLayoutSave || !canvasReady.value) return;
-    if (selectedPaneId.value && !flattenPanes(document.root).some(pane => pane.id === selectedPaneId.value)) selectedPaneId.value = initialPane(document.root)?.id;
-    queueLayout(document);
-  }, { deep: true });
+  watch(
+    layout,
+    document => {
+      if (suspendLayoutSave || !canvasReady.value) return;
+      if (selectedPaneId.value && !flattenPanes(document.root).some(pane => pane.id === selectedPaneId.value))
+        selectedPaneId.value = initialPane(document.root)?.id;
+      queueLayout(document);
+    },
+    { deep: true },
+  );
   /** The server's layout replaces this window's without being saved back; the focus stays put if `keepFocus` and its pane is still there. */
   async function adoptServerLayout(document: LayoutDocument, keepFocus: boolean) {
-    suspendLayoutSave = true; layout.value = document;
-    if (!keepFocus || !flattenPanes(document.root).some(pane => pane.id === selectedPaneId.value)) selectedPaneId.value = initialPane(document.root)?.id;
-    await nextTick(); suspendLayoutSave = false; cacheLayout(layout.value, false); layoutStatus.value = "Saved";
+    suspendLayoutSave = true;
+    layout.value = document;
+    if (!keepFocus || !flattenPanes(document.root).some(pane => pane.id === selectedPaneId.value))
+      selectedPaneId.value = initialPane(document.root)?.id;
+    await nextTick();
+    suspendLayoutSave = false;
+    cacheLayout(layout.value, false);
+    layoutStatus.value = "Saved";
   }
 
   async function initializeCanvas(preferred: Workspace) {
     suspendLayoutSave = true;
     const local = readCanvasCache(storage, storageKey.value);
-    let chosen: LayoutDocument | undefined, initialSave = false;
+    let chosen: LayoutDocument | undefined,
+      initialSave = false;
     if (backendCapabilities.sharedCanvas) {
       const shared = await request<SharedCanvas>("/canvas/layout");
       if (!isSharedCanvas(shared)) throw new Error("Invalid shared canvas response");
@@ -113,16 +168,24 @@ export function useCanvasPersistence({ layout, selectedPaneId, sessions, storage
           localRecovery.value = local.layout;
           writeCanvasCache(storage, storageKey.value + ":recovery", local.layout, true);
         } else localRecovery.value = readCanvasCache(storage, storageKey.value + ":recovery")?.layout;
-      } else { chosen = local?.layout; initialSave = true; }
+      } else {
+        chosen = local?.layout;
+        initialSave = true;
+      }
     } else chosen = local?.layout;
     if (!chosen) {
       const legacy = await request<LayoutDocument | null>(workspacePath(preferred.id) + "/layout");
-      chosen = scopeLegacyLayout(legacy?.root && validateLayout(legacy) ? legacy : createDefaultLayoutDocument(), preferred.id, sessions.value);
+      chosen = scopeLegacyLayout(
+        legacy?.root && validateLayout(legacy) ? legacy : createDefaultLayoutDocument(),
+        preferred.id,
+        sessions.value,
+      );
       initialSave = true;
     }
     layout.value = copyLayout(chosen);
     selectedPaneId.value = initialPane(chosen.root)?.id;
-    canvasReady.value = true; canvasConflict.value = false;
+    canvasReady.value = true;
+    canvasConflict.value = false;
     onReady(preferred);
     await nextTick();
     suspendLayoutSave = false;
@@ -134,18 +197,23 @@ export function useCanvasPersistence({ layout, selectedPaneId, sessions, storage
     try {
       const shared = await request<SharedCanvas>("/canvas/layout");
       if (!isSharedCanvas(shared)) throw new Error("Invalid shared canvas response");
-      canvasRevision.value = shared.revision; canvasConflict.value = false;
+      canvasRevision.value = shared.revision;
+      canvasConflict.value = false;
       if (useCurrent) queueLayout(layout.value);
       else if (shared.layout) {
         const backup = persistableLayout(copyLayout(layout.value));
-        writeCanvasCache(storage, storageKey.value + ":recovery", backup, true); localRecovery.value = backup;
+        writeCanvasCache(storage, storageKey.value + ":recovery", backup, true);
+        localRecovery.value = backup;
         await adoptServerLayout(shared.layout, false);
       }
-    } catch (cause) { report(cause); }
+    } catch (cause) {
+      report(cause);
+    }
   }
   function restoreLocalRecovery() {
     if (!localRecovery.value) return;
-    layout.value = copyLayout(localRecovery.value); selectedPaneId.value = initialPane(layout.value.root)?.id;
+    layout.value = copyLayout(localRecovery.value);
+    selectedPaneId.value = initialPane(layout.value.root)?.id;
     localRecovery.value = undefined;
   }
   /**
@@ -155,18 +223,28 @@ export function useCanvasPersistence({ layout, selectedPaneId, sessions, storage
    */
   async function agentCanvas(revision: number) {
     if (!canvasReady.value || !backendCapabilities.sharedCanvas || revision <= canvasRevision.value) return;
-    if (pendingLayout || canvasConflict.value) { canvasConflict.value = true; return; }
+    if (pendingLayout || canvasConflict.value) {
+      canvasConflict.value = true;
+      return;
+    }
     try {
       const shared = await request<SharedCanvas>("/canvas/layout");
-      if (!shared.layout || !validateLayout(shared.layout) || shared.revision <= canvasRevision.value || pendingLayout) return;
+      if (!shared.layout || !validateLayout(shared.layout) || shared.revision <= canvasRevision.value || pendingLayout)
+        return;
       canvasRevision.value = shared.revision;
       await adoptServerLayout(shared.layout, true);
-    } catch (cause) { report(cause); }
+    } catch (cause) {
+      report(cause);
+    }
   }
   /** A change not yet sent, which leaving the page now would lose. */
   const hasPendingLayout = () => !!pendingLayout;
   /** The page is going: a change still waiting is kept in this browser to offer back, and nothing more is sent. */
-  function dispose() { if (pendingLayout) cacheLayout(pendingLayout, true); disposed = true; clearTimeout(layoutTimer); }
+  function dispose() {
+    if (pendingLayout) cacheLayout(pendingLayout, true);
+    disposed = true;
+    clearTimeout(layoutTimer);
+  }
 
   /**
    * A change every open page makes for itself -- a tab taking its session's
@@ -174,8 +252,27 @@ export function useCanvasPersistence({ layout, selectedPaneId, sessions, storage
    * against the same revision is a conflict for all but the first.
    */
   async function showWithoutSaving(document: LayoutDocument) {
-    const held = suspendLayoutSave; suspendLayoutSave = true; layout.value = document;
-    await nextTick(); suspendLayoutSave = held;
+    const held = suspendLayoutSave;
+    suspendLayoutSave = true;
+    layout.value = document;
+    await nextTick();
+    suspendLayoutSave = held;
   }
-  return { canvasReady, layoutStatus, canvasRevision, canvasConflict, localRecovery, cacheLayout, queueLayout, flushLayout, initializeCanvas, resolveCanvasConflict, restoreLocalRecovery, agentCanvas, hasPendingLayout, showWithoutSaving, dispose };
+  return {
+    canvasReady,
+    layoutStatus,
+    canvasRevision,
+    canvasConflict,
+    localRecovery,
+    cacheLayout,
+    queueLayout,
+    flushLayout,
+    initializeCanvas,
+    resolveCanvasConflict,
+    restoreLocalRecovery,
+    agentCanvas,
+    hasPendingLayout,
+    showWithoutSaving,
+    dispose,
+  };
 }

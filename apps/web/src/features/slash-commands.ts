@@ -19,13 +19,13 @@ export interface SlashQuery {
  * moved on to its argument, and `see /etc/hosts` was never one.
  */
 export function slashQuery(text: string, caret: number): SlashQuery | undefined {
-  if (!text.startsWith('/') || caret < 1) return undefined;
+  if (!text.startsWith("/") || caret < 1) return undefined;
   const upToCaret = text.slice(0, caret);
   if (upToCaret.length > 80) return undefined;
   const term = upToCaret.slice(1);
   if (/[\s]/.test(term)) return undefined;
   // Only a prefix of the first token is being completed.
-  const token = /^[^\s]*/.exec(text.slice(1))?.[0] ?? '';
+  const token = /^[^\s]*/.exec(text.slice(1))?.[0] ?? "";
   if (!token.startsWith(term)) return undefined;
   return { term, length: caret };
 }
@@ -38,7 +38,8 @@ export function slashQuery(text: string, caret: number): SlashQuery | undefined 
 export function matchCommands(commands: string[], term: string, limit = 8): string[] {
   const needle = term.toLowerCase();
   if (!needle) return commands.slice(0, limit);
-  const prefix: string[] = [], contains: string[] = [];
+  const prefix: string[] = [],
+    contains: string[] = [];
   for (const name of commands) {
     const lower = name.toLowerCase();
     if (lower.startsWith(needle)) prefix.push(name);
@@ -68,7 +69,7 @@ export function moveHighlight(index: number, count: number, delta: number): numb
  * dozens of names with nothing behind them, so only the few whose subject is
  * sitting in this composer are named, and they are pointed at it.
  */
-const HANDLED_HERE = new Set(['model', 'effort', 'reasoning', 'approvals']);
+const HANDLED_HERE = new Set(["model", "effort", "reasoning", "approvals"]);
 
 /**
  * Whether a message would be sent as a command the client cannot act on.

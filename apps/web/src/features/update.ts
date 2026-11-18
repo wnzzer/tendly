@@ -45,13 +45,21 @@ export const restartForUpdate = () => request<{ restart: UpdateStatus["restart"]
 export async function waitForVersion(
   version: string,
   health: () => Promise<BackendHealth>,
-  { timeoutMs = 90_000, intervalMs = 1_000, sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)), now = () => Date.now() } = {},
+  {
+    timeoutMs = 90_000,
+    intervalMs = 1_000,
+    sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)),
+    now = () => Date.now(),
+  } = {},
 ): Promise<boolean> {
   const deadline = now() + timeoutMs;
   while (now() < deadline) {
     await sleep(intervalMs);
-    try { if ((await health()).version === version) return true; }
-    catch { /* Down while restarting. */ }
+    try {
+      if ((await health()).version === version) return true;
+    } catch {
+      /* Down while restarting. */
+    }
   }
   return false;
 }

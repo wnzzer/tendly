@@ -17,7 +17,11 @@ export const waitingIds = computed(() => Object.keys(sessionStatuses).filter(id 
 
 const KEY = "tendly.notifications";
 function stored(): boolean {
-  try { return localStorage.getItem(KEY) === "on"; } catch { return false; }
+  try {
+    return localStorage.getItem(KEY) === "on";
+  } catch {
+    return false;
+  }
 }
 export const desktopNotifications = ref(stored());
 
@@ -38,7 +42,12 @@ export async function setDesktopNotifications(on: boolean): Promise<boolean> {
     else if (support !== "granted") enabled = (await Notification.requestPermission()) === "granted";
   }
   desktopNotifications.value = enabled;
-  try { if (enabled) localStorage.setItem(KEY, "on"); else localStorage.removeItem(KEY); } catch { /* This page only. */ }
+  try {
+    if (enabled) localStorage.setItem(KEY, "on");
+    else localStorage.removeItem(KEY);
+  } catch {
+    /* This page only. */
+  }
   return enabled;
 }
 
@@ -66,8 +75,15 @@ function announce(session: Session, context: AttentionContext) {
   const title = context.t("{session} is waiting for you", { session: session.title });
   if (away) {
     if (!desktopNotifications.value || notificationSupport() !== "granted") return;
-    const notification = new Notification(title, { body: context.t("An approval or a question needs your answer."), tag: `tendly-${session.id}` });
-    notification.onclick = () => { window.focus(); context.open(session); notification.close(); };
+    const notification = new Notification(title, {
+      body: context.t("An approval or a question needs your answer."),
+      tag: `tendly-${session.id}`,
+    });
+    notification.onclick = () => {
+      window.focus();
+      context.open(session);
+      notification.close();
+    };
     return;
   }
   if (session.id === context.focusedSessionId) return;

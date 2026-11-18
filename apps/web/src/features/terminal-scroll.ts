@@ -35,7 +35,8 @@ export function addSample(samples: TouchSample[], sample: TouchSample): TouchSam
  */
 export function releaseVelocity(samples: TouchSample[], now: number): number {
   const recent = samples.filter(entry => now - entry.at <= FLING_WINDOW_MS);
-  const first = recent[0], last = recent[recent.length - 1];
+  const first = recent[0],
+    last = recent[recent.length - 1];
   if (!first || !last || last.at <= first.at) return 0;
   const velocity = (first.y - last.y) / (last.at - first.at);
   return Math.abs(velocity) >= FLING_MIN_VELOCITY ? velocity : 0;
@@ -45,5 +46,5 @@ export function releaseVelocity(samples: TouchSample[], now: number): number {
 export function flingStep(velocity: number, elapsedMs: number): { distance: number; velocity: number } {
   const dt = Math.max(0, Math.min(elapsedMs, 64));
   const next = velocity * Math.exp(-dt / FLING_TIME_CONSTANT_MS);
-  return { distance: (velocity + next) / 2 * dt, velocity: Math.abs(next) < FLING_STOP_VELOCITY ? 0 : next };
+  return { distance: ((velocity + next) / 2) * dt, velocity: Math.abs(next) < FLING_STOP_VELOCITY ? 0 : next };
 }

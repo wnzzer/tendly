@@ -4,7 +4,9 @@ import { AGENT_CLIENTS, clientInfo, isProviderKind } from "./clients";
 import { ICON_PALETTE } from "./icon-palette";
 import { mediaKind } from "./media-kind";
 
-const CLIENT_TABS = Object.fromEntries(AGENT_CLIENTS.map(id => [id, { color: ICON_PALETTE[clientInfo(id).iconTone], background: clientInfo(id).tabTint }])) as Record<AgentProviderKind, { color: string; background: string }>;
+const CLIENT_TABS = Object.fromEntries(
+  AGENT_CLIENTS.map(id => [id, { color: ICON_PALETTE[clientInfo(id).iconTone], background: clientInfo(id).tabTint }]),
+) as Record<AgentProviderKind, { color: string; background: string }>;
 export const TAB_ICON_PALETTE = {
   ...CLIENT_TABS,
   agent: { color: "#6958A6", background: "#F1ECFA" },
@@ -27,13 +29,23 @@ export interface TabIconAppearance {
 }
 
 /** Authoritative session data wins over legacy serialized metadata. Never guess from a title. */
-export function tabIconProvider(metadata?: Record<string, unknown>, sessionProviders?: Record<string, ProviderKind>): ProviderKind | undefined {
+export function tabIconProvider(
+  metadata?: Record<string, unknown>,
+  sessionProviders?: Record<string, ProviderKind>,
+): ProviderKind | undefined {
   const sessionId = metadata?.session_id;
-  const actual = typeof sessionId === "string" && sessionProviders && Object.hasOwn(sessionProviders, sessionId) ? sessionProviders[sessionId] : undefined;
+  const actual =
+    typeof sessionId === "string" && sessionProviders && Object.hasOwn(sessionProviders, sessionId)
+      ? sessionProviders[sessionId]
+      : undefined;
   return isProviderKind(actual) ? actual : isProviderKind(metadata?.provider) ? metadata.provider : undefined;
 }
 
-export function resolveTabIcon(kind: LeafPaneKind, metadata?: Record<string, unknown>, sessionProviders?: Record<string, ProviderKind>): TabIconAppearance {
+export function resolveTabIcon(
+  kind: LeafPaneKind,
+  metadata?: Record<string, unknown>,
+  sessionProviders?: Record<string, ProviderKind>,
+): TabIconAppearance {
   function appearance(type: TabIconType, icon: TabIconAppearance["icon"], provider?: ProviderKind): TabIconAppearance {
     return { type, icon, ...TAB_ICON_PALETTE[type], ...(provider ? { provider } : {}) };
   }

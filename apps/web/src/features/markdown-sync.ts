@@ -9,24 +9,36 @@
  * becomes a fractional source line, and that line becomes a position on the
  * other, interpolating between the two anchors around it.
  */
-export interface Anchor { line: number; top: number }
+export interface Anchor {
+  line: number;
+  top: number;
+}
 
-function clamp(value: number, low: number, high: number) { return Math.min(high, Math.max(low, value)); }
+function clamp(value: number, low: number, high: number) {
+  return Math.min(high, Math.max(low, value));
+}
 
 /** The fractional source line at `y` in the editor. */
 export function lineAtOffset(offsets: number[], y: number): number {
   if (!offsets.length) return 0;
-  let low = 0, high = offsets.length - 1;
+  let low = 0,
+    high = offsets.length - 1;
   if (y <= offsets[0]!) return 0;
-  while (low < high) { const mid = (low + high + 1) >> 1; if (offsets[mid]! <= y) low = mid; else high = mid - 1; }
-  const top = offsets[low]!, next = offsets[low + 1];
+  while (low < high) {
+    const mid = (low + high + 1) >> 1;
+    if (offsets[mid]! <= y) low = mid;
+    else high = mid - 1;
+  }
+  const top = offsets[low]!,
+    next = offsets[low + 1];
   return next === undefined || next <= top ? low : low + clamp((y - top) / (next - top), 0, 1);
 }
 
 /** Where a fractional source line starts in the editor. */
 export function offsetAtLine(offsets: number[], line: number): number {
   if (!offsets.length) return 0;
-  const index = clamp(Math.floor(line), 0, offsets.length - 1), top = offsets[index]!;
+  const index = clamp(Math.floor(line), 0, offsets.length - 1),
+    top = offsets[index]!;
   const next = offsets[index + 1];
   return next === undefined ? top : top + (next - top) * clamp(line - index, 0, 1);
 }
@@ -56,7 +68,8 @@ export function previewTopForLine(anchors: Anchor[], line: number): number {
   if (!anchors.length) return 0;
   let index = 0;
   while (index + 1 < anchors.length && anchors[index + 1]!.line <= line) index++;
-  const from = anchors[index]!, to = anchors[index + 1];
+  const from = anchors[index]!,
+    to = anchors[index + 1];
   if (!to || to.line === from.line) return from.top;
   return from.top + (to.top - from.top) * clamp((line - from.line) / (to.line - from.line), 0, 1);
 }
@@ -66,7 +79,8 @@ export function lineForPreviewTop(anchors: Anchor[], y: number): number {
   if (!anchors.length) return 0;
   let index = 0;
   while (index + 1 < anchors.length && anchors[index + 1]!.top <= y) index++;
-  const from = anchors[index]!, to = anchors[index + 1];
+  const from = anchors[index]!,
+    to = anchors[index + 1];
   if (!to || to.top === from.top) return from.line;
   return from.line + (to.line - from.line) * clamp((y - from.top) / (to.top - from.top), 0, 1);
 }

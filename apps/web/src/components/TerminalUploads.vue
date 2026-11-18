@@ -16,10 +16,17 @@ const emit = defineEmits<{ retry: [entry: Upload]; dismiss: [id: number] }>();
       <Icon v-else name="file" :size="16" />
       <span class="terminal-upload-text">
         <strong :title="entry.name">{{ entry.name }}</strong>
-        <small>{{ entry.failed ?? t('Uploading {percent}%', { percent: Math.round(entry.progress * 100) }) }}</small>
+        <small>{{ entry.failed ?? t("Uploading {percent}%", { percent: Math.round(entry.progress * 100) }) }}</small>
       </span>
-      <button v-if="entry.failed && entry.retryable" type="button" class="text-button" @click="emit('retry', entry)">{{ t('Retry') }}</button>
-      <button type="button" class="icon-button" :aria-label="t(entry.failed ? 'Dismiss' : 'Cancel upload')" @click="emit('dismiss', entry.id)">
+      <button v-if="entry.failed && entry.retryable" type="button" class="text-button" @click="emit('retry', entry)">
+        {{ t("Retry") }}
+      </button>
+      <button
+        type="button"
+        class="icon-button"
+        :aria-label="t(entry.failed ? 'Dismiss' : 'Cancel upload')"
+        @click="emit('dismiss', entry.id)"
+      >
         <Icon name="close" :size="13" />
       </button>
     </div>

@@ -51,27 +51,31 @@ export function createSessionConnections(connect: (session: Session) => Promise<
     if (!explicit) {
       // Restoring a layout is not consent to start even a newly-created stopped record.
       entry.state = session.status === "failed" ? "failed" : "ended";
-      entry.error = session.status === "failed" ? session.error ?? undefined : undefined;
+      entry.error = session.status === "failed" ? (session.error ?? undefined) : undefined;
       return Promise.resolve(undefined);
     }
     entry.state = "opening";
     entry.error = undefined;
     const generation = ++entry.generation;
     // Explicit opens use the server's idempotent start to reconcile stale polling state.
-    const operation = Promise.resolve().then(() => entry.generation === generation ? connect(session) : undefined).then(result => {
-      if (!result || entry.generation !== generation) return undefined;
-      entry.state = isLiveSession(result) ? "attached" : result.status === "failed" ? "failed" : "ended";
-      entry.error = result.error ?? undefined;
-      return isLiveSession(result) ? result : undefined;
-    }).catch(error => {
-      if (entry.generation === generation) {
-        entry.state = "failed";
-        entry.error = error instanceof Error ? error.message : String(error);
-      }
-      return undefined;
-    }).finally(() => {
-      if (entry.pending === operation) entry.pending = undefined;
-    });
+    const operation = Promise.resolve()
+      .then(() => (entry.generation === generation ? connect(session) : undefined))
+      .then(result => {
+        if (!result || entry.generation !== generation) return undefined;
+        entry.state = isLiveSession(result) ? "attached" : result.status === "failed" ? "failed" : "ended";
+        entry.error = result.error ?? undefined;
+        return isLiveSession(result) ? result : undefined;
+      })
+      .catch(error => {
+        if (entry.generation === generation) {
+          entry.state = "failed";
+          entry.error = error instanceof Error ? error.message : String(error);
+        }
+        return undefined;
+      })
+      .finally(() => {
+        if (entry.pending === operation) entry.pending = undefined;
+      });
     entry.pending = operation;
     return operation;
   }
@@ -87,7 +91,7 @@ export function createSessionConnections(connect: (session: Session) => Promise<
       return Promise.resolve(session);
     }
     entry.state = session.status === "failed" ? "failed" : "ended";
-    entry.error = session.status === "failed" ? session.error ?? undefined : undefined;
+    entry.error = session.status === "failed" ? (session.error ?? undefined) : undefined;
     return Promise.resolve(undefined);
   }
   return { get, requestOpen, ended, ensure, attach };

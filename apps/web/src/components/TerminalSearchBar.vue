@@ -38,16 +38,48 @@ function keydown(event: KeyboardEvent) {
 <template>
   <div class="terminal-search" role="search">
     <Icon name="search" :size="14" class="terminal-search-icon" />
-    <input ref="field" v-model="query" class="terminal-search-input" type="text" enterkeyhint="search" autocomplete="off" spellcheck="false" maxlength="200" :placeholder="t('Find in terminal')" :aria-label="t('Find in terminal')" @keydown="keydown" />
+    <input
+      ref="field"
+      v-model="query"
+      class="terminal-search-input"
+      type="text"
+      enterkeyhint="search"
+      autocomplete="off"
+      spellcheck="false"
+      maxlength="200"
+      :placeholder="t('Find in terminal')"
+      :aria-label="t('Find in terminal')"
+      @keydown="keydown"
+    />
     <span v-if="count" class="terminal-search-count" role="status">{{ count }}</span>
     <span class="terminal-search-divider" aria-hidden="true" />
-    <button type="button" class="terminal-search-button" :aria-label="t('Previous match')" :title="t('Previous match')" :disabled="!canStep" @click="emit('step', -1)">
+    <button
+      type="button"
+      class="terminal-search-button"
+      :aria-label="t('Previous match')"
+      :title="t('Previous match')"
+      :disabled="!canStep"
+      @click="emit('step', -1)"
+    >
       <Icon name="chevron" :size="14" class="terminal-search-up" />
     </button>
-    <button type="button" class="terminal-search-button" :aria-label="t('Next match')" :title="t('Next match')" :disabled="!canStep" @click="emit('step', 1)">
+    <button
+      type="button"
+      class="terminal-search-button"
+      :aria-label="t('Next match')"
+      :title="t('Next match')"
+      :disabled="!canStep"
+      @click="emit('step', 1)"
+    >
       <Icon name="chevron" :size="14" class="terminal-search-down" />
     </button>
-    <button type="button" class="terminal-search-button" :aria-label="t('Close search')" :title="t('Close search')" @click="emit('close')">
+    <button
+      type="button"
+      class="terminal-search-button"
+      :aria-label="t('Close search')"
+      :title="t('Close search')"
+      @click="emit('close')"
+    >
       <Icon name="close" :size="13" />
     </button>
   </div>

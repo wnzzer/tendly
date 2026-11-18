@@ -2,14 +2,16 @@ import type { EndpointProfile, ProviderKind } from "@tendly/protocol";
 import { parseEnvironmentRows, type EnvironmentRow } from "./environment-model";
 
 export function profileEnvironmentDraftChanged(rows: EnvironmentRow[], initial: EnvironmentRow[]): boolean {
-  const signature = (values: EnvironmentRow[]) => JSON.stringify(values.map(({ name, kind, value }) => ({ name, kind, value })));
+  const signature = (values: EnvironmentRow[]) =>
+    JSON.stringify(values.map(({ name, kind, value }) => ({ name, kind, value })));
   return signature(rows) !== signature(initial);
 }
 
 /** Unsupported backends may receive a rename, never a silently discarded env edit. */
 export function profileEnvironmentPayload(rows: EnvironmentRow[], supported: boolean, initial: EnvironmentRow[] = []) {
   if (!supported) {
-    if (profileEnvironmentDraftChanged(rows, initial)) throw new Error("Environment changes are not saved by this backend. Upgrade it or keep your draft.");
+    if (profileEnvironmentDraftChanged(rows, initial))
+      throw new Error("Environment changes are not saved by this backend. Upgrade it or keep your draft.");
     return {};
   }
   const parsed = parseEnvironmentRows(rows);
@@ -18,7 +20,12 @@ export function profileEnvironmentPayload(rows: EnvironmentRow[], supported: boo
   return { environment: parsed.environment };
 }
 
-export function nativeProfileUpdatePayload(name: string, rows: EnvironmentRow[], supported: boolean, initial: EnvironmentRow[] = []) {
+export function nativeProfileUpdatePayload(
+  name: string,
+  rows: EnvironmentRow[],
+  supported: boolean,
+  initial: EnvironmentRow[] = [],
+) {
   return { ...nativeProfileRenamePayload(name), ...profileEnvironmentPayload(rows, supported, initial) };
 }
 
@@ -48,12 +55,20 @@ export function nativeProfileRenamePayload(name: string): { name: string } {
 }
 
 /** A hidden/stale model input must never override settings in a shared native directory. */
-export function sessionModelOverride(provider: ProviderKind, profile: EndpointProfile | undefined, model: string): { model?: string } {
+export function sessionModelOverride(
+  provider: ProviderKind,
+  profile: EndpointProfile | undefined,
+  model: string,
+): { model?: string } {
   const selected = model.trim();
   return provider !== "terminal" && !profile?.native_config && selected ? { model: selected } : {};
 }
 
-export function sessionEffortOverride(provider: ProviderKind, profile: EndpointProfile | undefined, effort: string): { effort?: string } {
+export function sessionEffortOverride(
+  provider: ProviderKind,
+  profile: EndpointProfile | undefined,
+  effort: string,
+): { effort?: string } {
   const selected = effort.trim();
   return provider !== "terminal" && !profile?.native_config && selected ? { effort: selected } : {};
 }

@@ -22,18 +22,28 @@ export const CHAT_FONTS: readonly ChatFont[] = ["interface", "lora", "serif"];
 export const TEXT_SCALES: readonly TextScale[] = ["small", "default", "large", "larger", "largest"];
 const SCALE_VALUES: Record<TextScale, number> = { small: 0.92, default: 1, large: 1.08, larger: 1.16, largest: 1.28 };
 
-const KEYS = { palette: "tendly.palette", font: "tendly.font", chatFont: "tendly.chat-font", textScale: "tendly.text-scale" } as const;
+const KEYS = {
+  palette: "tendly.palette",
+  font: "tendly.font",
+  chatFont: "tendly.chat-font",
+  textScale: "tendly.text-scale",
+} as const;
 
 function read<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
     const value = localStorage.getItem(key);
     return allowed.includes(value as T) ? (value as T) : fallback;
-  } catch { return fallback; }
+  } catch {
+    return fallback;
+  }
 }
 function write(key: string, value: string, fallback: string) {
   try {
-    if (value === fallback) localStorage.removeItem(key); else localStorage.setItem(key, value);
-  } catch { /* Private browsing: the choice lasts for this page. */ }
+    if (value === fallback) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch {
+    /* Private browsing: the choice lasts for this page. */
+  }
 }
 
 export const palette = ref<Palette>(read(KEYS.palette, PALETTES, "dock"));
@@ -60,7 +70,8 @@ function apply() {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
   const set = (name: string, value: string, fallback: string) => {
-    if (value === fallback) delete root.dataset[name]; else root.dataset[name] = value;
+    if (value === fallback) delete root.dataset[name];
+    else root.dataset[name] = value;
   };
   set("palette", palette.value, "dock");
   set("font", interfaceFont.value, "instrument-sans");
@@ -71,15 +82,35 @@ function apply() {
 }
 apply();
 
-watch(palette, value => { write(KEYS.palette, value, "dock"); apply(); });
-watch(interfaceFont, value => { write(KEYS.font, value, "instrument-sans"); apply(); });
-watch(chatFont, value => { write(KEYS.chatFont, value, "interface"); apply(); });
-watch(textScale, value => { write(KEYS.textScale, value, "default"); apply(); });
+watch(palette, value => {
+  write(KEYS.palette, value, "dock");
+  apply();
+});
+watch(interfaceFont, value => {
+  write(KEYS.font, value, "instrument-sans");
+  apply();
+});
+watch(chatFont, value => {
+  write(KEYS.chatFont, value, "interface");
+  apply();
+});
+watch(textScale, value => {
+  write(KEYS.textScale, value, "default");
+  apply();
+});
 
-export function setPalette(value: Palette) { palette.value = value; }
-export function setInterfaceFont(value: InterfaceFont) { interfaceFont.value = value; }
-export function setChatFont(value: ChatFont) { chatFont.value = value; }
-export function setTextScale(value: TextScale) { textScale.value = value; }
+export function setPalette(value: Palette) {
+  palette.value = value;
+}
+export function setInterfaceFont(value: InterfaceFont) {
+  interfaceFont.value = value;
+}
+export function setChatFont(value: ChatFont) {
+  chatFont.value = value;
+}
+export function setTextScale(value: TextScale) {
+  textScale.value = value;
+}
 /** One step larger or smaller, stopping at either end: what a pinch does on a phone. */
 export function stepTextScale(by: 1 | -1) {
   const next = TEXT_SCALES[TEXT_SCALES.indexOf(textScale.value) + by];
@@ -113,19 +144,43 @@ export function pinchStep(startSpread: number, spread: number, step = PINCH_STEP
  */
 export function holdPageScale() {
   if (typeof document === "undefined" || !matchMedia("(pointer: coarse)").matches) return;
-  for (const name of ["gesturestart", "gesturechange"]) document.addEventListener(name, event => event.preventDefault(), { passive: false });
-  const spreadOf = (touches: TouchList) => Math.hypot(touches[0]!.clientX - touches[1]!.clientX, touches[0]!.clientY - touches[1]!.clientY);
+  for (const name of ["gesturestart", "gesturechange"])
+    document.addEventListener(name, event => event.preventDefault(), { passive: false });
+  const spreadOf = (touches: TouchList) =>
+    Math.hypot(touches[0]!.clientX - touches[1]!.clientX, touches[0]!.clientY - touches[1]!.clientY);
   // The spread the pinch began at; 0 once it has stepped, or with other than two fingers down.
   let start = 0;
-  document.addEventListener("touchstart", event => { start = event.touches.length === 2 ? spreadOf(event.touches) : 0; }, { passive: true });
-  document.addEventListener("touchmove", event => {
-    if (event.touches.length !== 2) return;
-    if (event.cancelable) event.preventDefault();
-    const step = pinchStep(start, spreadOf(event.touches));
-    if (!step) return;
-    stepTextScale(step);
-    start = 0;
-  }, { passive: false });
-  document.addEventListener("touchend", event => { if (event.touches.length !== 2) start = 0; }, { passive: true });
-  document.addEventListener("touchcancel", () => { start = 0; }, { passive: true });
+  document.addEventListener(
+    "touchstart",
+    event => {
+      start = event.touches.length === 2 ? spreadOf(event.touches) : 0;
+    },
+    { passive: true },
+  );
+  document.addEventListener(
+    "touchmove",
+    event => {
+      if (event.touches.length !== 2) return;
+      if (event.cancelable) event.preventDefault();
+      const step = pinchStep(start, spreadOf(event.touches));
+      if (!step) return;
+      stepTextScale(step);
+      start = 0;
+    },
+    { passive: false },
+  );
+  document.addEventListener(
+    "touchend",
+    event => {
+      if (event.touches.length !== 2) start = 0;
+    },
+    { passive: true },
+  );
+  document.addEventListener(
+    "touchcancel",
+    () => {
+      start = 0;
+    },
+    { passive: true },
+  );
 }

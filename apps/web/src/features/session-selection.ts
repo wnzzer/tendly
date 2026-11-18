@@ -5,12 +5,21 @@
 
 /** Toggle `id`, or -- given the previous click as `anchor` -- set every id
  * from the anchor to `id` to the state `id` is toggled into. */
-export function selectRange(order: readonly string[], checked: readonly string[], id: string, anchor?: string): string[] {
+export function selectRange(
+  order: readonly string[],
+  checked: readonly string[],
+  id: string,
+  anchor?: string,
+): string[] {
   const set = new Set(checked);
   const on = !set.has(id);
-  const from = anchor === undefined ? -1 : order.indexOf(anchor), to = order.indexOf(id);
+  const from = anchor === undefined ? -1 : order.indexOf(anchor),
+    to = order.indexOf(id);
   const span = from < 0 || to < 0 ? [id] : order.slice(Math.min(from, to), Math.max(from, to) + 1);
-  for (const item of span) { if (on) set.add(item); else set.delete(item); }
+  for (const item of span) {
+    if (on) set.add(item);
+    else set.delete(item);
+  }
   return order.filter(item => set.has(item));
 }
 

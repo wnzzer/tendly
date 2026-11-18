@@ -8,7 +8,12 @@
  * resumes it. A move up nobody asked for -- content above or below shrinking
  * -- changes nothing.
  */
-export function followsAfterScroll(state: { following: boolean; movedUp: boolean; byPerson: boolean; gap: number }): boolean {
+export function followsAfterScroll(state: {
+  following: boolean;
+  movedUp: boolean;
+  byPerson: boolean;
+  gap: number;
+}): boolean {
   // Upward, by the person, stops following; by anything else, changes nothing --
   // not even near the bottom, where a wheel's own scroll arriving late (a busy
   // page) would otherwise read as coming back down.
@@ -18,6 +23,6 @@ export function followsAfterScroll(state: { following: boolean; movedUp: boolean
 }
 
 /** Keys that move a scrolled view toward older content. */
-export const UPWARD_KEYS = new Set(['ArrowUp', 'PageUp', 'Home']);
+export const UPWARD_KEYS = new Set(["ArrowUp", "PageUp", "Home"]);
 /** How long after a person's wheel, touch, key or pointer a move counts as theirs. */
 export const PERSON_WINDOW_MS = 600;

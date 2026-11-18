@@ -12,7 +12,9 @@ type Translate = (text: string, values?: Record<string, string | number>) => str
 /** "42s", or "3m 5s" from a minute on. */
 export function duration(ms: number, t: Translate): string {
   const seconds = Math.round(ms / 1000);
-  return seconds < 60 ? t("{seconds}s", { seconds }) : t("{minutes}m {seconds}s", { minutes: Math.floor(seconds / 60), seconds: seconds % 60 });
+  return seconds < 60
+    ? t("{seconds}s", { seconds })
+    : t("{minutes}m {seconds}s", { minutes: Math.floor(seconds / 60), seconds: seconds % 60 });
 }
 
 /** "12 tool uses · 4.5k tokens · 1m 2s", from whichever of these the client reported. */
@@ -27,7 +29,8 @@ export function statsLine(stats: ToolStats, t: Translate): string {
 /** "↑ 9.4k · ↓ 1.2k · 99.7% cached": read, written, and how much of the read was cached. */
 export function turnUsageLine(spent: TurnUsage, t: Translate): string {
   const parts = [`↑ ${compactCount(spent.input ?? 0)}`, `↓ ${compactCount(spent.output ?? 0)}`];
-  if (spent.input && spent.cached) parts.push(t("{percent}% cached", { percent: cachedPercent(spent.input, spent.cached) }));
+  if (spent.input && spent.cached)
+    parts.push(t("{percent}% cached", { percent: cachedPercent(spent.input, spent.cached) }));
   return parts.join(" · ");
 }
 
@@ -45,9 +48,13 @@ export function dockHeading(tools: readonly ToolItem[], t: Translate): string {
   const live = tools.filter(isLive);
   const agents = live.filter(tool => SUBAGENT_TOOLS.has(tool.name)).length;
   const commands = live.length - agents;
-  if (!live.length) return t(tools.every(tool => SUBAGENT_TOOLS.has(tool.name)) ? "Subagents finished" : "Background work finished");
+  if (!live.length)
+    return t(tools.every(tool => SUBAGENT_TOOLS.has(tool.name)) ? "Subagents finished" : "Background work finished");
   if (!commands) return agents === 1 ? t("1 subagent running") : t("{count} subagents running", { count: agents });
-  if (!agents) return commands === 1 ? t("1 background command running") : t("{count} background commands running", { count: commands });
+  if (!agents)
+    return commands === 1
+      ? t("1 background command running")
+      : t("{count} background commands running", { count: commands });
   return t("{agents} subagents and {commands} commands running", { agents, commands });
 }
 

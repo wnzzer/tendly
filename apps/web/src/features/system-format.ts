@@ -15,7 +15,9 @@ export function formatRate(bytesPerSecond: number): string {
 /** Days and hours, or hours and minutes, or minutes: the two largest units. */
 export function formatDuration(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
-  const days = Math.floor(s / 86400), hours = Math.floor((s % 86400) / 3600), minutes = Math.floor((s % 3600) / 60);
+  const days = Math.floor(s / 86400),
+    hours = Math.floor((s % 86400) / 3600),
+    minutes = Math.floor((s % 3600) / 60);
   if (days) return `${days}d ${hours}h`;
   if (hours) return `${hours}h ${minutes}m`;
   return `${minutes}m`;
@@ -41,10 +43,13 @@ export function pushSample(series: readonly number[], value: number, length = HI
 export function sparkPath(series: readonly number[], max?: number, length = HISTORY_LENGTH): string {
   if (series.length < 2) return "";
   const top = Math.max(max ?? Math.max(...series), 1e-9);
-  const step = 100 / (length - 1), offset = (length - series.length) * step;
-  return series.map((value, index) => {
-    const x = offset + index * step;
-    const y = 28 - Math.min(1, Math.max(0, value / top)) * 26 - 1;
-    return `${index ? "L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`;
-  }).join(" ");
+  const step = 100 / (length - 1),
+    offset = (length - series.length) * step;
+  return series
+    .map((value, index) => {
+      const x = offset + index * step;
+      const y = 28 - Math.min(1, Math.max(0, value / top)) * 26 - 1;
+      return `${index ? "L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(" ");
 }

@@ -5,12 +5,28 @@ import type { TextFile } from "@tendly/protocol";
 import { ApiError, assetUrl, errorMessage, json, request } from "./api";
 import { placeKey, placeUrl } from "./checkout-place";
 import { fileDraft } from "./file-drafts";
-import { caretBand, EDITOR_TOP, LINE_HEIGHT, lineOfOffset, modeChoices, parseMarkdownMode, visibleMode, type MarkdownMode } from "./file-view";
+import {
+  caretBand,
+  EDITOR_TOP,
+  LINE_HEIGHT,
+  lineOfOffset,
+  modeChoices,
+  parseMarkdownMode,
+  visibleMode,
+  type MarkdownMode,
+} from "./file-view";
 import { lineRange, pendingJump, takeJump } from "./file-jumps";
 import { onFilesChanged, touchesFile } from "./file-watch";
 import { escapeHtml, languageFor, loadHighlighter, MAX_HIGHLIGHT_BYTES, wrapsProse } from "./highlighting";
 import { MarkdownContent } from "./MarkdownContent";
-import { framedAnchors, lineAtOffset, lineForPreviewTop, offsetAtLine, previewTopForLine, type Anchor } from "./markdown-sync";
+import {
+  framedAnchors,
+  lineAtOffset,
+  lineForPreviewTop,
+  offsetAtLine,
+  previewTopForLine,
+  type Anchor,
+} from "./markdown-sync";
 import { continueList, indentLines, type TextEdit } from "./markdown-editing";
 import Icon from "./Icon.vue";
 import MediaPreview from "./MediaPreview.vue";
@@ -22,15 +38,24 @@ const { t } = useI18n();
 const props = defineProps<{ workspaceId: string; checkout?: string | null; path?: string; workspaceName?: string }>();
 const place = computed(() => placeKey(props.workspaceId, props.checkout));
 const emit = defineEmits<{ saved: []; browse: [] }>();
-const loading = ref(false), saving = ref(false), error = ref(""), success = ref("");
-const conflict = ref(false), confirmReload = ref(false), mediaFailed = ref(false);
+const loading = ref(false),
+  saving = ref(false),
+  error = ref(""),
+  success = ref("");
+const conflict = ref(false),
+  confirmReload = ref(false),
+  mediaFailed = ref(false);
 /** The host said this "text" file is not text: shown as a download instead. */
 const binary = ref(false);
 const draft = computed(() => fileDraft(place.value, props.path ?? ""));
 const dirty = computed(() => draft.value.loaded && draft.value.content !== draft.value.original);
-const kind = computed<MediaKind>(() => binary.value ? "binary" : mediaKind(props.path ?? ""));
+const kind = computed<MediaKind>(() => (binary.value ? "binary" : mediaKind(props.path ?? "")));
 const mediaVersion = ref(0);
-const url = computed(() => props.path ? assetUrl(props.workspaceId, props.path, props.checkout) + (mediaVersion.value ? `&v=${mediaVersion.value}` : "") : "");
+const url = computed(() =>
+  props.path
+    ? assetUrl(props.workspaceId, props.path, props.checkout) + (mediaVersion.value ? `&v=${mediaVersion.value}` : "")
+    : "",
+);
 /**
  * Syntax highlighting, drawn behind the editor rather than replacing it.
  *
@@ -39,13 +64,21 @@ const url = computed(() => props.path ? assetUrl(props.workspaceId, props.path, 
  * out identically — same font, padding, wrapping and tab size — or the two
  * drift apart as you scroll.
  */
-const language = computed(() => props.path ? languageFor(props.path) : undefined);
+const language = computed(() => (props.path ? languageFor(props.path) : undefined));
 const oversize = computed(() => draft.value.content.length > MAX_HIGHLIGHT_BYTES);
 const highlighter = ref<((source: string, language: string) => string) | undefined>();
-watch([language, oversize], ([lang, big]) => {
-  if (!lang || big || highlighter.value) return;
-  void loadHighlighter(lang).then(loaded => { highlighter.value = loaded; }).catch(() => {});
-}, { immediate: true });
+watch(
+  [language, oversize],
+  ([lang, big]) => {
+    if (!lang || big || highlighter.value) return;
+    void loadHighlighter(lang)
+      .then(loaded => {
+        highlighter.value = loaded;
+      })
+      .catch(() => {});
+  },
+  { immediate: true },
+);
 const highlighted = computed(() => {
   const source = draft.value.content;
   if (!language.value || oversize.value || !highlighter.value) return undefined;
@@ -87,11 +120,15 @@ function measureGutter() {
 }
 let watcher: ResizeObserver | undefined;
 watch(editor, element => {
-  watcher?.disconnect(); watcher = undefined;
+  watcher?.disconnect();
+  watcher = undefined;
   if (!element) return;
   // A scrollbar appears when the content grows, which changes the content box
   // without changing the border box -- so the content box is what is watched.
-  watcher = new ResizeObserver(() => { measureGutter(); measureRows(); });
+  watcher = new ResizeObserver(() => {
+    measureGutter();
+    measureRows();
+  });
   watcher.observe(element);
   measureGutter();
 });
@@ -113,7 +150,8 @@ function syncScroll(event: Event) {
 function followScroll() {
   const content = highlightLayer.value?.firstElementChild as HTMLElement | undefined;
   if (content) content.style.transform = `translate(${-scrolled.left}px, ${-scrolled.top}px)`;
-  for (const track of [numbersTrack.value, bandTrack.value]) if (track) track.style.transform = `translateY(${-scrolled.top}px)`;
+  for (const track of [numbersTrack.value, bandTrack.value])
+    if (track) track.style.transform = `translateY(${-scrolled.top}px)`;
 }
 
 /**
@@ -126,12 +164,16 @@ function followScroll() {
  * are worth, and they are left out.
  */
 /** The template places line numbers with the same metrics the band uses. */
-const LINE = LINE_HEIGHT, TOP = EDITOR_TOP;
-const numbersTrack = ref<HTMLElement>(), bandTrack = ref<HTMLElement>();
+const LINE = LINE_HEIGHT,
+  TOP = EDITOR_TOP;
+const numbersTrack = ref<HTMLElement>(),
+  bandTrack = ref<HTMLElement>();
 const lineCount = computed(() => draft.value.content.split("\n").length);
 const digits = computed(() => Math.max(2, String(lineCount.value).length));
 const showNumbers = computed(() => !wrapped.value || lineCount.value <= 5000);
-const plainNumbers = computed(() => wrapped.value ? "" : Array.from({ length: lineCount.value }, (_, index) => index + 1).join("\n"));
+const plainNumbers = computed(() =>
+  wrapped.value ? "" : Array.from({ length: lineCount.value }, (_, index) => index + 1).join("\n"),
+);
 const rows = ref<{ tops: number[]; heights: number[] }>({ tops: [], heights: [] });
 let rowsFrame = 0;
 function measureRows() {
@@ -145,7 +187,10 @@ function measureRows() {
 const caretLine = ref(-1);
 function trackCaret() {
   const input = editor.value;
-  if (!input || document.activeElement !== input) { caretLine.value = -1; return; }
+  if (!input || document.activeElement !== input) {
+    caretLine.value = -1;
+    return;
+  }
   caretLine.value = lineOfOffset(input.value, input.selectionStart);
 }
 const band = computed(() => caretBand(caretLine.value, wrapped.value, rows.value));
@@ -164,7 +209,12 @@ const band = computed(() => caretBand(caretLine.value, wrapped.value, rows.value
 const wrapped = computed(() => wrapsProse(language.value));
 const fileName = computed(() => props.path?.split("/").pop() ?? "");
 /** Where the file sits: the workspace, then each folder down to it. */
-const crumbs = computed(() => [props.workspaceName, ...(props.path?.split("/").slice(0, -1) ?? [])].filter(Boolean).map(part => `${part} / `).join(""));
+const crumbs = computed(() =>
+  [props.workspaceName, ...(props.path?.split("/").slice(0, -1) ?? [])]
+    .filter(Boolean)
+    .map(part => `${part} / `)
+    .join(""),
+);
 /**
  * Markdown is read and written side by side: the source on the left, the
  * rendered result on the right, scrolled together. A pane too narrow for two
@@ -174,11 +224,16 @@ const crumbs = computed(() => [props.workspaceName, ...(props.path?.split("/").s
 const isMarkdown = computed(() => language.value === "markdown");
 const MODE_KEY = "tendly.markdown-mode.v1";
 function readMode(): MarkdownMode {
-  try { return parseMarkdownMode(localStorage.getItem(MODE_KEY)); }
-  catch { return "split"; }
+  try {
+    return parseMarkdownMode(localStorage.getItem(MODE_KEY));
+  } catch {
+    return "split";
+  }
 }
 const mode = ref<MarkdownMode>(readMode());
-const pane = ref<HTMLElement>(), preview = ref<HTMLElement>(), mirror = ref<HTMLElement>();
+const pane = ref<HTMLElement>(),
+  preview = ref<HTMLElement>(),
+  mirror = ref<HTMLElement>();
 const paneWidth = ref(0);
 const canSplit = computed(() => paneWidth.value >= 720);
 /** What is on screen. Two columns that do not fit become the rendered view. */
@@ -188,9 +243,12 @@ const showPreview = computed(() => isMarkdown.value && view.value !== "source");
 const choices = computed(() => modeChoices(canSplit.value));
 let paneWatcher: ResizeObserver | undefined;
 watch(pane, element => {
-  paneWatcher?.disconnect(); paneWatcher = undefined;
+  paneWatcher?.disconnect();
+  paneWatcher = undefined;
   if (!element) return;
-  paneWatcher = new ResizeObserver(([entry]) => { if (entry) paneWidth.value = entry.contentRect.width; });
+  paneWatcher = new ResizeObserver(([entry]) => {
+    if (entry) paneWidth.value = entry.contentRect.width;
+  });
   paneWatcher.observe(element);
 });
 
@@ -201,13 +259,20 @@ watch(pane, element => {
  * as the several rows it really takes. Measured only when asked, and again
  * only after the text or the width has changed.
  */
-let measured = { content: "", width: -1 }, offsets: number[] = [], heights: number[] = [];
+let measured = { content: "", width: -1 },
+  offsets: number[] = [],
+  heights: number[] = [];
 function measure(): number[] {
-  const box = mirror.value, input = editor.value;
+  const box = mirror.value,
+    input = editor.value;
   if (!box || !input) return offsets;
-  const content = draft.value.content, width = input.clientWidth;
+  const content = draft.value.content,
+    width = input.clientWidth;
   if (offsets.length && content === measured.content && width === measured.width) return offsets;
-  box.innerHTML = content.split("\n").map(line => `<div>${escapeHtml(line) || "\u200b"}</div>`).join("");
+  box.innerHTML = content
+    .split("\n")
+    .map(line => `<div>${escapeHtml(line) || "\u200b"}</div>`)
+    .join("");
   offsets = Array.from(box.children, child => (child as HTMLElement).offsetTop);
   heights = Array.from(box.children, child => (child as HTMLElement).offsetHeight);
   measured = { content, width };
@@ -217,19 +282,26 @@ function anchors(): Anchor[] {
   const box = preview.value;
   if (!box) return [];
   const origin = box.getBoundingClientRect().top - box.scrollTop;
-  const found = Array.from(box.querySelectorAll<HTMLElement>("[data-line]"), element => ({ line: Number(element.dataset.line), top: element.getBoundingClientRect().top - origin }));
+  const found = Array.from(box.querySelectorAll<HTMLElement>("[data-line]"), element => ({
+    line: Number(element.dataset.line),
+    top: element.getBoundingClientRect().top - origin,
+  }));
   return framedAnchors(found, draft.value.content.split("\n").length, box.scrollHeight);
 }
 /** Which side is being scrolled by hand; the other only follows. */
 let driver: "editor" | "preview" | "program" | undefined, driverTimer: ReturnType<typeof setTimeout> | undefined;
 function drive(side: "editor" | "preview" | "program") {
   if (driver && driver !== side) return false;
-  driver = side; clearTimeout(driverTimer);
-  driverTimer = setTimeout(() => { driver = undefined; }, 150);
+  driver = side;
+  clearTimeout(driverTimer);
+  driverTimer = setTimeout(() => {
+    driver = undefined;
+  }, 150);
   return true;
 }
 function followEditor() {
-  const input = editor.value, box = preview.value;
+  const input = editor.value,
+    box = preview.value;
   if (input && box) box.scrollTop = previewTopForLine(anchors(), lineAtOffset(measure(), input.scrollTop));
 }
 function editorScrolled(event: Event) {
@@ -237,7 +309,8 @@ function editorScrolled(event: Event) {
   if (view.value === "split" && drive("editor")) followEditor();
 }
 function previewScrolled() {
-  const input = editor.value, box = preview.value;
+  const input = editor.value,
+    box = preview.value;
   if (view.value !== "split" || !input || !box || !drive("preview")) return;
   input.scrollTop = offsetAtLine(measure(), lineForPreviewTop(anchors(), box.scrollTop));
   syncScroll({ target: input } as unknown as Event);
@@ -250,13 +323,26 @@ function currentLine(): number | undefined {
 }
 function showLine(line: number, from = 0) {
   drive("program");
-  const input = editor.value, box = preview.value;
-  if (showEditor.value && input) { input.scrollTop = Math.max(0, offsetAtLine(measure(), line) - from); syncScroll({ target: input } as unknown as Event); }
-  if (showPreview.value && box) box.scrollTop = Math.max(0, previewTopForLine(anchors(), input && showEditor.value ? lineAtOffset(measure(), input.scrollTop) : line) - (input && showEditor.value ? 0 : from));
+  const input = editor.value,
+    box = preview.value;
+  if (showEditor.value && input) {
+    input.scrollTop = Math.max(0, offsetAtLine(measure(), line) - from);
+    syncScroll({ target: input } as unknown as Event);
+  }
+  if (showPreview.value && box)
+    box.scrollTop = Math.max(
+      0,
+      previewTopForLine(anchors(), input && showEditor.value ? lineAtOffset(measure(), input.scrollTop) : line) -
+        (input && showEditor.value ? 0 : from),
+    );
 }
 function rememberMode(next: MarkdownMode) {
   mode.value = next;
-  try { localStorage.setItem(MODE_KEY, next); } catch { /* Remembered for this page only. */ }
+  try {
+    localStorage.setItem(MODE_KEY, next);
+  } catch {
+    /* Remembered for this page only. */
+  }
 }
 /** Switching views keeps the passage you were reading on screen. */
 async function setMode(next: MarkdownMode) {
@@ -270,7 +356,10 @@ async function editAt(event: MouseEvent) {
   const block = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-line]");
   if (!block) return;
   const line = Number(block.dataset.line);
-  if (!showEditor.value) { rememberMode(canSplit.value ? "split" : "source"); await nextTick(); }
+  if (!showEditor.value) {
+    rememberMode(canSplit.value ? "split" : "source");
+    await nextTick();
+  }
   const input = editor.value;
   if (!input) return;
   const [start] = lineRange(draft.value.content, line + 1);
@@ -279,24 +368,47 @@ async function editAt(event: MouseEvent) {
   showLine(line, input.clientHeight / 3);
 }
 // Typing in the source moves the preview along with it.
-watch(() => draft.value.content, () => {
-  if (view.value === "split" && document.activeElement === editor.value) requestAnimationFrame(() => { if (drive("editor")) followEditor(); });
-});
+watch(
+  () => draft.value.content,
+  () => {
+    if (view.value === "split" && document.activeElement === editor.value)
+      requestAnimationFrame(() => {
+        if (drive("editor")) followEditor();
+      });
+  },
+);
 
 /** Enter continues a list, Tab indents it (markdown-editing.ts). Kept undoable. */
 function applyEdit(input: HTMLTextAreaElement, edit: TextEdit) {
   input.setSelectionRange(edit.from, edit.to);
   // execCommand is what puts the change on the textarea's own undo stack.
-  const done = edit.insert ? document.execCommand("insertText", false, edit.insert) : edit.from === edit.to || document.execCommand("delete");
-  if (!done) { input.setRangeText(edit.insert, edit.from, edit.to, "end"); input.dispatchEvent(new Event("input", { bubbles: true })); }
+  const done = edit.insert
+    ? document.execCommand("insertText", false, edit.insert)
+    : edit.from === edit.to || document.execCommand("delete");
+  if (!done) {
+    input.setRangeText(edit.insert, edit.from, edit.to, "end");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
   input.setSelectionRange(edit.selectionStart, edit.selectionEnd);
 }
 function editorKey(event: KeyboardEvent) {
-  if (!isMarkdown.value || composing.value || event.isComposing || event.keyCode === 229 || event.altKey || event.metaKey || event.ctrlKey) return;
+  if (
+    !isMarkdown.value ||
+    composing.value ||
+    event.isComposing ||
+    event.keyCode === 229 ||
+    event.altKey ||
+    event.metaKey ||
+    event.ctrlKey
+  )
+    return;
   const input = event.target as HTMLTextAreaElement;
   if (event.key === "Enter" && !event.shiftKey && input.selectionStart === input.selectionEnd) {
     const edit = continueList(input.value, input.selectionStart);
-    if (edit) { event.preventDefault(); applyEdit(input, edit); }
+    if (edit) {
+      event.preventDefault();
+      applyEdit(input, edit);
+    }
   } else if (event.key === "Tab") {
     event.preventDefault();
     const edit = indentLines(input.value, input.selectionStart, input.selectionEnd, event.shiftKey);
@@ -308,27 +420,40 @@ function editorKey(event: KeyboardEvent) {
  * line is selected, which is also its highlight, and scrolled to a third of
  * the way down. Rendered Markdown has no lines, so its source is shown.
  */
-watch(() => [draft.value.loaded, editor.value, pendingJump(place.value, props.path ?? '')?.at] as const, async ([loaded]) => {
-  if (!loaded || !props.path || !pendingJump(place.value, props.path)) return;
-  if (!showEditor.value) { mode.value = canSplit.value ? "split" : "source"; await nextTick(); }
-  const input = editor.value; if (!input) return;
-  const line = takeJump(place.value, props.path); if (!line) return;
-  const [start, end] = lineRange(draft.value.content, line);
-  input.focus({ preventScroll: true });
-  input.setSelectionRange(start, end);
-  const height = parseFloat(getComputedStyle(input).lineHeight) || 20;
-  input.scrollTop = Math.max(0, (line - 1) * height - input.clientHeight / 3);
-  // The highlighted layer beneath follows scroll events only; a scroll set
-  // from code has to move it too, now and once highlighting has drawn.
-  syncScroll({ target: input } as unknown as Event);
-  requestAnimationFrame(() => syncScroll({ target: input } as unknown as Event));
-}, { immediate: true });
+watch(
+  () => [draft.value.loaded, editor.value, pendingJump(place.value, props.path ?? "")?.at] as const,
+  async ([loaded]) => {
+    if (!loaded || !props.path || !pendingJump(place.value, props.path)) return;
+    if (!showEditor.value) {
+      mode.value = canSplit.value ? "split" : "source";
+      await nextTick();
+    }
+    const input = editor.value;
+    if (!input) return;
+    const line = takeJump(place.value, props.path);
+    if (!line) return;
+    const [start, end] = lineRange(draft.value.content, line);
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(start, end);
+    const height = parseFloat(getComputedStyle(input).lineHeight) || 20;
+    input.scrollTop = Math.max(0, (line - 1) * height - input.clientHeight / 3);
+    // The highlighted layer beneath follows scroll events only; a scroll set
+    // from code has to move it too, now and once highlighting has drawn.
+    syncScroll({ target: input } as unknown as Event);
+    requestAnimationFrame(() => syncScroll({ target: input } as unknown as Event));
+  },
+  { immediate: true },
+);
 
 let revision = 0;
 async function read() {
   if (!props.path || kind.value !== "text") return;
-  const requestId = ++revision, target = draft.value;
-  loading.value = true; error.value = ""; success.value = ""; confirmReload.value = false;
+  const requestId = ++revision,
+    target = draft.value;
+  loading.value = true;
+  error.value = "";
+  success.value = "";
+  confirmReload.value = false;
   try {
     const file = await request<TextFile>(placeUrl(place.value, `/file?path=${encodeURIComponent(props.path)}`));
     if (requestId !== revision) return;
@@ -338,25 +463,54 @@ async function read() {
     if (requestId !== revision) return;
     if (cause instanceof ApiError && cause.status === 415) binary.value = true;
     else error.value = errorMessage(cause);
+  } finally {
+    if (requestId === revision) loading.value = false;
   }
-  finally { if (requestId === revision) loading.value = false; }
 }
-const FILE_GONE = "This file is no longer on the host: it was deleted or renamed. Your draft is kept; copy it if you need it.";
+const FILE_GONE =
+  "This file is no longer on the host: it was deleted or renamed. Your draft is kept; copy it if you need it.";
 /** The server refuses to save over a file that is gone as a conflict; it is not one. */
-const fileGone = (cause: unknown) => cause instanceof ApiError && cause.status === 409 && /no longer exists/.test(cause.message);
+const fileGone = (cause: unknown) =>
+  cause instanceof ApiError && cause.status === 409 && /no longer exists/.test(cause.message);
 async function save() {
   if (!props.path || !dirty.value || saving.value) return;
-  const target = draft.value, sentContent = target.content;
-  const own = revision, at = place.value, path = props.path;
-  saving.value = true; error.value = ""; success.value = "";
+  const target = draft.value,
+    sentContent = target.content;
+  const own = revision,
+    at = place.value,
+    path = props.path;
+  saving.value = true;
+  error.value = "";
+  success.value = "";
   try {
-    const file = await request<TextFile>(placeUrl(at, `/file?path=${encodeURIComponent(path)}`), json("PUT", { content: sentContent, expected_version: target.version }));
-    target.original = sentContent; target.version = file.version;
-    if (own === revision) { conflict.value = false; success.value = "Saved to host"; emit("saved"); }
-  } catch (cause) { if (own === revision) { conflict.value = cause instanceof ApiError && cause.status === 409; error.value = conflict.value ? (fileGone(cause) ? FILE_GONE : "This file changed on the host. Your draft is kept. Copy your draft, or reload the host version before saving.") : errorMessage(cause); } }
-  finally { if (own === revision) saving.value = false; }
+    const file = await request<TextFile>(
+      placeUrl(at, `/file?path=${encodeURIComponent(path)}`),
+      json("PUT", { content: sentContent, expected_version: target.version }),
+    );
+    target.original = sentContent;
+    target.version = file.version;
+    if (own === revision) {
+      conflict.value = false;
+      success.value = "Saved to host";
+      emit("saved");
+    }
+  } catch (cause) {
+    if (own === revision) {
+      conflict.value = cause instanceof ApiError && cause.status === 409;
+      error.value = conflict.value
+        ? fileGone(cause)
+          ? FILE_GONE
+          : "This file changed on the host. Your draft is kept. Copy your draft, or reload the host version before saving."
+        : errorMessage(cause);
+    }
+  } finally {
+    if (own === revision) saving.value = false;
+  }
 }
-function reload() { if (dirty.value) confirmReload.value = true; else void read(); }
+function reload() {
+  if (dirty.value) confirmReload.value = true;
+  else void read();
+}
 /**
  * The host changed this file. An untouched copy follows it where you were
  * reading; a draft is never overwritten, only warned about before it is saved
@@ -364,20 +518,37 @@ function reload() { if (dirty.value) confirmReload.value = true; else void read(
  */
 async function hostChanged() {
   if (!props.path || !draft.value.loaded || saving.value || loading.value) return;
-  const own = revision, target = draft.value;
+  const own = revision,
+    target = draft.value;
   try {
     const file = await request<TextFile>(placeUrl(place.value, `/file?path=${encodeURIComponent(props.path)}`));
     if (own !== revision || saving.value || file.version === target.version) return;
-    if (target.content !== target.original) { conflict.value = true; error.value = "This file changed on the host. Your draft is kept. Copy your draft, or reload the host version before saving."; return; }
-    const input = editor.value, at = input && { start: input.selectionStart, end: input.selectionEnd, top: input.scrollTop, left: input.scrollLeft };
+    if (target.content !== target.original) {
+      conflict.value = true;
+      error.value =
+        "This file changed on the host. Your draft is kept. Copy your draft, or reload the host version before saving.";
+      return;
+    }
+    const input = editor.value,
+      at = input && {
+        start: input.selectionStart,
+        end: input.selectionEnd,
+        top: input.scrollTop,
+        left: input.scrollLeft,
+      };
     Object.assign(target, { content: file.content, original: file.content, version: file.version });
     if (!input || !at) return;
     await nextTick();
-    input.setSelectionRange(at.start, at.end); input.scrollTop = at.top; input.scrollLeft = at.left;
+    input.setSelectionRange(at.start, at.end);
+    input.scrollTop = at.top;
+    input.scrollLeft = at.left;
     syncScroll({ target: input } as unknown as Event);
   } catch (cause) {
     // Deleted or renamed on the host: said now, not as a conflict at the next save.
-    if (own === revision && cause instanceof ApiError && cause.status === 404) { conflict.value = true; error.value = FILE_GONE; }
+    if (own === revision && cause instanceof ApiError && cause.status === 404) {
+      conflict.value = true;
+      error.value = FILE_GONE;
+    }
     /* Otherwise unreadable: an explicit reload says why. */
   }
 }
@@ -387,34 +558,194 @@ async function hostChanged() {
 const stopWatching = onFilesChanged((changed, paths) => {
   if (changed !== place.value || !props.path || !touchesFile(paths, props.path)) return;
   if (kind.value === "text") void hostChanged();
-  else { mediaVersion.value++; mediaFailed.value = false; }
+  else {
+    mediaVersion.value++;
+    mediaFailed.value = false;
+  }
 });
-watch([place, () => props.path], () => { revision++; saving.value = false; error.value = ""; success.value = ""; mediaFailed.value = false; binary.value = false; loading.value = false; conflict.value = false; confirmReload.value = false; if (!draft.value.loaded) void read(); else if (kind.value === "text") void hostChanged(); else mediaVersion.value++; }, { immediate: true, flush: "sync" });
+watch(
+  [place, () => props.path],
+  () => {
+    revision++;
+    saving.value = false;
+    error.value = "";
+    success.value = "";
+    mediaFailed.value = false;
+    binary.value = false;
+    loading.value = false;
+    conflict.value = false;
+    confirmReload.value = false;
+    if (!draft.value.loaded) void read();
+    else if (kind.value === "text") void hostChanged();
+    else mediaVersion.value++;
+  },
+  { immediate: true, flush: "sync" },
+);
 document.addEventListener("selectionchange", trackCaret);
 watch([() => draft.value.content, wrapped, showEditor, editor], measureRows, { flush: "post" });
 // A band or column drawn anew starts where the text already is.
 watch([numbersTrack, bandTrack], followScroll, { flush: "post" });
-onBeforeUnmount(() => { revision++; document.removeEventListener("selectionchange", trackCaret); cancelAnimationFrame(rowsFrame); watcher?.disconnect(); paneWatcher?.disconnect(); clearTimeout(driverTimer); stopWatching(); });
+onBeforeUnmount(() => {
+  revision++;
+  document.removeEventListener("selectionchange", trackCaret);
+  cancelAnimationFrame(rowsFrame);
+  watcher?.disconnect();
+  paneWatcher?.disconnect();
+  clearTimeout(driverTimer);
+  stopWatching();
+});
 </script>
 <template>
-  <div v-if="!path" class="pane-empty"><span class="empty-icon"><Icon name="file" :size="28" /></span><h3>{{ t('Your files, right here') }}</h3><p>{{ t('Open a file from Explorer, or drag it into this pane.') }}</p><button class="secondary-button" @click="emit('browse')">{{ t('Browse files') }}</button></div>
+  <div v-if="!path" class="pane-empty">
+    <span class="empty-icon"><Icon name="file" :size="28" /></span>
+    <h3>{{ t("Your files, right here") }}</h3>
+    <p>{{ t("Open a file from Explorer, or drag it into this pane.") }}</p>
+    <button class="secondary-button" @click="emit('browse')">{{ t("Browse files") }}</button>
+  </div>
   <div v-else ref="pane" class="file-pane" @keydown="matches($event, CHORDS.save) && ($event.preventDefault(), save())">
-    <div class="content-toolbar"><span class="file-crumbs" :title="workspaceName ? `${workspaceName} / ${path}` : path"><Icon name="folder" :size="12" /><span class="file-crumbs-path">{{ crumbs }}</span><strong>{{ fileName }}</strong><b v-if="dirty" class="dirty-indicator" :title="t('Unsaved changes')">●</b></span><div class="toolbar-buttons"><a class="icon-button" :href="url" download :aria-label="t('Download {path}', { path })"><Icon name="download" :size="15" /></a><div v-if="isMarkdown && kind === 'text'" class="md-modes" role="group" :aria-label="t('Markdown view')"><button v-for="choice in choices" :key="choice.mode" type="button" :class="{ active: view === choice.mode }" :aria-pressed="view === choice.mode" @click="setMode(choice.mode)">{{ t(choice.label) }}</button></div><template v-if="kind === 'text'"><button class="icon-button" :aria-label="t('Reload file from host')" :disabled="loading || saving" @click="reload"><Icon name="refresh" :size="15" /></button><button class="small-button primary" :title="formatChord(CHORDS.save)" :disabled="!dirty || saving || loading" @click="save"><Icon name="save" :size="13" />{{ t(saving ? 'Saving…' : dirty ? 'Save' : 'Saved') }}</button></template></div></div>
+    <div class="content-toolbar">
+      <span class="file-crumbs" :title="workspaceName ? `${workspaceName} / ${path}` : path"
+        ><Icon name="folder" :size="12" /><span class="file-crumbs-path">{{ crumbs }}</span
+        ><strong>{{ fileName }}</strong
+        ><b v-if="dirty" class="dirty-indicator" :title="t('Unsaved changes')">●</b></span
+      >
+      <div class="toolbar-buttons">
+        <a class="icon-button" :href="url" download :aria-label="t('Download {path}', { path })"
+          ><Icon name="download" :size="15"
+        /></a>
+        <div v-if="isMarkdown && kind === 'text'" class="md-modes" role="group" :aria-label="t('Markdown view')">
+          <button
+            v-for="choice in choices"
+            :key="choice.mode"
+            type="button"
+            :class="{ active: view === choice.mode }"
+            :aria-pressed="view === choice.mode"
+            @click="setMode(choice.mode)"
+          >
+            {{ t(choice.label) }}
+          </button>
+        </div>
+        <template v-if="kind === 'text'"
+          ><button
+            class="icon-button"
+            :aria-label="t('Reload file from host')"
+            :disabled="loading || saving"
+            @click="reload"
+          >
+            <Icon name="refresh" :size="15" /></button
+          ><button
+            class="small-button primary"
+            :title="formatChord(CHORDS.save)"
+            :disabled="!dirty || saving || loading"
+            @click="save"
+          >
+            <Icon name="save" :size="13" />{{ t(saving ? "Saving…" : dirty ? "Save" : "Saved") }}
+          </button></template
+        >
+      </div>
+    </div>
     <div v-if="error" class="inline-error" role="alert">{{ conflict ? t(error) : error }}</div>
     <div v-if="success" class="inline-success" role="status">{{ t(success) }}</div>
-    <div v-if="confirmReload" class="confirmation-bar">{{ t('Reloading discards this unsaved draft.') }}<button class="small-button danger" @click="read">{{ t('Discard draft & reload') }}</button><button class="small-button" @click="confirmReload = false">{{ t('Keep draft') }}</button></div>
-    <div v-if="loading" class="pane-empty"><p>{{ t('Reading file from host…') }}</p></div>
+    <div v-if="confirmReload" class="confirmation-bar">
+      {{ t("Reloading discards this unsaved draft.")
+      }}<button class="small-button danger" @click="read">{{ t("Discard draft & reload") }}</button
+      ><button class="small-button" @click="confirmReload = false">{{ t("Keep draft") }}</button>
+    </div>
+    <div v-if="loading" class="pane-empty">
+      <p>{{ t("Reading file from host…") }}</p>
+    </div>
     <div v-else-if="kind === 'text' && draft.loaded" :class="['text-body', { 'is-split': view === 'split' }]">
-      <div v-if="showEditor" class="code-surface" :class="{ 'is-wrapped': wrapped, 'has-numbers': showNumbers }" :style="{ '--digits': digits }">
-        <div v-if="band" class="code-band" aria-hidden="true"><div ref="bandTrack" class="code-band-track"><div class="code-band-line" :style="{ top: band.top + 'px', height: band.height + 'px' }" /></div></div>
-        <pre v-if="highlighted !== undefined" ref="highlightLayer" class="code-highlight" :style="{ right: gutter + 'px' }" aria-hidden="true"><code v-html="highlighted" /></pre>
+      <div
+        v-if="showEditor"
+        class="code-surface"
+        :class="{ 'is-wrapped': wrapped, 'has-numbers': showNumbers }"
+        :style="{ '--digits': digits }"
+      >
+        <div v-if="band" class="code-band" aria-hidden="true">
+          <div ref="bandTrack" class="code-band-track">
+            <div class="code-band-line" :style="{ top: band.top + 'px', height: band.height + 'px' }" />
+          </div>
+        </div>
+        <pre
+          v-if="highlighted !== undefined"
+          ref="highlightLayer"
+          class="code-highlight"
+          :style="{ right: gutter + 'px' }"
+          aria-hidden="true"
+        ><code v-html="highlighted" /></pre>
         <div v-if="wrapped" ref="mirror" class="code-mirror" :style="{ right: gutter + 'px' }" aria-hidden="true" />
-        <textarea ref="editor" data-pane-input v-model="draft.content" :class="['code-editor', { 'is-overlaid': highlighted !== undefined, 'is-composing': composing }]" :aria-label="t('Edit {path}', { path })" spellcheck="false" autocapitalize="off" autocomplete="off" @input="success = ''" @scroll="editorScrolled" @keydown="editorKey" @compositionstart="composing = true" @compositionend="composing = false" @focus="trackCaret" @blur="caretLine = -1" />
-        <div v-if="showNumbers" class="code-numbers" aria-hidden="true"><div ref="numbersTrack"><template v-if="!wrapped">{{ plainNumbers }}<span v-if="caretLine >= 0" class="is-current" :style="{ top: TOP + caretLine * LINE + 'px' }">{{ caretLine + 1 }}</span></template><template v-else><span v-for="(top, index) in rows.tops" :key="index" :class="{ 'is-current': index === caretLine }" :style="{ top: top + 'px' }">{{ index + 1 }}</span></template></div></div>
+        <textarea
+          ref="editor"
+          data-pane-input
+          v-model="draft.content"
+          :class="['code-editor', { 'is-overlaid': highlighted !== undefined, 'is-composing': composing }]"
+          :aria-label="t('Edit {path}', { path })"
+          spellcheck="false"
+          autocapitalize="off"
+          autocomplete="off"
+          @input="success = ''"
+          @scroll="editorScrolled"
+          @keydown="editorKey"
+          @compositionstart="composing = true"
+          @compositionend="composing = false"
+          @focus="trackCaret"
+          @blur="caretLine = -1"
+        />
+        <div v-if="showNumbers" class="code-numbers" aria-hidden="true">
+          <div ref="numbersTrack">
+            <template v-if="!wrapped"
+              >{{ plainNumbers
+              }}<span v-if="caretLine >= 0" class="is-current" :style="{ top: TOP + caretLine * LINE + 'px' }">{{
+                caretLine + 1
+              }}</span></template
+            ><template v-else
+              ><span
+                v-for="(top, index) in rows.tops"
+                :key="index"
+                :class="{ 'is-current': index === caretLine }"
+                :style="{ top: top + 'px' }"
+                >{{ index + 1 }}</span
+              ></template
+            >
+          </div>
+        </div>
       </div>
-      <div v-if="showPreview" ref="preview" class="markdown-preview" :title="view === 'preview' ? t('Double-click a passage to edit it') : undefined" @scroll="previewScrolled" @dblclick="editAt"><MarkdownContent :text="draft.content" :image-url="(p: string) => assetUrl(workspaceId, p, checkout)" :base="path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''" source-lines html /></div>
+      <div
+        v-if="showPreview"
+        ref="preview"
+        class="markdown-preview"
+        :title="view === 'preview' ? t('Double-click a passage to edit it') : undefined"
+        @scroll="previewScrolled"
+        @dblclick="editAt"
+      >
+        <MarkdownContent
+          :text="draft.content"
+          :image-url="(p: string) => assetUrl(workspaceId, p, checkout)"
+          :base="path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''"
+          source-lines
+          html
+        />
+      </div>
     </div>
     <MediaPreview v-else-if="kind !== 'text'" :url="url" :kind="kind" :name="path?.split('/').pop() ?? ''" />
-    <div class="content-footer"><span>{{ kind === 'converted' ? t('image preview') : kind === 'binary' ? t('No preview') : kind !== 'text' ? t(`${kind} preview`) : isMarkdown && view === 'preview' ? t('Rendered markdown') : oversize ? t('Plain text · too large to highlight') : language ? language : t('Plain text editor') }}</span><span v-if="kind === 'text' && draft.loaded">{{ t('{count} lines · {status}', { count: lineCount, status: t(dirty ? 'Unsaved draft' : 'In sync at last read') }) }}</span></div>
+    <div class="content-footer">
+      <span>{{
+        kind === "converted"
+          ? t("image preview")
+          : kind === "binary"
+            ? t("No preview")
+            : kind !== "text"
+              ? t(`${kind} preview`)
+              : isMarkdown && view === "preview"
+                ? t("Rendered markdown")
+                : oversize
+                  ? t("Plain text · too large to highlight")
+                  : language
+                    ? language
+                    : t("Plain text editor")
+      }}</span><span v-if="kind === 'text' && draft.loaded">{{
+        t("{count} lines · {status}", { count: lineCount, status: t(dirty ? "Unsaved draft" : "In sync at last read") })
+      }}</span>
+    </div>
   </div>
 </template>

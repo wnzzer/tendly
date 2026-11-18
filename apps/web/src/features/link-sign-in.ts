@@ -17,9 +17,13 @@ export type LinkSignIn = "none" | "signed-in" | "failed";
 function begin(): Promise<LinkSignIn> {
   const hash = typeof location === "undefined" ? "" : location.hash;
   // A paired machine's window opens this one with a one-time ticket instead.
-  const token = tokenFromHash(hash), ticket = ticketFromHash(hash);
+  const token = tokenFromHash(hash),
+    ticket = ticketFromHash(hash);
   if (!token && !ticket) return Promise.resolve("none");
   history.replaceState(history.state, "", location.pathname + location.search);
-  return request("/auth", json("POST", token ? { token } : { ticket })).then(() => "signed-in" as const, () => "failed" as const);
+  return request("/auth", json("POST", token ? { token } : { ticket })).then(
+    () => "signed-in" as const,
+    () => "failed" as const,
+  );
 }
 export const linkSignIn = begin();

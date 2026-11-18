@@ -3,12 +3,38 @@ import type { GitOutcome, GitRemote, GitStatus } from "@tendly/protocol";
 import { json, request } from "./api";
 import { placeUrl } from "./checkout-place";
 
-export interface PromptField { key: string; label: string; value?: string; placeholder?: string; multiline?: boolean; required?: boolean; hint?: string; }
-export interface PromptCheck { key: string; label: string; value?: boolean; hint?: string; }
-export interface PromptChoice { key: string; label: string; value: string; options: { value: string; label: string; hint?: string }[]; }
+export interface PromptField {
+  key: string;
+  label: string;
+  value?: string;
+  placeholder?: string;
+  multiline?: boolean;
+  required?: boolean;
+  hint?: string;
+}
+export interface PromptCheck {
+  key: string;
+  label: string;
+  value?: boolean;
+  hint?: string;
+}
+export interface PromptChoice {
+  key: string;
+  label: string;
+  value: string;
+  options: { value: string; label: string; hint?: string }[];
+}
 /** A small form or a confirmation, asked in a dialog. `danger` paints the
  * confirming button red: it is for what cannot be taken back. */
-export interface PromptSpec { title: string; description?: string; fields?: PromptField[]; checks?: PromptCheck[]; choices?: PromptChoice[]; confirm: string; danger?: boolean; }
+export interface PromptSpec {
+  title: string;
+  description?: string;
+  fields?: PromptField[];
+  checks?: PromptCheck[];
+  choices?: PromptChoice[];
+  confirm: string;
+  danger?: boolean;
+}
 export type PromptAnswer = Record<string, string | boolean>;
 
 /**
@@ -41,7 +67,12 @@ export function useGit(): GitContext {
 }
 
 /** `/api/workspaces/:id/git/<path>` in a place's checkout, GET or POST. */
-export function gitGet<T>(place: string, path: string) { return request<T>(placeUrl(place, `/git/${path}`)); }
-export function gitPost<T = void>(place: string, path: string, body: unknown = {}) { return request<T>(placeUrl(place, `/git/${path}`), json("POST", body)); }
-export const isOutcome = (value: unknown): value is GitOutcome => !!value && typeof value === "object" && "conflicts" in value;
+export function gitGet<T>(place: string, path: string) {
+  return request<T>(placeUrl(place, `/git/${path}`));
+}
+export function gitPost<T = void>(place: string, path: string, body: unknown = {}) {
+  return request<T>(placeUrl(place, `/git/${path}`), json("POST", body));
+}
+export const isOutcome = (value: unknown): value is GitOutcome =>
+  !!value && typeof value === "object" && "conflicts" in value;
 export const shortHash = (hash: string) => hash.slice(0, 8);

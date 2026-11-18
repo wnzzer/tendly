@@ -7,7 +7,18 @@ import TerminalUploads from "./TerminalUploads.vue";
 import { useI18n } from "../i18n";
 import { createSessionStream, TERMINAL_VIEW_ERROR, type SessionStreamState } from "../features/session-stream";
 import { onPageReturn } from "../features/page-return";
-import { arrowSequence, ctrlSequence, ENTER_SEQUENCE, isTap, keyClient, repeatArrow, selectionPresses, shiftSequence, tabSequence, type ArrowKey } from "../features/terminal-keys";
+import {
+  arrowSequence,
+  ctrlSequence,
+  ENTER_SEQUENCE,
+  isTap,
+  keyClient,
+  repeatArrow,
+  selectionPresses,
+  shiftSequence,
+  tabSequence,
+  type ArrowKey,
+} from "../features/terminal-keys";
 import { terminalDark as dark } from "../features/theme";
 import { textScale } from "../features/appearance";
 import { terminalEngine } from "../features/terminal-engine";
@@ -79,7 +90,9 @@ const fileInput = ref<HTMLInputElement>();
 const engine = terminalEngine();
 let view: TerminalView | undefined;
 let observer: ResizeObserver | undefined;
-let resizeFrame = 0, sized = false, disposed = false;
+let resizeFrame = 0,
+  sized = false,
+  disposed = false;
 /**
  * Where a reconnect picks up. The server resumes from there when it still can,
  * so a dropped socket costs nothing on screen; otherwise it says so and the
@@ -88,7 +101,8 @@ let resizeFrame = 0, sized = false, disposed = false;
  * says what it is replaying.
  */
 let resume: ResumePoint | undefined;
-let framed = false, redrawPending = false;
+let framed = false,
+  redrawPending = false;
 
 const stream = createSessionStream({
   createSocket: url => new WebSocket(url),
@@ -152,7 +166,9 @@ const stream = createSessionStream({
       emit("exit");
     } else if (control.type === "gap") {
       nativeNotice.value = message !== undefined;
-      notice.value = message ?? "The stream exceeded its buffer. Reconnect to restore available history; this does not restart the process.";
+      notice.value =
+        message ??
+        "The stream exceeded its buffer. Reconnect to restore available history; this does not restart the process.";
     } else if (control.type === "error") {
       stream.fail(message ?? "The session stream reported an error.");
       nativeNotice.value = message !== undefined;
@@ -164,8 +180,14 @@ const stream = createSessionStream({
 const viewEvents: TerminalViewEvents = {
   /** What the keyboard typed, with any armed on-screen modifier applied. */
   typed(data) {
-    if (shiftArmed.value) { shiftArmed.value = false; data = shiftSequence(data); }
-    if (ctrlArmed.value) { ctrlArmed.value = false; data = ctrlSequence(data); }
+    if (shiftArmed.value) {
+      shiftArmed.value = false;
+      data = shiftSequence(data);
+    }
+    if (ctrlArmed.value) {
+      ctrlArmed.value = false;
+      data = ctrlSequence(data);
+    }
     stream.send(new TextEncoder().encode(data));
   },
   send: bytes => stream.send(bytes),
@@ -179,21 +201,31 @@ const viewEvents: TerminalViewEvents = {
     stream.fail(TERMINAL_VIEW_ERROR);
     cleanupView();
   },
-  searched(progress) { searchProgress.value = progress; },
+  searched(progress) {
+    searchProgress.value = progress;
+  },
   // Before it is ready the grid is still being built; `ready` sends the size.
-  resized(size) { if (view?.ready) sendSize(size); },
+  resized(size) {
+    if (view?.ready) sendSize(size);
+  },
 };
 
 function resize() {
   cancelAnimationFrame(resizeFrame);
   resizeFrame = requestAnimationFrame(() => {
     if (disposed || !view?.ready || !host.value || host.value.clientWidth < 30 || host.value.clientHeight < 30) return;
-    try { view.fit(); } catch { return; }
+    try {
+      view.fit();
+    } catch {
+      return;
+    }
     const size = view.size();
     if (size) sendSize(size);
   });
 }
-function sendSize(size: { cols: number; rows: number }) { stream.send(JSON.stringify({ type: "resize", ...size })); }
+function sendSize(size: { cols: number; rows: number }) {
+  stream.send(JSON.stringify({ type: "resize", ...size }));
+}
 
 /** Send exactly the bytes the physical key would, so the client sees a key. */
 function sendKeys(sequence: string) {
@@ -218,7 +250,9 @@ function pressArrow(key: ArrowKey) {
   if (!view?.ready) return;
   sendKeys(arrowSequence(key, view.applicationCursorKeys(), { shift: shiftArmed.value, ctrl: ctrlArmed.value }));
 }
-function focusView() { view?.focus(); }
+function focusView() {
+  view?.focus();
+}
 /**
  * Paste from the clipboard.
  *
@@ -238,10 +272,18 @@ async function pressPaste() {
       const type = item.types.find(kind => kind.startsWith("image/"));
       if (type) images.push(new File([await item.getType(type)], "image." + (type.split("/")[1] ?? "png"), { type }));
     }
-    if (images.length) { void files.sendFiles(images); return; }
+    if (images.length) {
+      void files.sendFiles(images);
+      return;
+    }
     const text = await navigator.clipboard?.readText?.();
-    if (text) { view?.paste(text); return; }
-  } catch { /* Not permitted here; fall back to the field. */ }
+    if (text) {
+      view?.paste(text);
+      return;
+    }
+  } catch {
+    /* Not permitted here; fall back to the field. */
+  }
   pasteDraft.value = "";
   await nextTick();
   pasteField.value?.focus();
@@ -285,10 +327,14 @@ function cancelPaste() {
   focusView();
 }
 /** Keep the caret in the terminal so tapping a control never closes the keyboard. */
-function keepFocus(event: Event) { event.preventDefault(); }
+function keepFocus(event: Event) {
+  event.preventDefault();
+}
 
 let gesture: { x: number; y: number; at: number } | undefined;
-function gestureStart(event: PointerEvent) { gesture = { x: event.clientX, y: event.clientY, at: Date.now() }; }
+function gestureStart(event: PointerEvent) {
+  gesture = { x: event.clientX, y: event.clientY, at: Date.now() };
+}
 /**
  * A tap on the terminal: by default the keyboard comes up, since that is where
  * the person wants to type and a phone opens it only from inside a gesture;
@@ -317,7 +363,9 @@ function gestureEnd(event: PointerEvent) {
   if (move) sendKeys(repeatArrow(move.key, move.count, view.applicationCursorKeys()));
 }
 
-function updateScrolledBack() { scrolledBack.value = !!view?.isScrolledBack(); }
+function updateScrolledBack() {
+  scrolledBack.value = !!view?.isScrolledBack();
+}
 function scrollToLatest() {
   view?.scrollToBottom();
   updateScrolledBack();
@@ -344,8 +392,12 @@ function terminalKeydown(event: KeyboardEvent) {
   if (event.isComposing) return;
   const clipboard = terminalClipboardKey(event);
   if (clipboard) {
-    event.preventDefault(); event.stopPropagation();
-    if (clipboard === "paste") { void pressPaste(); return; }
+    event.preventDefault();
+    event.stopPropagation();
+    if (clipboard === "paste") {
+      void pressPaste();
+      return;
+    }
     // A copy event lets the terminal hand over its own selection, scrolled-off
     // history included, and works over plain http, where navigator.clipboard
     // does not exist.
@@ -413,7 +465,11 @@ onMounted(() => {
   // `any-pointer: coarse` rather than `pointer: coarse`: a laptop with a
   // touchscreen keeps its keyboard, and showing touch-only controls there would
   // be clutter over the terminal.
-  try { touchDevice.value = window.matchMedia?.("(any-pointer: coarse)").matches === true; } catch { touchDevice.value = false; }
+  try {
+    touchDevice.value = window.matchMedia?.("(any-pointer: coarse)").matches === true;
+  } catch {
+    touchDevice.value = false;
+  }
   connect();
 });
 /**
@@ -430,15 +486,20 @@ onMounted(() => {
     else stream.wake(stale);
   });
 });
-watch(() => props.sessionId, async (_next, _previous, onCleanup) => {
-  let current = true;
-  onCleanup(() => { current = false; });
-  stream.disconnect();
-  resume = undefined;
-  view?.reset();
-  await nextTick();
-  if (current) connect();
-});
+watch(
+  () => props.sessionId,
+  async (_next, _previous, onCleanup) => {
+    let current = true;
+    onCleanup(() => {
+      current = false;
+    });
+    stream.disconnect();
+    resume = undefined;
+    view?.reset();
+    await nextTick();
+    if (current) connect();
+  },
+);
 onUnmounted(() => {
   files.dispose();
   stopPageReturn();
@@ -450,30 +511,130 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div :class="['native-terminal', { dark: dark, dragging }]" @keydown.capture="terminalKeydown" @paste.capture="files.onPaste" @dragover="files.onDragOver" @dragleave="files.onDragLeave" @drop="files.onDrop">
+  <div
+    :class="['native-terminal', { dark: dark, dragging }]"
+    @keydown.capture="terminalKeydown"
+    @paste.capture="files.onPaste"
+    @dragover="files.onDragOver"
+    @dragleave="files.onDragLeave"
+    @drop="files.onDrop"
+  >
     <div class="terminal-connection">
-      <span :class="['state-dot', state]" /><span>{{ t(state === 'connected' ? 'Live · native client' : state) }}</span>
-      <button v-if="state === 'disconnected' || state === 'error'" class="text-button" :aria-label="t('Reconnect session stream')" @click="connect"><Icon name="refresh" :size="13" />{{ t('Reconnect') }}</button>
-      <button v-if="state === 'connected'" type="button" class="text-button terminal-attach" :title="t('Add files or images: paste, drop, or pick them; their paths are typed into the terminal')" @click="pickFiles"><Icon name="plus" :size="13" />{{ t('Add file') }}</button>
-      <button v-if="searchable" type="button" class="text-button terminal-find" :title="t('Find in terminal') + ' · ' + findShortcut" @pointerdown="keepFocus" @click="openSearch"><Icon name="search" :size="13" />{{ t('Find') }}</button>
+      <span :class="['state-dot', state]" /><span>{{ t(state === "connected" ? "Live · native client" : state) }}</span>
+      <button
+        v-if="state === 'disconnected' || state === 'error'"
+        class="text-button"
+        :aria-label="t('Reconnect session stream')"
+        @click="connect"
+      >
+        <Icon name="refresh" :size="13" />{{ t("Reconnect") }}
+      </button>
+      <button
+        v-if="state === 'connected'"
+        type="button"
+        class="text-button terminal-attach"
+        :title="t('Add files or images: paste, drop, or pick them; their paths are typed into the terminal')"
+        @click="pickFiles"
+      >
+        <Icon name="plus" :size="13" />{{ t("Add file") }}
+      </button>
+      <button
+        v-if="searchable"
+        type="button"
+        class="text-button terminal-find"
+        :title="t('Find in terminal') + ' · ' + findShortcut"
+        @pointerdown="keepFocus"
+        @click="openSearch"
+      >
+        <Icon name="search" :size="13" />{{ t("Find") }}
+      </button>
     </div>
-    <input ref="fileInput" class="sr-only" type="file" multiple tabindex="-1" aria-hidden="true" @change="filesPicked" />
-    <div v-if="dragging" class="terminal-drop" aria-hidden="true"><span>{{ t('Drop to add the files and type their paths') }}</span></div>
+    <input
+      ref="fileInput"
+      class="sr-only"
+      type="file"
+      multiple
+      tabindex="-1"
+      aria-hidden="true"
+      @change="filesPicked"
+    />
+    <div v-if="dragging" class="terminal-drop" aria-hidden="true">
+      <span>{{ t("Drop to add the files and type their paths") }}</span>
+    </div>
     <TerminalUploads v-if="uploads.length" :uploads="uploads" @retry="files.retry" @dismiss="files.dismiss" />
-    <div v-if="notice" :class="state === 'error' ? 'inline-error' : 'inline-notice'" :role="state === 'error' ? 'alert' : 'status'">{{ nativeNotice ? notice : t(notice) }}</div>
-    <div ref="host" class="terminal-host" tabindex="-1" @focus.self="focusView" :aria-label="t('Native session {id}', { id: sessionId })" @pointerdown="gestureStart" @pointerup="gestureEnd" @pointercancel="gesture = undefined" />
-    <TerminalSearchBar v-if="searchOpen" ref="searchBar" v-model:query="searchQuery" :count="searchCount" :can-step="!!searchProgress?.count" @step="stepSearch" @close="closeSearch" />
-    <button v-if="scrolledBack" type="button" :class="['terminal-latest', { 'above-keys': touchDevice, 'above-more': touchDevice && moreKeys }]" :aria-label="t('Jump to latest output')" :title="t('Jump to latest output')" @pointerdown="keepFocus" @click="scrollToLatest"><Icon name="chevron" :size="14" /><span>{{ t('Latest') }}</span></button>
+    <div
+      v-if="notice"
+      :class="state === 'error' ? 'inline-error' : 'inline-notice'"
+      :role="state === 'error' ? 'alert' : 'status'"
+    >
+      {{ nativeNotice ? notice : t(notice) }}
+    </div>
+    <div
+      ref="host"
+      class="terminal-host"
+      tabindex="-1"
+      @focus.self="focusView"
+      :aria-label="t('Native session {id}', { id: sessionId })"
+      @pointerdown="gestureStart"
+      @pointerup="gestureEnd"
+      @pointercancel="gesture = undefined"
+    />
+    <TerminalSearchBar
+      v-if="searchOpen"
+      ref="searchBar"
+      v-model:query="searchQuery"
+      :count="searchCount"
+      :can-step="!!searchProgress?.count"
+      @step="stepSearch"
+      @close="closeSearch"
+    />
+    <button
+      v-if="scrolledBack"
+      type="button"
+      :class="['terminal-latest', { 'above-keys': touchDevice, 'above-more': touchDevice && moreKeys }]"
+      :aria-label="t('Jump to latest output')"
+      :title="t('Jump to latest output')"
+      @pointerdown="keepFocus"
+      @click="scrollToLatest"
+    >
+      <Icon name="chevron" :size="14" /><span>{{ t("Latest") }}</span>
+    </button>
     <TerminalKeyBar
       v-if="touchDevice"
       :client="keyClient(provider)"
-      v-model:ctrl-armed="ctrlArmed" v-model:shift-armed="shiftArmed" v-model:tap-select="tapSelect" v-model:more-keys="moreKeys"
-      @keys="sendPresses" @tab="sendKeys(tabSequence({ shift: shiftArmed }))"
-      @arrow="pressArrow" @enter="sendKeys(ENTER_SEQUENCE)" @paste="pressPaste" @pick-files="pickFiles"
+      v-model:ctrl-armed="ctrlArmed"
+      v-model:shift-armed="shiftArmed"
+      v-model:tap-select="tapSelect"
+      v-model:more-keys="moreKeys"
+      @keys="sendPresses"
+      @tab="sendKeys(tabSequence({ shift: shiftArmed }))"
+      @arrow="pressArrow"
+      @enter="sendKeys(ENTER_SEQUENCE)"
+      @paste="pressPaste"
+      @pick-files="pickFiles"
     />
-    <form v-if="pasteDraft !== undefined" class="terminal-paste" @submit.prevent="sendPaste" @keydown.esc.prevent="cancelPaste">
-      <textarea ref="pasteField" v-model="pasteDraft" :aria-label="t('Text to paste')" :placeholder="t('Long-press here to paste text, a photo or a file, then send it to the terminal')" @paste="onFieldPaste" />
-      <div><button type="button" class="secondary-button" @click="cancelPaste">{{ t('Cancel') }}</button><button type="submit" class="primary-button" :disabled="!pasteDraft">{{ t('Send') }}</button></div>
+    <form
+      v-if="pasteDraft !== undefined"
+      class="terminal-paste"
+      @submit.prevent="sendPaste"
+      @keydown.esc.prevent="cancelPaste"
+    >
+      <textarea
+        ref="pasteField"
+        v-model="pasteDraft"
+        :aria-label="t('Text to paste')"
+        :placeholder="t('Long-press here to paste text, a photo or a file, then send it to the terminal')"
+        @paste="onFieldPaste"
+      />
+      <div>
+        <button type="button" class="secondary-button" @click="cancelPaste">{{ t("Cancel") }}</button><button
+          type="submit"
+          class="primary-button"
+          :disabled="!pasteDraft"
+        >
+          {{ t("Send") }}
+        </button>
+      </div>
     </form>
   </div>
 </template>

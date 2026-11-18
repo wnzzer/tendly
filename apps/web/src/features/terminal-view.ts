@@ -33,7 +33,13 @@ export interface TerminalViewEvents {
   searched?(progress: FindState): void;
 }
 
-export interface FindState { query: string; count: number; activeIndex: number; searching: boolean; limited: boolean }
+export interface FindState {
+  query: string;
+  count: number;
+  activeIndex: number;
+  searching: boolean;
+  limited: boolean;
+}
 
 export interface TerminalSearch {
   find(query: string): void;
@@ -69,10 +75,26 @@ export interface TerminalView {
 }
 
 export interface TerminalTheme {
-  background: string; foreground: string; cursor: string; selectionBackground: string;
-  black?: string; brightBlack?: string; red?: string; brightRed?: string; green?: string; brightGreen?: string;
-  yellow?: string; brightYellow?: string; blue?: string; brightBlue?: string; magenta?: string; brightMagenta?: string;
-  cyan?: string; brightCyan?: string; white?: string; brightWhite?: string;
+  background: string;
+  foreground: string;
+  cursor: string;
+  selectionBackground: string;
+  black?: string;
+  brightBlack?: string;
+  red?: string;
+  brightRed?: string;
+  green?: string;
+  brightGreen?: string;
+  yellow?: string;
+  brightYellow?: string;
+  blue?: string;
+  brightBlue?: string;
+  magenta?: string;
+  brightMagenta?: string;
+  cyan?: string;
+  brightCyan?: string;
+  white?: string;
+  brightWhite?: string;
 }
 
 /**
@@ -81,12 +103,30 @@ export interface TerminalTheme {
  * several wash out on white.
  */
 export function terminalTheme(dark: boolean): TerminalTheme {
-  return dark ? { background: "#17232d", foreground: "#dde6eb", cursor: "#63dac8", selectionBackground: "#2b4a46" } : {
-    background: "#ffffff", foreground: "#243343", cursor: "#0a8278", selectionBackground: "#ccebe6",
-    black: "#243343", brightBlack: "#657380", red: "#b4374c", brightRed: "#c73f55", green: "#187953", brightGreen: "#098462",
-    yellow: "#916100", brightYellow: "#9b6800", blue: "#3467af", brightBlue: "#3375c5", magenta: "#7856aa", brightMagenta: "#8965bc",
-    cyan: "#087e80", brightCyan: "#058587", white: "#607080", brightWhite: "#384658",
-  };
+  return dark
+    ? { background: "#17232d", foreground: "#dde6eb", cursor: "#63dac8", selectionBackground: "#2b4a46" }
+    : {
+        background: "#ffffff",
+        foreground: "#243343",
+        cursor: "#0a8278",
+        selectionBackground: "#ccebe6",
+        black: "#243343",
+        brightBlack: "#657380",
+        red: "#b4374c",
+        brightRed: "#c73f55",
+        green: "#187953",
+        brightGreen: "#098462",
+        yellow: "#916100",
+        brightYellow: "#9b6800",
+        blue: "#3467af",
+        brightBlue: "#3375c5",
+        magenta: "#7856aa",
+        brightMagenta: "#8965bc",
+        cyan: "#087e80",
+        brightCyan: "#058587",
+        white: "#607080",
+        brightWhite: "#384658",
+      };
 }
 
 const ANSI_NAMES = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"] as const;

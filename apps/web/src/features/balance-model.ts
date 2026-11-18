@@ -1,6 +1,7 @@
-export type BalanceUnit = { kind: 'money'; currency: string } | { kind: 'percentage' };
+export type BalanceUnit = { kind: "money"; currency: string } | { kind: "percentage" };
 /** Where the server puts the endpoint key; `{key}` marks the spot and the script never sees the key. */
-export type BalanceAuth = { kind: 'none' } | { kind: 'header'; name: string; value: string } | { kind: 'query'; name: string };
+export type BalanceAuth =
+  { kind: "none" } | { kind: "header"; name: string; value: string } | { kind: "query"; name: string };
 export interface BalanceConfig {
   unit: BalanceUnit;
   query_url: string;
@@ -10,7 +11,11 @@ export interface BalanceConfig {
   /** Unset means on (see balanceAutoRefreshOn). */
   auto_refresh?: boolean;
 }
-export interface BalanceReading { value: string; unit: BalanceUnit; checked_at: string }
+export interface BalanceReading {
+  value: string;
+  unit: BalanceUnit;
+  checked_at: string;
+}
 export interface BalanceView {
   config: BalanceConfig | null;
   reading: BalanceReading | null;
@@ -18,22 +23,27 @@ export interface BalanceView {
   error: string | null;
   stale: boolean;
 }
-export interface EndpointBalance extends Omit<BalanceView, 'config'> { id: string; name: string; auto_refresh?: boolean | null }
+export interface EndpointBalance extends Omit<BalanceView, "config"> {
+  id: string;
+  name: string;
+  auto_refresh?: boolean | null;
+}
 
 /** Keep money as decimal text, without floating-point rounding or currency conversion. */
 export function balanceLabel(reading: BalanceReading): string {
-  return reading.unit.kind === 'money' ? `${reading.unit.currency} ${reading.value}` : `${reading.value}%`;
+  return reading.unit.kind === "money" ? `${reading.unit.currency} ${reading.value}` : `${reading.value}%`;
 }
 export function balanceIsStale(reading: BalanceReading | null, stale = false, now = Date.now()): boolean {
-  return stale || !!reading && now - Date.parse(reading.checked_at) > 300_000;
+  return stale || (!!reading && now - Date.parse(reading.checked_at) > 300_000);
 }
 /** Rounds decimal text half away from zero without passing through a float, so large balances stay exact. */
 export function roundDecimal(value: string, places: number): string {
   const match = /^(-)?(\d+)(?:\.(\d+))?$/.exec(value.trim());
   if (!match) return value;
-  const [, minus, whole, fraction = ''] = match;
-  const digits = BigInt(whole + fraction.padEnd(places, '0').slice(0, places)) + ((fraction[places] ?? '0') >= '5' ? 1n : 0n);
-  const text = digits.toString().padStart(places + 1, '0');
+  const [, minus, whole, fraction = ""] = match;
+  const digits =
+    BigInt(whole + fraction.padEnd(places, "0").slice(0, places)) + ((fraction[places] ?? "0") >= "5" ? 1n : 0n);
+  const text = digits.toString().padStart(places + 1, "0");
   const rounded = places ? `${text.slice(0, -places)}.${text.slice(-places)}` : text;
   return minus && digits !== 0n ? `-${rounded}` : rounded;
 }
@@ -44,65 +54,115 @@ export function roundDecimal(value: string, places: number): string {
  * full label stays in balanceLabel.
  */
 export function balanceShort(reading: BalanceReading, locale?: string, compact = false): string {
-  if (reading.unit.kind === 'percentage') {
+  if (reading.unit.kind === "percentage") {
     const percent = Number(reading.value);
     return `${percent < 10 ? Math.round(percent * 10) / 10 : Math.round(percent)}%`;
   }
-  const whole2 = roundDecimal(reading.value, 2), places = compact && /^-?\d{3,}/.test(whole2) ? 0 : 2;
-  const rounded = roundDecimal(reading.value, places), negative = rounded.startsWith('-');
-  const [whole, fraction] = rounded.replace('-', '').split('.');
+  const whole2 = roundDecimal(reading.value, 2),
+    places = compact && /^-?\d{3,}/.test(whole2) ? 0 : 2;
+  const rounded = roundDecimal(reading.value, places),
+    negative = rounded.startsWith("-");
+  const [whole, fraction] = rounded.replace("-", "").split(".");
   let symbol = reading.unit.currency;
-  try { symbol = new Intl.NumberFormat(locale, { style: 'currency', currency: symbol, currencyDisplay: 'narrowSymbol' }).formatToParts(0).find(part => part.type === 'currency')?.value ?? symbol; } catch { /* An unknown code stays as typed. */ }
+  try {
+    symbol =
+      new Intl.NumberFormat(locale, { style: "currency", currency: symbol, currencyDisplay: "narrowSymbol" })
+        .formatToParts(0)
+        .find(part => part.type === "currency")?.value ?? symbol;
+  } catch {
+    /* An unknown code stays as typed. */
+  }
   const spaced = /^[A-Za-z]{2,}$/.test(symbol) ? `${symbol} ` : symbol;
-  return `${negative ? '-' : ''}${spaced}${BigInt(whole).toLocaleString(locale)}${fraction ? `.${fraction}` : ''}`;
+  return `${negative ? "-" : ""}${spaced}${BigInt(whole).toLocaleString(locale)}${fraction ? `.${fraction}` : ""}`;
 }
 
 /** Colour for a reading: a nearly spent percentage, or money at or below zero. Money has no other threshold to judge by. */
-export function balanceLevel(reading: BalanceReading): 'ok' | 'warn' | 'danger' {
-  if (reading.unit.kind === 'percentage') {
+export function balanceLevel(reading: BalanceReading): "ok" | "warn" | "danger" {
+  if (reading.unit.kind === "percentage") {
     const percent = Number(reading.value);
-    return percent <= 10 ? 'danger' : percent <= 25 ? 'warn' : 'ok';
+    return percent <= 10 ? "danger" : percent <= 25 ? "warn" : "ok";
   }
-  return reading.value.trim().startsWith('-') || !/[1-9]/.test(reading.value) ? 'danger' : 'ok';
+  return reading.value.trim().startsWith("-") || !/[1-9]/.test(reading.value) ? "danger" : "ok";
 }
 /**
  * Whether to ask the provider again without a click: the last reading is over
  * a minute old (or missing) and this page has not asked within the minute.
  */
-export function shouldAutoRefresh(row: Pick<EndpointBalance, 'reading'>, lastAttempt: number | undefined, now: number): boolean {
+export function shouldAutoRefresh(
+  row: Pick<EndpointBalance, "reading">,
+  lastAttempt: number | undefined,
+  now: number,
+): boolean {
   if (lastAttempt !== undefined && now - lastAttempt < 60_000) return false;
   return !row.reading || now - Date.parse(row.reading.checked_at) > 60_000;
 }
 /** The authentication menu: two common headers by name, then any header, any query parameter, or none. */
-export type AuthPreset = 'none' | 'bearer' | 'api_key' | 'header' | 'query';
-export interface AuthFields { preset: AuthPreset; headerName: string; headerValue: string; queryName: string }
-const BEARER = { name: 'Authorization', value: 'Bearer {key}' }, API_KEY = { name: 'x-api-key', value: '{key}' };
+export type AuthPreset = "none" | "bearer" | "api_key" | "header" | "query";
+export interface AuthFields {
+  preset: AuthPreset;
+  headerName: string;
+  headerValue: string;
+  queryName: string;
+}
+const BEARER = { name: "Authorization", value: "Bearer {key}" },
+  API_KEY = { name: "x-api-key", value: "{key}" };
 
 export function authFields(auth: BalanceAuth): AuthFields {
-  const blank = { headerName: 'X-Token', headerValue: '{key}', queryName: 'api_key' };
-  if (auth.kind === 'query') return { ...blank, preset: 'query', queryName: auth.name };
-  if (auth.kind === 'none') return { ...blank, preset: 'none' };
-  const same = (preset: { name: string; value: string }) => auth.name.toLowerCase() === preset.name.toLowerCase() && auth.value === preset.value;
-  return { ...blank, preset: same(BEARER) ? 'bearer' : same(API_KEY) ? 'api_key' : 'header', headerName: auth.name, headerValue: auth.value };
+  const blank = { headerName: "X-Token", headerValue: "{key}", queryName: "api_key" };
+  if (auth.kind === "query") return { ...blank, preset: "query", queryName: auth.name };
+  if (auth.kind === "none") return { ...blank, preset: "none" };
+  const same = (preset: { name: string; value: string }) =>
+    auth.name.toLowerCase() === preset.name.toLowerCase() && auth.value === preset.value;
+  return {
+    ...blank,
+    preset: same(BEARER) ? "bearer" : same(API_KEY) ? "api_key" : "header",
+    headerName: auth.name,
+    headerValue: auth.value,
+  };
 }
 export function authFromFields(fields: AuthFields): BalanceAuth {
   switch (fields.preset) {
-    case 'none': return { kind: 'none' };
-    case 'bearer': return { kind: 'header', ...BEARER };
-    case 'api_key': return { kind: 'header', ...API_KEY };
-    case 'query': return { kind: 'query', name: fields.queryName.trim() };
-    default: return { kind: 'header', name: fields.headerName.trim(), value: fields.headerValue };
+    case "none":
+      return { kind: "none" };
+    case "bearer":
+      return { kind: "header", ...BEARER };
+    case "api_key":
+      return { kind: "header", ...API_KEY };
+    case "query":
+      return { kind: "query", name: fields.queryName.trim() };
+    default:
+      return { kind: "header", name: fields.headerName.trim(), value: fields.headerValue };
   }
 }
-export const BALANCE_EXAMPLE = 'const data = await ctx.request();\nreturn { value: data.balance };';
+export const BALANCE_EXAMPLE = "const data = await ctx.request();\nreturn { value: data.balance };";
 
 /** Starting points offered beside the script editor; each matches an example in docs/custom-balances.md. */
 export const BALANCE_EXAMPLES: readonly { id: string; label: string; script: string }[] = [
-  { id: 'field', label: 'Read a balance field', script: BALANCE_EXAMPLE },
-  { id: 'cents', label: 'Convert cents exactly', script: "// The API reports cents; return exact decimal text, no float rounding.\nconst data = await ctx.request();\nconst cents = BigInt(data.balance_cents);\nconst absolute = cents < 0n ? -cents : cents;\nreturn { value: `${cents < 0n ? '-' : ''}${absolute / 100n}.${String(absolute % 100n).padStart(2, '0')}` };" },
-  { id: 'used', label: 'Remaining from used percentage', script: '// The endpoint reports the percentage used.\nconst data = await ctx.request();\nreturn { value: 100 - data.used_percent };' },
-  { id: 'quota', label: 'Remaining from total and left', script: "const data = await ctx.request();\nif (!(data.total > 0)) throw new Error('No usable quota total');\nreturn { value: (100 * data.remaining / data.total).toFixed(2) };" },
-  { id: 'post', label: 'POST to another path', script: "const data = await ctx.request({\n  url: '/account/balance', // same origin as the query URL\n  method: 'POST',\n  body: { account: 'example' },\n});\nreturn { value: data.available };" },
+  { id: "field", label: "Read a balance field", script: BALANCE_EXAMPLE },
+  {
+    id: "cents",
+    label: "Convert cents exactly",
+    script:
+      "// The API reports cents; return exact decimal text, no float rounding.\nconst data = await ctx.request();\nconst cents = BigInt(data.balance_cents);\nconst absolute = cents < 0n ? -cents : cents;\nreturn { value: `${cents < 0n ? '-' : ''}${absolute / 100n}.${String(absolute % 100n).padStart(2, '0')}` };",
+  },
+  {
+    id: "used",
+    label: "Remaining from used percentage",
+    script:
+      "// The endpoint reports the percentage used.\nconst data = await ctx.request();\nreturn { value: 100 - data.used_percent };",
+  },
+  {
+    id: "quota",
+    label: "Remaining from total and left",
+    script:
+      "const data = await ctx.request();\nif (!(data.total > 0)) throw new Error('No usable quota total');\nreturn { value: (100 * data.remaining / data.total).toFixed(2) };",
+  },
+  {
+    id: "post",
+    label: "POST to another path",
+    script:
+      "const data = await ctx.request({\n  url: '/account/balance', // same origin as the query URL\n  method: 'POST',\n  body: { account: 'example' },\n});\nreturn { value: data.available };",
+  },
 ];
 
 /**
@@ -115,35 +175,66 @@ export const BALANCE_EXAMPLES: readonly { id: string; label: string; script: str
 export const BALANCE_AUTO_REFRESH_MS = 5 * 60_000;
 export const OFFICIAL_AUTO_REFRESH_MS = 15 * 60_000;
 /** `balance_auto_refresh` and `official_auto_refresh` are 0.1.114's switches for all of them: still honoured where nothing more specific is set. */
-export interface AutoRefreshPreferences { auto_refresh_accounts?: string[]; balance_auto_refresh?: boolean; official_auto_refresh?: boolean }
-export const balanceAutoRefreshOn = (row: { auto_refresh?: boolean | null }, preferences: AutoRefreshPreferences) => row.auto_refresh ?? preferences.balance_auto_refresh !== false;
-export const accountAutoRefreshOn = (accountId: string, preferences: AutoRefreshPreferences) => preferences.official_auto_refresh === true || !!preferences.auto_refresh_accounts?.includes(accountId);
+export interface AutoRefreshPreferences {
+  auto_refresh_accounts?: string[];
+  balance_auto_refresh?: boolean;
+  official_auto_refresh?: boolean;
+}
+export const balanceAutoRefreshOn = (row: { auto_refresh?: boolean | null }, preferences: AutoRefreshPreferences) =>
+  row.auto_refresh ?? preferences.balance_auto_refresh !== false;
+export const accountAutoRefreshOn = (accountId: string, preferences: AutoRefreshPreferences) =>
+  preferences.official_auto_refresh === true || !!preferences.auto_refresh_accounts?.includes(accountId);
 /**
  * Preferences with one account's switch flipped. The old switch for every
  * account is turned into the list it meant, so turning one account off does
  * not leave it on through that.
  */
-export function withAccountAutoRefresh<T extends AutoRefreshPreferences>(preferences: T, accountId: string, on: boolean, allAccountIds: readonly string[]): T {
+export function withAccountAutoRefresh<T extends AutoRefreshPreferences>(
+  preferences: T,
+  accountId: string,
+  on: boolean,
+  allAccountIds: readonly string[],
+): T {
   const { official_auto_refresh: everyAccount, ...rest } = preferences;
-  const listed = new Set(everyAccount === true ? allAccountIds : preferences.auto_refresh_accounts ?? []);
-  if (on) listed.add(accountId); else listed.delete(accountId);
+  const listed = new Set(everyAccount === true ? allAccountIds : (preferences.auto_refresh_accounts ?? []));
+  if (on) listed.add(accountId);
+  else listed.delete(accountId);
   return { ...rest, auto_refresh_accounts: [...listed] } as T;
 }
 
 /** A custom balance whose reading, and this page's last try, are both a full interval old. */
-export function balanceDue(row: Pick<EndpointBalance, 'reading'>, lastAttempt: number | undefined, now: number): boolean {
+export function balanceDue(
+  row: Pick<EndpointBalance, "reading">,
+  lastAttempt: number | undefined,
+  now: number,
+): boolean {
   if (lastAttempt !== undefined && now - lastAttempt < BALANCE_AUTO_REFRESH_MS) return false;
   return !row.reading || now - Date.parse(row.reading.checked_at) >= BALANCE_AUTO_REFRESH_MS;
 }
 
 /** How an official account's allowance is asked for: Claude's rationed usage check, or Codex's account refresh, which reports it for free. */
-export function officialQuotaSource(account: { capabilities: { usage?: boolean; quota: boolean; refresh_token: boolean } }): 'usage' | 'refresh' | undefined {
-  return account.capabilities.usage ? 'usage' : account.capabilities.quota || account.capabilities.refresh_token ? 'refresh' : undefined;
+export function officialQuotaSource(account: {
+  capabilities: { usage?: boolean; quota: boolean; refresh_token: boolean };
+}): "usage" | "refresh" | undefined {
+  return account.capabilities.usage
+    ? "usage"
+    : account.capabilities.quota || account.capabilities.refresh_token
+      ? "refresh"
+      : undefined;
 }
 
 /** A signed-in official account last checked a full interval ago, outside any wait the provider asked for. */
-export function officialDue(account: { status: string; checked_at?: string; capabilities: { usage?: boolean; quota: boolean; refresh_token: boolean } }, lastAttempt: number | undefined, notBefore: number | undefined, now: number): boolean {
-  if (account.status !== 'signed_in' || !officialQuotaSource(account)) return false;
+export function officialDue(
+  account: {
+    status: string;
+    checked_at?: string;
+    capabilities: { usage?: boolean; quota: boolean; refresh_token: boolean };
+  },
+  lastAttempt: number | undefined,
+  notBefore: number | undefined,
+  now: number,
+): boolean {
+  if (account.status !== "signed_in" || !officialQuotaSource(account)) return false;
   if (notBefore !== undefined && now < notBefore) return false;
   if (lastAttempt !== undefined && now - lastAttempt < OFFICIAL_AUTO_REFRESH_MS) return false;
   const checked = account.checked_at ? Date.parse(account.checked_at) : NaN;

@@ -20,18 +20,27 @@ export function taskBranchPreview(title: string): string {
 
 /** One path per line, as the setup form takes them. */
 export function copyLines(text: string): string[] {
-  return [...new Set(text.split(/\r?\n/).map(line => line.trim()).filter(Boolean))];
+  return [
+    ...new Set(
+      text
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 /** A setting that prepares nothing is no setting: the server stores none for it. */
 export function setupPayload(copy: string, command: string): WorktreeSetup | null {
-  const paths = copyLines(copy), run = command.trim();
+  const paths = copyLines(copy),
+    run = command.trim();
   return paths.length || run ? { copy: paths, command: run || null } : null;
 }
 
 export type SetupSummary = { kind: "none" } | { kind: "some"; copy: string[]; command: string | null };
 export function setupSummary(setup: WorktreeSetup | null | undefined): SetupSummary {
-  const copy = setup?.copy ?? [], command = setup?.command?.trim() || null;
+  const copy = setup?.copy ?? [],
+    command = setup?.command?.trim() || null;
   return copy.length || command ? { kind: "some", copy, command } : { kind: "none" };
 }
 
@@ -52,7 +61,11 @@ export function taskActions(task: Pick<TaskState, "ahead" | "uncommitted" | "pre
 
 /** Added and removed lines over every file that reports them. */
 export function taskTotals(task: Pick<TaskState, "files">) {
-  let added = 0, removed = 0;
-  for (const file of task.files) { added += file.added ?? 0; removed += file.removed ?? 0; }
+  let added = 0,
+    removed = 0;
+  for (const file of task.files) {
+    added += file.added ?? 0;
+    removed += file.removed ?? 0;
+  }
   return { files: task.files.length, added, removed };
 }

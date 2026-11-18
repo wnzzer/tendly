@@ -11,7 +11,11 @@ import { onMounted, onUnmounted } from "vue";
  * The visual viewport does know, so it is what the shell is sized from while a
  * keyboard is open, and `dvh` is left alone the rest of the time.
  */
-export interface Visual { height: number; scale: number; offsetTop?: number }
+export interface Visual {
+  height: number;
+  scale: number;
+  offsetTop?: number;
+}
 
 /** A keyboard, as distinct from the several other things that move this number. */
 const KEYBOARD = 80;
@@ -46,8 +50,10 @@ export function shellTop(visual: Visual | undefined, height: number | undefined)
  */
 export function useKeyboardFit() {
   function fitToKeyboard() {
-    const visual = window.visualViewport ?? undefined, root = document.documentElement;
-    const height = shellHeight(visual, window.innerHeight), top = shellTop(visual, height);
+    const visual = window.visualViewport ?? undefined,
+      root = document.documentElement;
+    const height = shellHeight(visual, window.innerHeight),
+      top = shellTop(visual, height);
     root.style.setProperty("--app-height", height ? `${height}px` : "");
     root.style.setProperty("--app-top", top ? `${top}px` : "");
     // What sits at the very bottom only needs the home indicator's inset while no keyboard covers it.
@@ -60,5 +66,8 @@ export function useKeyboardFit() {
     window.visualViewport?.addEventListener("scroll", fitToKeyboard);
     fitToKeyboard();
   });
-  onUnmounted(() => { window.visualViewport?.removeEventListener("resize", fitToKeyboard); window.visualViewport?.removeEventListener("scroll", fitToKeyboard); });
+  onUnmounted(() => {
+    window.visualViewport?.removeEventListener("resize", fitToKeyboard);
+    window.visualViewport?.removeEventListener("scroll", fitToKeyboard);
+  });
 }

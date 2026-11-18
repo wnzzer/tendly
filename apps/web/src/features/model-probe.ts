@@ -93,7 +93,10 @@ export function probeRun(
 }
 
 /** The checks after a batch answers; a repeat replaces what was there. */
-export function mergeChecks(checks: ProbeChecks, results: readonly ModelProbeResult[]): Record<string, ModelProbeResult> {
+export function mergeChecks(
+  checks: ProbeChecks,
+  results: readonly ModelProbeResult[],
+): Record<string, ModelProbeResult> {
   const next: Record<string, ModelProbeResult> = { ...checks };
   for (const result of results) {
     if (result && typeof result.model === "string" && result.model) next[result.model] = result;
@@ -194,16 +197,25 @@ export function matchesCheckFilter(
 type Translate = (text: string, values?: Record<string, string | number>) => string;
 
 /** What an answer's pill says, in the panel and in the form's own check. */
-export function probeAnswer(result: ModelProbeResult, t: Translate): { kind: "ok" | "broken" | "warn"; text: string; title?: string } {
+export function probeAnswer(
+  result: ModelProbeResult,
+  t: Translate,
+): { kind: "ok" | "broken" | "warn"; text: string; title?: string } {
   const detail = result.detail ? { title: result.detail } : {};
   const latency = formatLatency(result.latency_ms);
   switch (result.status) {
-    case "ok": return { kind: "ok", text: latency ? t("Works · {latency}", { latency }) : t("Works"), ...detail };
-    case "not_found": return { kind: "broken", text: t("Model not found"), ...detail };
-    case "unauthorized": return { kind: "warn", text: t("Key refused"), ...detail };
-    case "rate_limited": return { kind: "warn", text: t("Rate limited"), ...detail };
-    case "timeout": return { kind: "warn", text: t("Timed out"), ...detail };
-    default: return { kind: "broken", text: t("Failed"), ...detail };
+    case "ok":
+      return { kind: "ok", text: latency ? t("Works · {latency}", { latency }) : t("Works"), ...detail };
+    case "not_found":
+      return { kind: "broken", text: t("Model not found"), ...detail };
+    case "unauthorized":
+      return { kind: "warn", text: t("Key refused"), ...detail };
+    case "rate_limited":
+      return { kind: "warn", text: t("Rate limited"), ...detail };
+    case "timeout":
+      return { kind: "warn", text: t("Timed out"), ...detail };
+    default:
+      return { kind: "broken", text: t("Failed"), ...detail };
   }
 }
 
@@ -236,7 +248,10 @@ export function formatLatency(ms: number | undefined): string {
  * own preset, or the protocol's: Bearer for the OpenAI APIs, a key header for
  * the rest). A header of the endpoint's own is never swapped for a guess.
  */
-export function otherKeyHeader(mode: "" | "x-api-key" | "bearer" | "custom" | undefined, api: ModelProbeApi): "x-api-key" | "bearer" | undefined {
+export function otherKeyHeader(
+  mode: "" | "x-api-key" | "bearer" | "custom" | undefined,
+  api: ModelProbeApi,
+): "x-api-key" | "bearer" | undefined {
   if (mode === "custom") return undefined;
   const now = mode || (api.startsWith("openai-") ? "bearer" : "x-api-key");
   return now === "bearer" ? "x-api-key" : "bearer";

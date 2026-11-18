@@ -21,10 +21,7 @@ export const PANEL_STORAGE_KEY = "tendly.panels.v1";
  */
 export const SIDEBAR_RAIL_MIN_WIDTH = 761;
 
-export function readPanelVisibility(
-  storage: PanelStorage | undefined,
-  fallback: PanelVisibility,
-): PanelVisibility {
+export function readPanelVisibility(storage: PanelStorage | undefined, fallback: PanelVisibility): PanelVisibility {
   if (!storage) return fallback;
   try {
     const stored: unknown = JSON.parse(storage.getItem(PANEL_STORAGE_KEY) ?? "null");
@@ -36,13 +33,19 @@ export function readPanelVisibility(
       sidebar: typeof entry.sidebar === "boolean" ? entry.sidebar : fallback.sidebar,
       explorer: typeof entry.explorer === "boolean" ? entry.explorer : fallback.explorer,
     };
-  } catch { return fallback; }
+  } catch {
+    return fallback;
+  }
 }
 
 export function writePanelVisibility(storage: PanelStorage | undefined, value: PanelVisibility): boolean {
   if (!storage) return false;
-  try { storage.setItem(PANEL_STORAGE_KEY, JSON.stringify({ sidebar: value.sidebar, explorer: value.explorer })); return true; }
-  catch { return false; }
+  try {
+    storage.setItem(PANEL_STORAGE_KEY, JSON.stringify({ sidebar: value.sidebar, explorer: value.explorer }));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -62,19 +65,53 @@ export const SIDEBAR_WIDTH_KEY = "tendly.sidebar-width.v1";
  * this browser, and a double-click on the edge puts it back. A width applies
  * only while the column is a rail and expanded.
  */
-export function useSidebarWidth(storage: PanelStorage | undefined, sidebarRail: Readonly<Ref<boolean>>, sidebarCollapsed: Readonly<Ref<boolean>>) {
-  const sidebarWidth = ref<number | undefined>((() => { try { return storedSidebarWidth(storage?.getItem(SIDEBAR_WIDTH_KEY)); } catch { return undefined; } })());
-  const bodyStyle = computed(() => sidebarWidth.value && sidebarRail.value && !sidebarCollapsed.value ? { "--rail-left": sidebarWidth.value + "px" } : undefined);
+export function useSidebarWidth(
+  storage: PanelStorage | undefined,
+  sidebarRail: Readonly<Ref<boolean>>,
+  sidebarCollapsed: Readonly<Ref<boolean>>,
+) {
+  const sidebarWidth = ref<number | undefined>(
+    (() => {
+      try {
+        return storedSidebarWidth(storage?.getItem(SIDEBAR_WIDTH_KEY));
+      } catch {
+        return undefined;
+      }
+    })(),
+  );
+  const bodyStyle = computed(() =>
+    sidebarWidth.value && sidebarRail.value && !sidebarCollapsed.value
+      ? { "--rail-left": sidebarWidth.value + "px" }
+      : undefined,
+  );
   function resizeSidebar(event: PointerEvent) {
-    const handle = event.currentTarget as HTMLElement, left = handle.parentElement?.getBoundingClientRect().left ?? 0;
+    const handle = event.currentTarget as HTMLElement,
+      left = handle.parentElement?.getBoundingClientRect().left ?? 0;
     handle.setPointerCapture(event.pointerId);
-    const move = (next: PointerEvent) => { sidebarWidth.value = draggedSidebarWidth(next.clientX, left); };
-    const end = () => {
-      handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", end); handle.removeEventListener("pointercancel", end);
-      try { if (sidebarWidth.value) storage?.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth.value)); } catch { /* The width lasts for this page when storage is unavailable. */ }
+    const move = (next: PointerEvent) => {
+      sidebarWidth.value = draggedSidebarWidth(next.clientX, left);
     };
-    handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", end); handle.addEventListener("pointercancel", end);
+    const end = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", end);
+      handle.removeEventListener("pointercancel", end);
+      try {
+        if (sidebarWidth.value) storage?.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth.value));
+      } catch {
+        /* The width lasts for this page when storage is unavailable. */
+      }
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", end);
+    handle.addEventListener("pointercancel", end);
   }
-  function resetSidebarWidth() { sidebarWidth.value = undefined; try { storage?.setItem(SIDEBAR_WIDTH_KEY, ""); } catch { /* Nothing stored. */ } }
+  function resetSidebarWidth() {
+    sidebarWidth.value = undefined;
+    try {
+      storage?.setItem(SIDEBAR_WIDTH_KEY, "");
+    } catch {
+      /* Nothing stored. */
+    }
+  }
   return { sidebarWidth, bodyStyle, resizeSidebar, resetSidebarWidth };
 }

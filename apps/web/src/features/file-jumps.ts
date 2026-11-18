@@ -1,4 +1,4 @@
-import { reactive } from 'vue';
+import { reactive } from "vue";
 
 /**
  * A line a file pane should show once it has the file.
@@ -9,18 +9,26 @@ import { reactive } from 'vue';
  */
 const jumps = reactive(new Map<string, { line: number; at: number }>());
 const key = (workspaceId: string, path: string) => `${workspaceId}\u0000${path}`;
-export function requestJump(workspaceId: string, path: string, line: number) { jumps.set(key(workspaceId, path), { line, at: Date.now() }); }
-export function pendingJump(workspaceId: string, path: string) { return jumps.get(key(workspaceId, path)); }
-export function takeJump(workspaceId: string, path: string) { const jump = jumps.get(key(workspaceId, path)); jumps.delete(key(workspaceId, path)); return jump?.line; }
+export function requestJump(workspaceId: string, path: string, line: number) {
+  jumps.set(key(workspaceId, path), { line, at: Date.now() });
+}
+export function pendingJump(workspaceId: string, path: string) {
+  return jumps.get(key(workspaceId, path));
+}
+export function takeJump(workspaceId: string, path: string) {
+  const jump = jumps.get(key(workspaceId, path));
+  jumps.delete(key(workspaceId, path));
+  return jump?.line;
+}
 
 /** Character range of a 1-based line in `text`, clamped to the text. */
 export function lineRange(text: string, line: number): [number, number] {
   let start = 0;
   for (let current = 1; current < line; current++) {
-    const next = text.indexOf('\n', start);
+    const next = text.indexOf("\n", start);
     if (next < 0) break;
     start = next + 1;
   }
-  const end = text.indexOf('\n', start);
+  const end = text.indexOf("\n", start);
   return [start, end < 0 ? text.length : end];
 }

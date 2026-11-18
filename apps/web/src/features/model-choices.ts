@@ -12,7 +12,11 @@ import type { NativeModel } from "./chat-model";
  * model in use if the endpoint does not list it. Without an endpoint catalog,
  * as for an official account, the client's list stands.
  */
-export function mergeModels(client: readonly NativeModel[], endpoint: readonly NativeModel[], current?: string): NativeModel[] {
+export function mergeModels(
+  client: readonly NativeModel[],
+  endpoint: readonly NativeModel[],
+  current?: string,
+): NativeModel[] {
   if (!endpoint.length) return [...client];
   // Only the client's thinking levels carry over. Its name and description
   // are its guess at what the ID means ("Opus 5.5 · Best for everyday tasks"),
@@ -23,7 +27,8 @@ export function mergeModels(client: readonly NativeModel[], endpoint: readonly N
     return efforts ? { ...entry, efforts } : entry;
   };
   const merged = endpoint.map(withLevels);
-  if (current && !merged.some(entry => entry.id === current)) merged.unshift(withLevels({ id: current, name: current }));
+  if (current && !merged.some(entry => entry.id === current))
+    merged.unshift(withLevels({ id: current, name: current }));
   return merged;
 }
 
@@ -32,7 +37,10 @@ export function mergeModels(client: readonly NativeModel[], endpoint: readonly N
  * it, in that order and named as the endpoint names them, or the whole list
  * when none were chosen. A chosen model the list no longer has stays, by ID.
  */
-export function offeredModels<T extends { id: string; name: string }>(catalog: readonly T[], chosen: readonly string[] | undefined): (T | { id: string; name: string })[] {
+export function offeredModels<T extends { id: string; name: string }>(
+  catalog: readonly T[],
+  chosen: readonly string[] | undefined,
+): (T | { id: string; name: string })[] {
   if (!chosen?.length) return [...catalog];
   const named = new Map(catalog.map(entry => [entry.id, entry]));
   return chosen.map(id => named.get(id) ?? { id, name: id });

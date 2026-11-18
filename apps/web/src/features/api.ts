@@ -2,16 +2,25 @@ import { useI18n } from "../i18n";
 
 export class ApiError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) { super(message); this.name = "ApiError"; this.status = status; }
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
 }
 
 export class ApiConnectionError extends ApiError {
   readonly outcomeUnknown: boolean;
   constructor(method: string) {
     const outcomeUnknown = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
-    super(useI18n().t(outcomeUnknown
-      ? "Connection was lost while sending the request. It may have reached the server; refresh its state before retrying."
-      : "Cannot reach Tendly from this page. Check that this page's service is running and the address is correct, then retry."), 0);
+    super(
+      useI18n().t(
+        outcomeUnknown
+          ? "Connection was lost while sending the request. It may have reached the server; refresh its state before retrying."
+          : "Cannot reach Tendly from this page. Check that this page's service is running and the address is correct, then retry.",
+      ),
+      0,
+    );
     this.name = "ApiConnectionError";
     this.outcomeUnknown = outcomeUnknown;
   }
@@ -26,7 +35,9 @@ function aborted(cause: unknown, signal?: AbortSignal | null) {
  * here is this machine's, and goes where it always went.
  */
 const remote = new Map<string, string>();
-export function rememberRemote(machine: string, ids: readonly string[]) { for (const id of ids) remote.set(id, machine); }
+export function rememberRemote(machine: string, ids: readonly string[]) {
+  for (const id of ids) remote.set(id, machine);
+}
 const OWNED = /^\/(?:sessions|workspaces|endpoint-profiles)\/([^/?#]+)/;
 /** An API path, by way of the machine it belongs to. */
 export function routed(path: string): string {
@@ -34,7 +45,7 @@ export function routed(path: string): string {
   return machine ? `/machines/${encodeURIComponent(machine)}${path}` : path;
 }
 /** The same, for an address a socket, image or upload uses directly. */
-export const routedUrl = (url: string) => url.startsWith("/api/") ? `/api${routed(url.slice(4))}` : url;
+export const routedUrl = (url: string) => (url.startsWith("/api/") ? `/api${routed(url.slice(4))}` : url);
 /** A path that names no session, sent to the machine a session is on. */
 export function onMachineOf(sessionId: string, path: string): string {
   const machine = remote.get(sessionId);
@@ -48,7 +59,11 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   try {
     response = await fetch(`/api${routed(path)}`, {
       ...init,
-      headers: { "X-Tendly-Client": "web", ...(init.body ? { "Content-Type": "application/json" } : {}), ...init.headers },
+      headers: {
+        "X-Tendly-Client": "web",
+        ...(init.body ? { "Content-Type": "application/json" } : {}),
+        ...init.headers,
+      },
     });
   } catch (cause) {
     if (aborted(cause, init.signal)) throw cause;
@@ -59,26 +74,48 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
     let message = `Request failed (${response.status})`;
     try {
       const raw = await response.text();
-      try { const body = JSON.parse(raw); message = body.error ?? body.message ?? message; }
-      catch { if (raw.length < 1000 && !raw.startsWith("<!")) message = raw || message; }
-    } catch { /* Retain the HTTP error when a response body is unavailable. */ }
+      try {
+        const body = JSON.parse(raw);
+        message = body.error ?? body.message ?? message;
+      } catch {
+        if (raw.length < 1000 && !raw.startsWith("<!")) message = raw || message;
+      }
+    } catch {
+      /* Retain the HTTP error when a response body is unavailable. */
+    }
     throw new ApiError(String(message), response.status);
   }
   if (response.status === 204) return undefined as T;
-  try { return await response.json() as T; }
-  catch (cause) {
+  try {
+    return (await response.json()) as T;
+  } catch (cause) {
     if (aborted(cause, init.signal)) throw cause;
     if (cause instanceof TypeError) throw new ApiConnectionError(method);
-    throw new ApiError(useI18n().t("The backend returned an unreadable response. Check that the page and backend belong to the same Tendly instance."), response.status);
+    throw new ApiError(
+      useI18n().t(
+        "The backend returned an unreadable response. Check that the page and backend belong to the same Tendly instance.",
+      ),
+      response.status,
+    );
   }
 }
 
-export const json = (method: string, value?: unknown): RequestInit => ({ method, ...(value === undefined ? {} : { body: JSON.stringify(value) }) });
-export const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
+export const json = (method: string, value?: unknown): RequestInit => ({
+  method,
+  ...(value === undefined ? {} : { body: JSON.stringify(value) }),
+});
+export const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 export const workspacePath = (id: string) => `/workspaces/${encodeURIComponent(id)}`;
 export const sessionPath = (id: string) => `/sessions/${encodeURIComponent(id)}`;
 /** A workspace URL in one of its checkouts: without one, the workspace directory; with one, the worktree a session works in. */
-export const inCheckout = (url: string, checkout?: string | null) => checkout ? `${url}${url.includes("?") ? "&" : "?"}checkout=${encodeURIComponent(checkout)}` : url;
-export const assetUrl = (id: string, path: string, checkout?: string | null) => inCheckout(`/api${routed(workspacePath(id))}/asset?path=${encodeURIComponent(path)}`, checkout);
+export const inCheckout = (url: string, checkout?: string | null) =>
+  checkout ? `${url}${url.includes("?") ? "&" : "?"}checkout=${encodeURIComponent(checkout)}` : url;
+export const assetUrl = (id: string, path: string, checkout?: string | null) =>
+  inCheckout(`/api${routed(workspacePath(id))}/asset?path=${encodeURIComponent(path)}`, checkout);
 export { providerLabel } from "./clients";
-export const formatBytes = (bytes: number) => bytes < 1024 ? `${bytes} B` : bytes < 1024 ** 2 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+export const formatBytes = (bytes: number) =>
+  bytes < 1024
+    ? `${bytes} B`
+    : bytes < 1024 ** 2
+      ? `${(bytes / 1024).toFixed(1)} KB`
+      : `${(bytes / 1024 ** 2).toFixed(1)} MB`;

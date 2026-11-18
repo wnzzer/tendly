@@ -8,7 +8,11 @@ import { AGENT_CLIENTS, isAgentClient } from "./clients";
  * device opens sessions the same way; each value is only a default the
  * new-session dialog and the session's own chips can still change.
  */
-export interface ProviderPreference { endpoint_profile_id?: string | null; effort?: string | null; permission?: string | null }
+export interface ProviderPreference {
+  endpoint_profile_id?: string | null;
+  effort?: string | null;
+  permission?: string | null;
+}
 /**
  * `agent_tools`: whether sessions get Tendly's own tools.
  * `resource_monitoring`: whether the host's resources are read at all, for
@@ -20,7 +24,16 @@ export interface ProviderPreference { endpoint_profile_id?: string | null; effor
  * `appearance`, `terminal_appearance`: `light` or `dark`; absent follows the
  * system and the interface (theme.ts).
  */
-export type Preferences = Record<AgentProviderKind, ProviderPreference> & { hidden_account_quotas?: string[]; agent_tools?: boolean; resource_monitoring?: boolean; appearance?: string; terminal_appearance?: string; auto_refresh_accounts?: string[]; balance_auto_refresh?: boolean; official_auto_refresh?: boolean };
+export type Preferences = Record<AgentProviderKind, ProviderPreference> & {
+  hidden_account_quotas?: string[];
+  agent_tools?: boolean;
+  resource_monitoring?: boolean;
+  appearance?: string;
+  terminal_appearance?: string;
+  auto_refresh_accounts?: string[];
+  balance_auto_refresh?: boolean;
+  official_auto_refresh?: boolean;
+};
 export type PreferenceProvider = AgentProviderKind;
 
 /** The one copy the page reads; loaded once and replaced on save. */
@@ -39,10 +52,14 @@ export function loadPreferences(force = false): Promise<Preferences> {
 
 export async function savePreferences(next: Preferences): Promise<Preferences> {
   const saved = await request<Preferences>("/preferences", json("PUT", next));
-  preferences.value = saved; loading = Promise.resolve(saved);
+  preferences.value = saved;
+  loading = Promise.resolve(saved);
   return saved;
 }
 
-export function preferenceFor(provider: ProviderKind, source: Preferences = preferences.value): ProviderPreference | undefined {
+export function preferenceFor(
+  provider: ProviderKind,
+  source: Preferences = preferences.value,
+): ProviderPreference | undefined {
   return isAgentClient(provider) ? source[provider] : undefined;
 }

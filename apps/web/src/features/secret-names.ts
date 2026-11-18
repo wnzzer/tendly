@@ -8,7 +8,11 @@
  * the key behind someone else's endpoint.
  */
 /** `stored`: Tendly keeps a value under the name (absent from an older server, where `source` says it). */
-export interface SecretName { name: string; source: "tendly" | "environment"; stored?: boolean }
+export interface SecretName {
+  name: string;
+  source: "tendly" | "environment";
+  stored?: boolean;
+}
 
 /** Whether Tendly itself keeps the key `name`, whichever source wins now. */
 export function isStored(entries: readonly SecretName[], name: string): boolean {
@@ -25,8 +29,13 @@ export function referencedSecret(reference: string | null | undefined): string |
 
 /** `Work proxy` → `TENDLY_SECRET_WORK_PROXY`; `_2`, `_3`… when taken. */
 export function secretNameFor(label: string, taken: Iterable<string>): string {
-  const slug = label.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "KEY";
-  const used = new Set(taken), base = SECRET_PREFIX + slug;
+  const slug =
+    label
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "KEY";
+  const used = new Set(taken),
+    base = SECRET_PREFIX + slug;
   if (!used.has(base)) return base;
   for (let n = 2; ; n++) if (!used.has(`${base}_${n}`)) return `${base}_${n}`;
 }
@@ -35,7 +44,11 @@ export function secretNameFor(label: string, taken: Iterable<string>): string {
  * The stored key a profile can reuse when a new one is pasted: its own, when
  * it already points at one Tendly holds and no other profile shares it.
  */
-export function ownStoredSecret(reference: string | null | undefined, stored: SecretName[], otherReferences: Array<string | null | undefined>): string | undefined {
+export function ownStoredSecret(
+  reference: string | null | undefined,
+  stored: SecretName[],
+  otherReferences: Array<string | null | undefined>,
+): string | undefined {
   const name = referencedSecret(reference);
   if (!name || !isStored(stored, name)) return undefined;
   return otherReferences.some(other => referencedSecret(other) === name) ? undefined : name;
@@ -47,7 +60,10 @@ export function ownStoredSecret(reference: string | null | undefined, stored: Se
  * copy, so it can be kept here. `shadowed`: Tendly keeps it, but the server
  * also sets a variable of that name, which wins while it does.
  */
-export function secretStatus(reference: string | null | undefined, entries: readonly SecretName[]): { stored?: string; adoptable?: string; shadowed: boolean } {
+export function secretStatus(
+  reference: string | null | undefined,
+  entries: readonly SecretName[],
+): { stored?: string; adoptable?: string; shadowed: boolean } {
   const name = referencedSecret(reference);
   if (!name) return { shadowed: false };
   const fromEnvironment = entries.some(entry => entry.name === name && entry.source === "environment");

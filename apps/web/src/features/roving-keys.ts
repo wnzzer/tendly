@@ -9,20 +9,34 @@
 const GROUPS: readonly { group: string; item: string; vertical: boolean }[] = [
   { group: '[role="tablist"]', item: '[role="tab"]', vertical: false },
   { group: '[role="radiogroup"]', item: 'button[role="radio"]', vertical: false },
-  { group: '[data-arrow-nav]', item: 'button', vertical: true },
+  { group: "[data-arrow-nav]", item: "button", vertical: true },
 ];
 
-export function rovingTarget(event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey" | "target" | "defaultPrevented">): HTMLElement | undefined {
+export function rovingTarget(
+  event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey" | "target" | "defaultPrevented">,
+): HTMLElement | undefined {
   if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return undefined;
   const target = event.target instanceof Element ? event.target : null;
   for (const { group, item, vertical } of GROUPS) {
     const owner = target?.closest<HTMLElement>(group);
     const own = target?.closest<HTMLElement>(item);
     if (!owner || !own || !owner.contains(own)) continue;
-    const items = Array.from(owner.querySelectorAll<HTMLElement>(item)).filter(element => !(element as HTMLButtonElement).disabled && element.closest(group) === owner);
+    const items = Array.from(owner.querySelectorAll<HTMLElement>(item)).filter(
+      element => !(element as HTMLButtonElement).disabled && element.closest(group) === owner,
+    );
     const index = items.indexOf(own);
-    const back = vertical ? "ArrowUp" : "ArrowLeft", forth = vertical ? "ArrowDown" : "ArrowRight";
-    const next = event.key === back ? index - 1 : event.key === forth ? index + 1 : event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : undefined;
+    const back = vertical ? "ArrowUp" : "ArrowLeft",
+      forth = vertical ? "ArrowDown" : "ArrowRight";
+    const next =
+      event.key === back
+        ? index - 1
+        : event.key === forth
+          ? index + 1
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? items.length - 1
+              : undefined;
     if (next === undefined || index < 0) return undefined;
     return items[(next + items.length) % items.length];
   }
@@ -37,6 +51,6 @@ export function installRovingKeys(doc: Document = document) {
     next.focus();
     next.click();
   };
-  doc.addEventListener('keydown', onKey);
-  return () => doc.removeEventListener('keydown', onKey);
+  doc.addEventListener("keydown", onKey);
+  return () => doc.removeEventListener("keydown", onKey);
 }

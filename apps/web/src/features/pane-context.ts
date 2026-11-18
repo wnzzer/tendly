@@ -7,12 +7,18 @@ export function paneString(pane: PaneNode, key: string): string | undefined {
   return typeof value === "string" && value ? value : undefined;
 }
 export function sessionPane(session: Session): PaneNode {
-  return { type: "pane", id: `session-${session.id}`, kind: session.provider === "terminal" ? "terminal" : "agent_chat", title: session.title,
-    metadata: { workspace_id: session.workspace_id, session_id: session.id, provider: session.provider } };
+  return {
+    type: "pane",
+    id: `session-${session.id}`,
+    kind: session.provider === "terminal" ? "terminal" : "agent_chat",
+    title: session.title,
+    metadata: { workspace_id: session.workspace_id, session_id: session.id, provider: session.provider },
+  };
 }
 /** Update every canvas tab bound to a session without changing its pane ID. */
 export function renameSessionPanes(root: LayoutNode, sessionId: string, title: string): LayoutNode {
-  if (root.type === "pane") return paneString(root, "session_id") === sessionId && root.title !== title ? { ...root, title } : root;
+  if (root.type === "pane")
+    return paneString(root, "session_id") === sessionId && root.title !== title ? { ...root, title } : root;
   if (root.type === "stack") {
     let changed = false;
     const panes = root.panes.map(pane => {
@@ -43,14 +49,26 @@ export function findSessionPaneId(root: LayoutNode, sessionId: string): string |
   return findSessionPaneId(root.first, sessionId) ?? findSessionPaneId(root.second, sessionId);
 }
 /** A worktree's views are their own panes: the same path in another checkout is another file. */
-const inTree = (checkout?: string | null) => checkout ? `@${encodeURIComponent(checkout)}` : "";
+const inTree = (checkout?: string | null) => (checkout ? `@${encodeURIComponent(checkout)}` : "");
 export function filePane(workspaceId: string, path: string, checkout?: string | null): PaneNode {
-  return { type: "pane", id: `file-${encodeURIComponent(workspaceId)}${inTree(checkout)}:${encodeURIComponent(path)}`,
-    kind: /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif|mp4|webm|mov|m4v|ogv|mp3|wav|ogg|m4a|flac|pdf)$/i.test(path) ? "file_preview" : "editor",
-    title: path.split("/").pop(), metadata: { workspace_id: workspaceId, path, ...(checkout ? { checkout } : {}) } };
+  return {
+    type: "pane",
+    id: `file-${encodeURIComponent(workspaceId)}${inTree(checkout)}:${encodeURIComponent(path)}`,
+    kind: /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif|mp4|webm|mov|m4v|ogv|mp3|wav|ogg|m4a|flac|pdf)$/i.test(path)
+      ? "file_preview"
+      : "editor",
+    title: path.split("/").pop(),
+    metadata: { workspace_id: workspaceId, path, ...(checkout ? { checkout } : {}) },
+  };
 }
 export function changesPane(workspaceId: string, checkout?: string | null): PaneNode {
-  return { type: "pane", id: `changes-${encodeURIComponent(workspaceId)}${inTree(checkout)}`, kind: "git_diff", title: "Changes", metadata: { workspace_id: workspaceId, ...(checkout ? { checkout } : {}) } };
+  return {
+    type: "pane",
+    id: `changes-${encodeURIComponent(workspaceId)}${inTree(checkout)}`,
+    kind: "git_diff",
+    title: "Changes",
+    metadata: { workspace_id: workspaceId, ...(checkout ? { checkout } : {}) },
+  };
 }
 /** The checkout a pane looks at: its session's worktree, or the one a file or Git pane was opened in; `null` for the workspace directory. */
 export function paneCheckout(pane: PaneNode, sessions: Session[]): string | null {
@@ -87,7 +105,10 @@ export function ephemeralSessionIds(sessions: readonly Session[]): string[] {
 export function markEphemeralPanes(document: LayoutDocument, sessions: readonly Session[]): LayoutDocument {
   const ids = new Set(ephemeralSessionIds(sessions));
   if (!ids.size) return document;
-  const marked = flattenPanes(document.root).filter(pane => { const id = paneString(pane, "session_id"); return !!id && ids.has(id) && pane.metadata?.ephemeral !== true; });
+  const marked = flattenPanes(document.root).filter(pane => {
+    const id = paneString(pane, "session_id");
+    return !!id && ids.has(id) && pane.metadata?.ephemeral !== true;
+  });
   if (!marked.length) return document;
   let root = document.root;
   for (const pane of marked) root = updatePane(root, { ...pane, metadata: { ...pane.metadata, ephemeral: true } });
@@ -97,7 +118,10 @@ export function markEphemeralPanes(document: LayoutDocument, sessions: readonly 
 /** `root` without the panes of temporary windows whose session was discarded. */
 export function withoutDiscardedPanes(root: LayoutNode, sessions: readonly Session[]): LayoutNode {
   const known = new Set(sessions.map(session => session.id));
-  const gone = flattenPanes(root).filter(pane => { const id = paneString(pane, "session_id"); return pane.metadata?.ephemeral === true && !!id && !known.has(id); });
+  const gone = flattenPanes(root).filter(pane => {
+    const id = paneString(pane, "session_id");
+    return pane.metadata?.ephemeral === true && !!id && !known.has(id);
+  });
   for (const pane of gone) root = closePane(root, pane.id);
   return root;
 }
@@ -106,7 +130,14 @@ export function acceptsScopedPane(pane: PaneNode, workspaces: Workspace[], sessi
   if (pane.metadata?.remote_session_id) return true;
   if (!paneWorkspace(pane, workspaces, sessions)) return false;
   const path = pane.metadata?.path;
-  return path === undefined || (typeof path === "string" && !!path && !path.startsWith("/") && !path.includes("\0") && !path.split("/").includes(".."));
+  return (
+    path === undefined ||
+    (typeof path === "string" &&
+      !!path &&
+      !path.startsWith("/") &&
+      !path.includes("\0") &&
+      !path.split("/").includes(".."))
+  );
 }
 
 /** One-time migration, in a new document. Old per-workspace layouts stay untouched. */
@@ -116,14 +147,18 @@ export function scopeLegacyLayout(document: LayoutDocument, ownerId: string, ses
   const ids = new Set<string>();
   const renamed = new Map<string, string>();
   function unique(preferred: string) {
-    let id = preferred, suffix = 1;
+    let id = preferred,
+      suffix = 1;
     while (ids.has(id)) id = `${preferred}-${++suffix}`;
-    ids.add(id); return id;
+    ids.add(id);
+    return id;
   }
   function visit(node: LayoutNode): LayoutNode {
-    if (node.type === "split") return { ...node, id: unique(node.id), first: visit(node.first), second: visit(node.second) };
+    if (node.type === "split")
+      return { ...node, id: unique(node.id), first: visit(node.first), second: visit(node.second) };
     if (node.type === "stack") {
-      const id = unique(node.id), panes = node.panes.map(pane => visit(pane) as PaneNode);
+      const id = unique(node.id),
+        panes = node.panes.map(pane => visit(pane) as PaneNode);
       const { collapsedFrom: _projection, ...stack } = node;
       return { ...stack, id, panes, activePaneId: node.activePaneId ? renamed.get(node.activePaneId) : undefined };
     }
@@ -132,8 +167,15 @@ export function scopeLegacyLayout(document: LayoutDocument, ownerId: string, ses
     const workspaceId = paneString(node, "workspace_id") ?? session?.workspace_id ?? ownerId;
     const metadata = { ...node.metadata, workspace_id: workspaceId };
     const path = paneString(node, "path");
-    const preferred = sessionId ? `session-${sessionId}` : path ? filePane(workspaceId, path).id : node.kind === "git_diff" ? changesPane(workspaceId).id : node.id;
-    const id = unique(preferred); renamed.set(node.id, id);
+    const preferred = sessionId
+      ? `session-${sessionId}`
+      : path
+        ? filePane(workspaceId, path).id
+        : node.kind === "git_diff"
+          ? changesPane(workspaceId).id
+          : node.id;
+    const id = unique(preferred);
+    renamed.set(node.id, id);
     return { ...node, id, metadata };
   }
   const result = { version: restored.version, root: visit(restored.root) };
@@ -142,7 +184,13 @@ export function scopeLegacyLayout(document: LayoutDocument, ownerId: string, ses
 }
 
 /** The names built-in panes are shown under when they carry no title of their own. */
-const PANE_NAMES: Record<string, string> = { agent_chat: "Agent session", git_diff: "Git Changes", editor: "File editor", file_preview: "File preview", terminal: "Terminal" };
+const PANE_NAMES: Record<string, string> = {
+  agent_chat: "Agent session",
+  git_diff: "Git Changes",
+  editor: "File editor",
+  file_preview: "File preview",
+  terminal: "Terminal",
+};
 
 /**
  * What a pane is called on screen. A session's or a file's title is its own
@@ -162,7 +210,13 @@ export function paneDisplayTitle(pane: PaneNode, translate: (text: string) => st
  */
 export function reusablePane(open: readonly PaneNode[], incoming: PaneNode): PaneNode | undefined {
   if (incoming.kind === "git_diff") return undefined;
-  return open.find(candidate => candidate.kind === incoming.kind
-    && !candidate.metadata?.session_id && !candidate.metadata?.remote_session_id && !candidate.metadata?.path && !candidate.metadata?.draft
-    && (!candidate.metadata?.workspace_id || candidate.metadata.workspace_id === incoming.metadata?.workspace_id));
+  return open.find(
+    candidate =>
+      candidate.kind === incoming.kind &&
+      !candidate.metadata?.session_id &&
+      !candidate.metadata?.remote_session_id &&
+      !candidate.metadata?.path &&
+      !candidate.metadata?.draft &&
+      (!candidate.metadata?.workspace_id || candidate.metadata.workspace_id === incoming.metadata?.workspace_id),
+  );
 }

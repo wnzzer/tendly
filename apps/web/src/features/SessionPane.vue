@@ -37,14 +37,26 @@ const isChat = computed(() => !isTerminal.value && view.value === "chat");
 // is already on screen in the structured session it came from, so offering one
 // here would show the same transcript twice under two different session ids.
 const isReopen = computed(() => !!props.session.resume_source_id);
-const canSwitch = computed(() => !isTerminal.value && !isReopen.value && props.session.interaction_mode !== "structured");
+const canSwitch = computed(
+  () => !isTerminal.value && !isReopen.value && props.session.interaction_mode !== "structured",
+);
 const showInfo = ref(false);
-function showRunInfo(closeMenu: () => void) { closeMenu(); showInfo.value = true; }
-watch(() => props.session.id, () => { showInfo.value = false; });
+function showRunInfo(closeMenu: () => void) {
+  closeMenu();
+  showInfo.value = true;
+}
+watch(
+  () => props.session.id,
+  () => {
+    showInfo.value = false;
+  },
+);
 
 watch(
   () => [props.session.id, props.session.provider, props.session.interaction_mode] as const,
-  () => { view.value = sessionView(props.session); },
+  () => {
+    view.value = sessionView(props.session);
+  },
   { immediate: true },
 );
 
@@ -52,7 +64,9 @@ function choose(next: SessionView): void {
   if (!canSwitch.value || next === view.value) return;
   view.value = setSessionView(props.session, next);
 }
-function openNative(): void { choose("native"); }
+function openNative(): void {
+  choose("native");
+}
 function openChat(): void {
   // This only changes the view. It deliberately does not call /start or
   // enable structured mode; the native process and its session id are kept.
@@ -61,15 +75,28 @@ function openChat(): void {
 function onStructured(id: string): void {
   if (id === props.session.id) openChat();
 }
-function renameSession(id: string): void { emit("renameRequest", id); }
+function renameSession(id: string): void {
+  emit("renameRequest", id);
+}
 // The terminal this conversation was reopened in, while it runs: the two
 // clients do not share what is said in either, so the view says where it is.
-const liveTerminal = computed(() => isChat.value ? liveEscapeHatch(props.session, props.sessions) : undefined);
+const liveTerminal = computed(() => (isChat.value ? liveEscapeHatch(props.session, props.sessions) : undefined));
 </script>
 
 <template>
-  <section class="session-shell" :data-session-id="session.id" :data-view="view" :aria-label="t('Session view for {session}', { session: session.title })">
-    <div v-if="liveTerminal" class="inline-notice session-terminal-notice"><span>{{ t('This conversation is open in a terminal. Continue there, or leave the terminal to come back here.') }}</span><button type="button" class="small-button" @click="emit('select', liveTerminal)">{{ t('Go to terminal') }}</button></div>
+  <section
+    class="session-shell"
+    :data-session-id="session.id"
+    :data-view="view"
+    :aria-label="t('Session view for {session}', { session: session.title })"
+  >
+    <div v-if="liveTerminal" class="inline-notice session-terminal-notice">
+      <span>{{
+        t("This conversation is open in a terminal. Continue there, or leave the terminal to come back here.")
+      }}</span><button type="button" class="small-button" @click="emit('select', liveTerminal)">
+        {{ t("Go to terminal") }}
+      </button>
+    </div>
     <div class="session-shell-content" :data-session-id="session.id">
       <ChatSessionPane
         v-if="isChat"
@@ -87,7 +114,14 @@ const liveTerminal = computed(() => isChat.value ? liveEscapeHatch(props.session
         @open-file="emit('openFile', $event)"
       >
         <template #session-actions="{ closeMenu }">
-          <SessionCommonActions :session="session" :close-menu="closeMenu" @rename="renameSession(session.id)" @environment="emit('environment', session.id)" @keep="emit('keep', session.id)" @info="showInfo = true" />
+          <SessionCommonActions
+            :session="session"
+            :close-menu="closeMenu"
+            @rename="renameSession(session.id)"
+            @environment="emit('environment', session.id)"
+            @keep="emit('keep', session.id)"
+            @info="showInfo = true"
+          />
         </template>
       </ChatSessionPane>
       <NativeSessionPane
@@ -109,8 +143,25 @@ const liveTerminal = computed(() => isChat.value ? liveEscapeHatch(props.session
         @leave="emit('leave')"
       >
         <template #session-actions="{ closeMenu }">
-          <SessionCommonActions :session="session" :close-menu="closeMenu" @rename="renameSession(session.id)" @environment="emit('environment', session.id)" @keep="emit('keep', session.id)" @info="showInfo = true" />
-          <button v-if="canSwitch" type="button" class="session-shell-action" @click="closeMenu(); openChat()">{{ t('Chat') }}</button>
+          <SessionCommonActions
+            :session="session"
+            :close-menu="closeMenu"
+            @rename="renameSession(session.id)"
+            @environment="emit('environment', session.id)"
+            @keep="emit('keep', session.id)"
+            @info="showInfo = true"
+          />
+          <button
+            v-if="canSwitch"
+            type="button"
+            class="session-shell-action"
+            @click="
+              closeMenu();
+              openChat();
+            "
+          >
+            {{ t("Chat") }}
+          </button>
         </template>
       </NativeSessionPane>
     </div>
@@ -120,7 +171,33 @@ const liveTerminal = computed(() => isChat.value ? liveEscapeHatch(props.session
 </template>
 
 <style scoped>
-.session-shell{display:flex;flex:1;min-height:0;min-width:0;flex-direction:column;overflow:hidden;background:var(--surface,var(--surface))}
-.session-terminal-notice{display:flex;align-items:center;justify-content:space-between;gap:10px;flex:none;margin:8px 8px 0}
-.session-shell-content{display:flex;flex:1;min-height:0;min-width:0}.session-shell-content>*{flex:1 1 auto;width:auto;min-width:0;min-height:0}
+.session-shell {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface, var(--surface));
+}
+.session-terminal-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex: none;
+  margin: 8px 8px 0;
+}
+.session-shell-content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.session-shell-content > * {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+}
 </style>

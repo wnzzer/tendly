@@ -1,7 +1,11 @@
-import { SUBAGENT_TOOLS, type ChatItem, type ToolItem, type ToolStats } from './chat-model';
+import { SUBAGENT_TOOLS, type ChatItem, type ToolItem, type ToolStats } from "./chat-model";
 /** A stretch of tool calls the agent made one after another, shown as one card. */
-export interface ToolRun { type: 'tool_run'; id: string; tools: ToolItem[] }
-export type DisplayItem = Exclude<ChatItem, { type: 'tool' }> | ToolRun;
+export interface ToolRun {
+  type: "tool_run";
+  id: string;
+  tools: ToolItem[];
+}
+export type DisplayItem = Exclude<ChatItem, { type: "tool" }> | ToolRun;
 
 /**
  * Consecutive tool calls, folded into runs.
@@ -16,9 +20,20 @@ export function toolRuns(items: readonly ChatItem[]): DisplayItem[] {
   const out: DisplayItem[] = [];
   let run: ToolRun | undefined;
   for (const item of items) {
-    if (item.type !== 'tool') { run = undefined; out.push(item); continue; }
-    if (item.status === 'failed') { run = undefined; out.push({ type: 'tool_run', id: item.id, tools: [item] }); continue; }
-    if (!run) { run = { type: 'tool_run', id: item.id, tools: [] }; out.push(run); }
+    if (item.type !== "tool") {
+      run = undefined;
+      out.push(item);
+      continue;
+    }
+    if (item.status === "failed") {
+      run = undefined;
+      out.push({ type: "tool_run", id: item.id, tools: [item] });
+      continue;
+    }
+    if (!run) {
+      run = { type: "tool_run", id: item.id, tools: [] };
+      out.push(run);
+    }
     run.tools.push(item);
   }
   return out;
@@ -28,22 +43,26 @@ export function toolRuns(items: readonly ChatItem[]): DisplayItem[] {
 export function toolRunNames(run: ToolRun): string {
   const counts = new Map<string, number>();
   for (const tool of run.tools) counts.set(tool.name, (counts.get(tool.name) ?? 0) + 1);
-  return [...counts].map(([name, count]) => count > 1 ? `${name} ×${count}` : name).join(' · ');
+  return [...counts].map(([name, count]) => (count > 1 ? `${name} ×${count}` : name)).join(" · ");
 }
 
-export function toolRunStatus(run: ToolRun): 'running' | 'failed' | 'completed' {
-  return run.tools.some(tool => tool.status === 'running') ? 'running' : run.tools.some(tool => tool.status === 'failed') ? 'failed' : 'completed';
+export function toolRunStatus(run: ToolRun): "running" | "failed" | "completed" {
+  return run.tools.some(tool => tool.status === "running")
+    ? "running"
+    : run.tools.some(tool => tool.status === "failed")
+      ? "failed"
+      : "completed";
 }
 
 /** The mark on a call's card: done, failed, cut off when its session ended, or still working. */
-export function toolIndicator(tool: { status: 'running' | 'failed' | 'completed'; ended?: boolean }): string {
-  return tool.status === 'completed' ? '✓' : tool.status === 'failed' ? '!' : tool.ended ? '–' : '↻';
+export function toolIndicator(tool: { status: "running" | "failed" | "completed"; ended?: boolean }): string {
+  return tool.status === "completed" ? "✓" : tool.status === "failed" ? "!" : tool.ended ? "–" : "↻";
 }
 
 // The collapsed summary shows where a subagent is now, not where it began.
 export function lastLine(activity: string) {
-  const lines = activity.split('\n').filter(line => line.trim() && line !== '…');
-  const last = lines[lines.length - 1] ?? '';
+  const lines = activity.split("\n").filter(line => line.trim() && line !== "…");
+  const last = lines[lines.length - 1] ?? "";
   return last.length > 80 ? `${last.slice(0, 79)}…` : last;
 }
 
@@ -53,7 +72,7 @@ export function descendants(tool: ToolItem, depth = 1): Array<{ tool: ToolItem; 
 }
 
 /** Running, and started by the client that is still there to finish it. */
-export const isLive = (tool: ToolItem) => tool.status === 'running' && !tool.ended;
+export const isLive = (tool: ToolItem) => tool.status === "running" && !tool.ended;
 
 /** Work that goes on beside the conversation: a subagent, or a command the
  * client put in the background. It belongs in the dock, not the history. */
@@ -62,8 +81,11 @@ export const inDock = (tool: ToolItem) => isLive(tool) && (SUBAGENT_TOOLS.has(to
 /** Subagents still at work anywhere in the conversation, outermost first. */
 export function runningSubagents(items: readonly ChatItem[]): ToolItem[] {
   const found: ToolItem[] = [];
-  const visit = (tool: ToolItem) => { if (isLive(tool) && SUBAGENT_TOOLS.has(tool.name)) found.push(tool); tool.children?.forEach(visit); };
-  for (const item of items) if (item.type === 'tool') visit(item);
+  const visit = (tool: ToolItem) => {
+    if (isLive(tool) && SUBAGENT_TOOLS.has(tool.name)) found.push(tool);
+    tool.children?.forEach(visit);
+  };
+  for (const item of items) if (item.type === "tool") visit(item);
   return found;
 }
 
@@ -72,16 +94,22 @@ export function runningSubagents(items: readonly ChatItem[]): ToolItem[] {
  * while its child runs on leaves the child a row of its own. */
 export function dockRoots(items: readonly ChatItem[]): ToolItem[] {
   const found: ToolItem[] = [];
-  const visit = (tool: ToolItem) => { if (inDock(tool)) found.push(tool); else tool.children?.forEach(visit); };
-  for (const item of items) if (item.type === 'tool') visit(item);
+  const visit = (tool: ToolItem) => {
+    if (inDock(tool)) found.push(tool);
+    else tool.children?.forEach(visit);
+  };
+  for (const item of items) if (item.type === "tool") visit(item);
   return found;
 }
 
 /** Every tool card by id, nested ones included. */
 export function toolsById(items: readonly ChatItem[]): Map<string, ToolItem> {
   const found = new Map<string, ToolItem>();
-  const visit = (tool: ToolItem) => { found.set(tool.id, tool); tool.children?.forEach(visit); };
-  for (const item of items) if (item.type === 'tool') visit(item);
+  const visit = (tool: ToolItem) => {
+    found.set(tool.id, tool);
+    tool.children?.forEach(visit);
+  };
+  for (const item of items) if (item.type === "tool") visit(item);
   return found;
 }
 
@@ -110,8 +138,8 @@ export function stalledFor(tool: ToolItem, now: number): number | undefined {
 /** "3.4k", "12", "1.2M": counts the way a glance reads them. */
 export function compactCount(value: number) {
   if (value < 1000) return String(value);
-  if (value < 1_000_000) return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0).replace(/\.0$/, '')}k`;
-  return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (value < 1_000_000) return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0).replace(/\.0$/, "")}k`;
+  return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
 }
 
 /** How much of a turn's input came from the prompt cache, to one decimal.
@@ -119,6 +147,6 @@ export function compactCount(value: number) {
  * rounded it read 100% every turn. Cut down rather than rounded, so 100.0
  * means all of it. */
 export function cachedPercent(input: number, cached: number) {
-  if (!(input > 0)) return '0.0';
+  if (!(input > 0)) return "0.0";
   return (Math.floor(Math.min(cached / input, 1) * 1000) / 10).toFixed(1);
 }

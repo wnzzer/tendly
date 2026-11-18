@@ -14,14 +14,21 @@ const KEY = "tendly.recent-days";
 function read(): RecentDays {
   try {
     const value = Number(localStorage.getItem(KEY) ?? NaN);
-    return (RECENT_DAY_CHOICES as readonly number[]).includes(value) ? value as RecentDays : DEFAULT_RECENT_DAYS;
-  } catch { return DEFAULT_RECENT_DAYS; }
+    return (RECENT_DAY_CHOICES as readonly number[]).includes(value) ? (value as RecentDays) : DEFAULT_RECENT_DAYS;
+  } catch {
+    return DEFAULT_RECENT_DAYS;
+  }
 }
 
 export const recentDays = ref<RecentDays>(read());
 watch(recentDays, value => {
   try {
-    if (value === DEFAULT_RECENT_DAYS) localStorage.removeItem(KEY); else localStorage.setItem(KEY, String(value));
-  } catch { /* Private browsing: the choice lasts for this page. */ }
+    if (value === DEFAULT_RECENT_DAYS) localStorage.removeItem(KEY);
+    else localStorage.setItem(KEY, String(value));
+  } catch {
+    /* Private browsing: the choice lasts for this page. */
+  }
 });
-export function setRecentDays(value: RecentDays) { recentDays.value = value; }
+export function setRecentDays(value: RecentDays) {
+  recentDays.value = value;
+}

@@ -36,7 +36,8 @@ const paths: Record<string, string> = {
   // A dial with its needle part-way round: how deeply this is being thought
   // about, which is a level rather than a duration.
   gauge: "M3 17a9 9 0 1 1 18 0 M12 17l4.5-5.5",
-  wallet: "M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1 M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4",
+  wallet:
+    "M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1 M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4",
   chart: "M4 20V10 M10 20V4 M16 20v-7 M3 20h18",
   // What stands between a tool and the work. The composer's approval chip.
   globe: "M2 12a10 10 0 1 0 20 0a10 10 0 1 0-20 0 M2 12h20 M12 2a15 15 0 0 1 0 20 M12 2a15 15 0 0 0 0 20",
@@ -56,10 +57,46 @@ const paths: Record<string, string> = {
   panelRight: "M3 4h18v16H3z M15 4v16",
 };
 </script>
-<template><svg :width="size" :height="size" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="name === 'more' ? 3.5 : 1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="app-icon" :data-icon="name" :style="{ '--icon-semantic-color': iconColor(name), color: 'var(--icon-color, var(--icon-semantic-color))' }"><path :d="paths[name] || paths.grid" /></svg></template>
+<template>
+  <svg
+    :width="size"
+    :height="size"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    :stroke-width="name === 'more' ? 3.5 : 1.65"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+    class="app-icon"
+    :data-icon="name"
+    :style="{ '--icon-semantic-color': iconColor(name), color: 'var(--icon-color, var(--icon-semantic-color))' }"
+  >
+    <path :d="paths[name] || paths.grid" />
+  </svg>
+</template>
 <style>
-.app-icon,.provider-glyph{color:var(--icon-color,var(--icon-semantic-color));flex-shrink:0;vertical-align:middle}
+.app-icon,
+.provider-glyph {
+  color: var(--icon-color, var(--icon-semantic-color));
+  flex-shrink: 0;
+  vertical-align: middle;
+}
 /* A tab's media palette and a solid/destructive control's foreground are
    intentional overrides. Inherit their color rather than painting teal on teal. */
-:where(.tab-icon,.primary-button,.primary,.chat-primary,.chat-send,.account-primary,.danger,.danger-text,.account-danger,.danger-button) :is(.app-icon,.provider-glyph){--icon-color:currentColor}
+:where(
+    .tab-icon,
+    .primary-button,
+    .primary,
+    .chat-primary,
+    .chat-send,
+    .account-primary,
+    .danger,
+    .danger-text,
+    .account-danger,
+    .danger-button
+  )
+  :is(.app-icon, .provider-glyph) {
+  --icon-color: currentColor;
+}
 </style>

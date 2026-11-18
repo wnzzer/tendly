@@ -14,11 +14,22 @@ const preferences = new Map<string, SessionView>(load());
 function load(): Array<[string, SessionView]> {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(KEY) ?? "[]");
-    return Array.isArray(parsed) ? parsed.filter((entry): entry is [string, SessionView] => Array.isArray(entry) && typeof entry[0] === "string" && (entry[1] === "chat" || entry[1] === "native")) : [];
-  } catch { return []; }
+    return Array.isArray(parsed)
+      ? parsed.filter(
+          (entry): entry is [string, SessionView] =>
+            Array.isArray(entry) && typeof entry[0] === "string" && (entry[1] === "chat" || entry[1] === "native"),
+        )
+      : [];
+  } catch {
+    return [];
+  }
 }
 function save() {
-  try { localStorage.setItem(KEY, JSON.stringify([...preferences].slice(-LIMIT))); } catch { /* This page only. */ }
+  try {
+    localStorage.setItem(KEY, JSON.stringify([...preferences].slice(-LIMIT)));
+  } catch {
+    /* This page only. */
+  }
 }
 
 export function defaultSessionView(session: Pick<Session, "provider" | "resume_source_id">): SessionView {
@@ -29,7 +40,9 @@ export function defaultSessionView(session: Pick<Session, "provider" | "resume_s
   return session.resume_source_id ? "native" : "chat";
 }
 
-export function sessionView(session: Pick<Session, "id" | "provider" | "interaction_mode" | "resume_source_id">): SessionView {
+export function sessionView(
+  session: Pick<Session, "id" | "provider" | "interaction_mode" | "resume_source_id">,
+): SessionView {
   if (session.provider === "terminal") return "native";
   // Structured mode is owned by the conversation surface. A stale native
   // preference must not disguise it as a PTY.
@@ -47,4 +60,6 @@ export function setSessionView(session: Pick<Session, "id" | "provider">, view: 
 }
 
 /** Test isolation and hot-reload cleanup; intentionally not exported to app code. */
-export function resetSessionViewsForTests(): void { preferences.clear(); }
+export function resetSessionViewsForTests(): void {
+  preferences.clear();
+}

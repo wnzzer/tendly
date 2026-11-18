@@ -17,9 +17,16 @@ import type { PaneNode, SplitDirection } from "@tendly/protocol/layout";
  */
 export function dockPosition(x: number, y: number, width: number, height: number, header = 0): DockPosition {
   if (y < header) return "center";
-  const top = y - header, body = height - header;
-  const marginX = width * DOCK_EDGE, marginY = body * DOCK_EDGE;
-  const candidates: [DockPosition, number][] = [["left", x / marginX], ["right", (width - x) / marginX], ["top", top / marginY], ["bottom", (body - top) / marginY]];
+  const top = y - header,
+    body = height - header;
+  const marginX = width * DOCK_EDGE,
+    marginY = body * DOCK_EDGE;
+  const candidates: [DockPosition, number][] = [
+    ["left", x / marginX],
+    ["right", (width - x) / marginX],
+    ["top", top / marginY],
+    ["bottom", (body - top) / marginY],
+  ];
   const nearest = candidates.sort((a, b) => a[1] - b[1])[0]!;
   return nearest[1] < 1 ? nearest[0] : "center";
 }
@@ -29,7 +36,9 @@ const DOCK_EDGE = 1 / 3;
 export function splitGrid(direction: SplitDirection, ratio: number): Record<string, string> {
   const share = normalizeRatio(ratio);
   const tracks = `minmax(0, ${share}fr) ${SPLIT_GAP}px minmax(0, ${1 - share}fr)`;
-  return direction === "horizontal" ? { gridTemplateColumns: tracks, gridTemplateRows: "minmax(0, 1fr)" } : { gridTemplateRows: tracks, gridTemplateColumns: "minmax(0, 1fr)" };
+  return direction === "horizontal"
+    ? { gridTemplateColumns: tracks, gridTemplateRows: "minmax(0, 1fr)" }
+    : { gridTemplateRows: tracks, gridTemplateColumns: "minmax(0, 1fr)" };
 }
 
 /**
@@ -56,7 +65,10 @@ export function keyedTab(key: string, index: number, count: number): number | un
 }
 
 /** The tabs beside one: those to its left and right and all the others, for closing in bulk. */
-export function tabsAround(tabs: readonly PaneNode[], id: string): { left: PaneNode[]; right: PaneNode[]; others: PaneNode[] } {
+export function tabsAround(
+  tabs: readonly PaneNode[],
+  id: string,
+): { left: PaneNode[]; right: PaneNode[]; others: PaneNode[] } {
   const index = tabs.findIndex(pane => pane.id === id);
   return {
     left: index < 0 ? [] : tabs.slice(0, index),

@@ -1,8 +1,8 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
-import { chipPanelOffset } from './chip-menu-position.ts';
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { chipPanelOffset } from "./chip-menu-position.ts";
 
-test('a panel hangs from its chip until that would hang it off the screen', () => {
+test("a panel hangs from its chip until that would hang it off the screen", () => {
   // Room to the right: the panel stays where the chip is, which is where the
   // eye already is.
   assert.equal(chipPanelOffset(100, 292, 1200), 0);

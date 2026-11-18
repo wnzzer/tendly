@@ -1,8 +1,19 @@
 import { request } from "./api";
 import { placeUrl } from "./checkout-place";
 
-export interface SearchHit { path: string; name: string; kind: "file" | "directory"; score: number; indices: number[] }
-export interface SearchResults { files: SearchHit[]; truncated: boolean; available: boolean; timed_out?: boolean }
+export interface SearchHit {
+  path: string;
+  name: string;
+  kind: "file" | "directory";
+  score: number;
+  indices: number[];
+}
+export interface SearchResults {
+  files: SearchHit[];
+  truncated: boolean;
+  available: boolean;
+  timed_out?: boolean;
+}
 
 /** Long enough that a typed word is one query, short enough to feel immediate. */
 export const SEARCH_DEBOUNCE_MS = 220;
@@ -14,13 +25,18 @@ export const SEARCH_DEBOUNCE_MS = 220;
  * in-flight request is abandoned rather than awaited, and a slow answer for an
  * earlier query must never overwrite the results for what is typed now.
  */
-export function createFileSearch(run: (workspace: string, query: string, signal: AbortSignal) => Promise<SearchResults> = requestSearch) {
+export function createFileSearch(
+  run: (workspace: string, query: string, signal: AbortSignal) => Promise<SearchResults> = requestSearch,
+) {
   let controller: AbortController | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let generation = 0;
 
   function cancel() {
-    if (timer !== undefined) { clearTimeout(timer); timer = undefined; }
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
     controller?.abort();
     controller = undefined;
     generation += 1; // Invalidate any reply still on its way.
@@ -28,16 +44,23 @@ export function createFileSearch(run: (workspace: string, query: string, signal:
 
   function search(workspace: string, query: string, apply: (results: SearchResults | undefined) => void) {
     cancel();
-    if (!query.trim()) { apply(undefined); return; }
+    if (!query.trim()) {
+      apply(undefined);
+      return;
+    }
     const mine = generation;
     timer = setTimeout(() => {
       timer = undefined;
       controller = new AbortController();
       run(workspace, query, controller.signal)
-        .then(results => { if (mine === generation) apply(results); })
+        .then(results => {
+          if (mine === generation) apply(results);
+        })
         // A superseded or failed query leaves the previous view alone rather
         // than flashing an empty list the user would read as "no matches".
-        .catch(() => { if (mine === generation) apply(undefined); });
+        .catch(() => {
+          if (mine === generation) apply(undefined);
+        });
     }, SEARCH_DEBOUNCE_MS);
   }
 

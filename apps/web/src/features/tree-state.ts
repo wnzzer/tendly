@@ -15,7 +15,9 @@ function copy(state: TreeViewState): TreeViewState {
 
 export function readTreeViewState(workspaceId: string): TreeViewState {
   const state = views.get(workspaceId);
-  return state ? copy(state) : { expanded: new Set(), loadedDirectories: new Set(), selectedPath: "", focusedPath: "", query: "" };
+  return state
+    ? copy(state)
+    : { expanded: new Set(), loadedDirectories: new Set(), selectedPath: "", focusedPath: "", query: "" };
 }
 
 export function saveTreeViewState(workspaceId: string, state: TreeViewState): void {

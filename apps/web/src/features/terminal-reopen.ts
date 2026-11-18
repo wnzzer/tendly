@@ -30,7 +30,10 @@ export async function terminalReopen(session: Pick<Session, "id">): Promise<Sess
  * before the first turn there is nothing to resume and the server would refuse.
  * Offering the action anyway would be a button whose only outcome is an error.
  */
-export function canReopenInTerminal(session: Pick<Session, "provider" | "interaction_mode" | "provider_session_id">, capabilities: { sessionTerminalEscape?: boolean } = {}): boolean {
+export function canReopenInTerminal(
+  session: Pick<Session, "provider" | "interaction_mode" | "provider_session_id">,
+  capabilities: { sessionTerminalEscape?: boolean } = {},
+): boolean {
   if (capabilities.sessionTerminalEscape !== true) return false;
   if (session.provider === "terminal") return false;
   if (session.interaction_mode !== "structured") return false;
@@ -52,5 +55,7 @@ export function escapeHatchSource(session: Pick<Session, "provider" | "resume_so
  * conversation view meanwhile is not part of what the terminal's client knows.
  */
 export function liveEscapeHatch(source: Pick<Session, "id">, sessions: readonly Session[]): Session | undefined {
-  return sessions.find(session => escapeHatchSource(session) === source.id && ["starting", "running", "waiting"].includes(session.status));
+  return sessions.find(
+    session => escapeHatchSource(session) === source.id && ["starting", "running", "waiting"].includes(session.status),
+  );
 }

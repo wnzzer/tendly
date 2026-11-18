@@ -11,7 +11,11 @@ import type { TreeDirectory } from "./tree-model";
 
 /** Where a new file goes: under the folder in hand, at the path typed. */
 export function newFilePath(base: string, typed: string): string {
-  const name = typed.trim().replace(/^\/+/, "").replace(/\/+$/, "").replace(/\/{2,}/g, "/");
+  const name = typed
+    .trim()
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "")
+    .replace(/\/{2,}/g, "/");
   if (!name) return "";
   const parent = base.replace(/\/+$/, "");
   return parent ? `${parent}/${name}` : name;

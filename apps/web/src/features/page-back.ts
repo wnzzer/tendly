@@ -16,5 +16,5 @@ const DESTINATIONS: Record<string, string> = {
 /** `previous` is the route name the history steps back to, or none. */
 export function backLabel(previous: string | symbol | null | undefined): string {
   if (previous === undefined || previous === null) return DESTINATIONS.canvas;
-  return typeof previous === "string" ? DESTINATIONS[previous] ?? "Back" : "Back";
+  return typeof previous === "string" ? (DESTINATIONS[previous] ?? "Back") : "Back";
 }

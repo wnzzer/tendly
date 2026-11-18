@@ -14,8 +14,18 @@ export function approvalChoices(item: { choices: readonly string[] }): ApprovalD
   return item.choices.filter(choice => DECISIONS.includes(choice)) as ApprovalDecision[];
 }
 
-export const DECISION_LABEL: Record<ApprovalDecision, string> = { accept: "Allow once", accept_session: "Allow for this session", decline: "Decline", cancel: "Cancel turn" };
-export const ACCESS_LABEL: Record<string, string> = { read: "Read", write: "Write", execute: "Run a command", network: "Network access" };
+export const DECISION_LABEL: Record<ApprovalDecision, string> = {
+  accept: "Allow once",
+  accept_session: "Allow for this session",
+  decline: "Decline",
+  cancel: "Cancel turn",
+};
+export const ACCESS_LABEL: Record<string, string> = {
+  read: "Read",
+  write: "Write",
+  execute: "Run a command",
+  network: "Network access",
+};
 
 /**
  * A native request's text is usually the client's own JSON. Its reason reads
@@ -27,7 +37,9 @@ export function approvalBody(text: string): { reason?: string; detail?: string }
     const parsed: unknown = JSON.parse(text);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
     const { reason, ...rest } = parsed as Record<string, unknown>;
-    const detail = Object.fromEntries(Object.entries(rest).filter(([, value]) => value !== undefined && value !== null));
+    const detail = Object.fromEntries(
+      Object.entries(rest).filter(([, value]) => value !== undefined && value !== null),
+    );
     return {
       reason: typeof reason === "string" && reason.trim() ? reason : undefined,
       detail: Object.keys(detail).length ? JSON.stringify(detail, null, 2) : undefined,

@@ -11,9 +11,17 @@ import { routedUrl } from "./api";
  */
 
 /** Where a reconnect picks up: the process the view was showing and the last frame it drew. */
-export interface ResumePoint { runtime: string; seq: number }
+export interface ResumePoint {
+  runtime: string;
+  seq: number;
+}
 
-export interface ControlMessage { type: string; message?: string; runtime?: unknown; resumed?: unknown }
+export interface ControlMessage {
+  type: string;
+  message?: string;
+  runtime?: unknown;
+  resumed?: unknown;
+}
 
 /** The sequence number and output of a framed binary frame, or `undefined` for one too short to carry them. */
 export function readFramed(data: ArrayBuffer): { seq: number; bytes: Uint8Array } | undefined {
@@ -25,7 +33,8 @@ export function readFramed(data: ArrayBuffer): { seq: number; bytes: Uint8Array 
 export function parseControl(text: string): ControlMessage | undefined {
   try {
     const parsed: unknown = JSON.parse(text);
-    if (!parsed || typeof parsed !== "object" || typeof (parsed as { type?: unknown }).type !== "string") return undefined;
+    if (!parsed || typeof parsed !== "object" || typeof (parsed as { type?: unknown }).type !== "string")
+      return undefined;
     return parsed as ControlMessage;
   } catch {
     return undefined;
@@ -38,7 +47,10 @@ export function parseControl(text: string): ControlMessage | undefined {
  * fresh start, a restarted process, a server that could not resume -- is
  * redrawn from what it replays.
  */
-export function afterHello(hello: ControlMessage, previous: ResumePoint | undefined): { reset: boolean; resume: ResumePoint | undefined } {
+export function afterHello(
+  hello: ControlMessage,
+  previous: ResumePoint | undefined,
+): { reset: boolean; resume: ResumePoint | undefined } {
   const runtime = typeof hello.runtime === "string" ? hello.runtime : undefined;
   const resumed = hello.resumed === true;
   return {
@@ -48,7 +60,12 @@ export function afterHello(hello: ControlMessage, previous: ResumePoint | undefi
 }
 
 /** The socket address for a session, carrying the view's size and, on a reconnect, where to resume. */
-export function streamUrl(pageUrl: string, sessionId: string, size: { cols: number; rows: number } | undefined, resume: ResumePoint | undefined): string {
+export function streamUrl(
+  pageUrl: string,
+  sessionId: string,
+  size: { cols: number; rows: number } | undefined,
+  resume: ResumePoint | undefined,
+): string {
   const url = new URL(routedUrl(`/api/sessions/${encodeURIComponent(sessionId)}/pty/ws`), pageUrl);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   if (size) {

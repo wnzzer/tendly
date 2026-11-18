@@ -3,7 +3,13 @@ import { clientInfo, type ClientInfo } from "./clients";
 import { SLOTS } from "./claude-slots";
 
 /** The few fields a copy is asked for; everything else comes from the profile it copies. */
-export interface CopyDraft { name: string; provider: AgentProviderKind; endpoint_url: string; model: string; secret_ref: string | null }
+export interface CopyDraft {
+  name: string;
+  provider: AgentProviderKind;
+  endpoint_url: string;
+  model: string;
+  secret_ref: string | null;
+}
 
 /**
  * What a profile started from `source` is created with. The proxy, permission
@@ -20,8 +26,12 @@ export function copiedProfilePayload(source: EndpointProfile, draft: CopyDraft, 
   const model = draft.model.trim() || null;
   const aliases = source.model_aliases ?? {};
   return {
-    name: draft.name.trim(), provider: draft.provider, endpoint_url: endpointUrl, model,
-    permission_mode: permissionFor(source.permission_mode, client), secret_ref: draft.secret_ref,
+    name: draft.name.trim(),
+    provider: draft.provider,
+    endpoint_url: endpointUrl,
+    model,
+    permission_mode: permissionFor(source.permission_mode, client),
+    secret_ref: draft.secret_ref,
     ...(source.proxy_url ? { proxy_url: source.proxy_url } : {}),
     // A depth is offered per model, so a different model starts on the default.
     ...(sameClient && model === source.model && source.effort ? { effort: source.effort } : {}),
@@ -33,7 +43,10 @@ export function copiedProfilePayload(source: EndpointProfile, draft: CopyDraft, 
 }
 
 /** A permission intent the new client cannot take falls back to its own defaults. */
-function permissionFor(mode: EndpointProfile["permission_mode"], client: ClientInfo): EndpointProfile["permission_mode"] {
+function permissionFor(
+  mode: EndpointProfile["permission_mode"],
+  client: ClientInfo,
+): EndpointProfile["permission_mode"] {
   if (mode === "plan") return client.profilePlan ? mode : "native";
   if (mode === "interactive" || mode === "trusted") return client.approvals ? mode : "native";
   return mode;
@@ -49,7 +62,8 @@ function permissionFor(mode: EndpointProfile["permission_mode"], client: ClientI
 export function copiedEnvironment(source: EndpointProfile, provider: AgentProviderKind): EnvironmentOverrides {
   const environment: EnvironmentOverrides = { ...(source.environment ?? {}) };
   if (provider === source.provider) return environment;
-  const from = clientInfo(source.provider as AgentProviderKind), to = clientInfo(provider);
+  const from = clientInfo(source.provider as AgentProviderKind),
+    to = clientInfo(provider);
   const dropped = new Set<string>([
     ...(from.modelSlots ? SLOTS.map(slot => slot.variable) : []),
     ...(from.contextWindow.variable ? [from.contextWindow.variable] : []),
@@ -63,5 +77,8 @@ export function copiedEnvironment(source: EndpointProfile, provider: AgentProvid
 /** The first of `label(1)`, `label(2)`… ("Name copy", "Name copy 2") not already taken. */
 export function copyName(taken: Iterable<string>, label: (n: number) => string): string {
   const names = new Set(taken);
-  for (let n = 1; ; n++) { const candidate = label(n); if (!names.has(candidate)) return candidate; }
+  for (let n = 1; ; n++) {
+    const candidate = label(n);
+    if (!names.has(candidate)) return candidate;
+  }
 }

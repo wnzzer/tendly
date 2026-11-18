@@ -12,7 +12,7 @@ export const SLOTS = [
   { key: "sonnet", label: "Sonnet", variable: "ANTHROPIC_DEFAULT_SONNET_MODEL" },
   { key: "haiku", label: "Haiku", variable: "ANTHROPIC_DEFAULT_HAIKU_MODEL" },
 ] as const;
-export type SlotVariable = typeof SLOTS[number]["variable"];
+export type SlotVariable = (typeof SLOTS)[number]["variable"];
 export type SlotState = { mode: "main" } | { mode: "client" } | { mode: "model"; model: string };
 
 export function slotState(rows: readonly EnvironmentRow[], variable: SlotVariable): SlotState {
@@ -27,9 +27,18 @@ export function setSlot(rows: readonly EnvironmentRow[], variable: SlotVariable,
   const index = rows.findIndex(entry => entry.name.trim() === variable);
   const others = rows.filter(entry => entry.name.trim() !== variable);
   if (state.mode === "client") return others;
-  const row: EnvironmentRow = { ...(index >= 0 ? rows[index] : newEnvironmentRow()), name: variable, kind: state.mode === "main" ? "main_model" : "literal", value: state.mode === "model" ? state.model : "" };
+  const row: EnvironmentRow = {
+    ...(index >= 0 ? rows[index] : newEnvironmentRow()),
+    name: variable,
+    kind: state.mode === "main" ? "main_model" : "literal",
+    value: state.mode === "model" ? state.model : "",
+  };
   // Kept where it was, so editing a slot does not reorder the list.
-  return index >= 0 ? rows.map((entry, at) => at === index ? row : entry).filter(entry => entry === row || entry.name.trim() !== variable) : [...others, row];
+  return index >= 0
+    ? rows
+        .map((entry, at) => (at === index ? row : entry))
+        .filter(entry => entry === row || entry.name.trim() !== variable)
+    : [...others, row];
 }
 
 /** Every slot following the main model: what a new Claude Code endpoint starts with. */
@@ -40,5 +49,5 @@ export function followingRows(rows: readonly EnvironmentRow[] = []): Environment
 /** One word for all three slots, or `mixed` when they differ. */
 export function slotSummary(rows: readonly EnvironmentRow[]): "main" | "client" | "mixed" {
   const modes = new Set(SLOTS.map(slot => slotState(rows, slot.variable).mode));
-  return modes.size === 1 && !modes.has("model") ? [...modes][0] as "main" | "client" : "mixed";
+  return modes.size === 1 && !modes.has("model") ? ([...modes][0] as "main" | "client") : "mixed";
 }

@@ -7,7 +7,11 @@ const KEY = "tendly.quick-provider.v1";
 type PreferenceStorage = Pick<Storage, "getItem" | "setItem">;
 
 function browserStorage(): PreferenceStorage | undefined {
-  try { return typeof window === "undefined" ? undefined : window.localStorage; } catch { return undefined; }
+  try {
+    return typeof window === "undefined" ? undefined : window.localStorage;
+  } catch {
+    return undefined;
+  }
 }
 const DEFAULT: QuickProvider = DEFAULT_CLIENT;
 /** Only covers a storage that is unavailable or throwing; a readable storage is always authoritative. */
@@ -18,16 +22,24 @@ const valid = (value: unknown): QuickProvider | undefined => PROVIDER_KINDS.find
 export function lastQuickProvider(storage?: PreferenceStorage): QuickProvider {
   const target = storage ?? browserStorage();
   if (!target) return unstored.value ?? DEFAULT;
-  try { return valid(target.getItem(KEY)) ?? DEFAULT; }
-  catch { return unstored.value ?? DEFAULT; }
+  try {
+    return valid(target.getItem(KEY)) ?? DEFAULT;
+  } catch {
+    return unstored.value ?? DEFAULT;
+  }
 }
 export function rememberQuickProvider(provider: QuickProvider, storage?: PreferenceStorage): void {
   if (!valid(provider)) return;
   const target = storage ?? browserStorage();
   try {
-    if (!target) { unstored.value = provider; return; }
+    if (!target) {
+      unstored.value = provider;
+      return;
+    }
     target.setItem(KEY, provider);
-  } catch { unstored.value = provider; }
+  } catch {
+    unstored.value = provider;
+  }
 }
 
 export interface QuickPlan {
@@ -52,8 +64,13 @@ export interface QuickOptions {
  * be picking one silently, and with none there is nothing to start with, so the
  * dialog opens instead.
  */
-export function planQuickSession(provider: QuickProvider, profiles: EndpointProfile[], options: QuickOptions = {}): QuickPlan {
-  const profileId = provider === "terminal" ? "" : preferredProfileSelection(provider, profiles, undefined, options.preferredProfileId);
+export function planQuickSession(
+  provider: QuickProvider,
+  profiles: EndpointProfile[],
+  options: QuickOptions = {},
+): QuickPlan {
+  const profileId =
+    provider === "terminal" ? "" : preferredProfileSelection(provider, profiles, undefined, options.preferredProfileId);
   if (profileId === PROFILE_CHOICE_REQUIRED || profileId === PROFILE_NONE) return { needsDialog: true };
   return {
     needsDialog: false,

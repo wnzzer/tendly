@@ -14,7 +14,9 @@ export function terminalEngine(): TerminalEngine {
     const asked = new URL(window.location.href).searchParams.get("terminal");
     if (asked === "wterm" || asked === "xterm") localStorage.setItem(KEY, asked);
     return localStorage.getItem(KEY) === "xterm" ? "xterm" : "wterm";
-  } catch { return "wterm"; }
+  } catch {
+    return "wterm";
+  }
 }
 
 /**
@@ -26,5 +28,7 @@ export function quietGhostty() {
   if (ghosttyQuiet) return;
   ghosttyQuiet = true;
   const log = console.log;
-  console.log = (...args: unknown[]) => { if (args[0] !== "[ghostty-vt]") log.apply(console, args); };
+  console.log = (...args: unknown[]) => {
+    if (args[0] !== "[ghostty-vt]") log.apply(console, args);
+  };
 }

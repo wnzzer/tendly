@@ -41,27 +41,45 @@ const mode = new URLSearchParams(location.search).get("mode") ?? "done";
 const Harness = defineComponent(() => {
   const selected = ref<string[]>(mode === "chosen" ? ["claude-sonnet-4-6", "claude-opus-4-6"] : []);
   const probe = async (models: string[]) =>
-    models.map(model => ({ model, api: API, ...(ALL_404 ? { status: "not_found" as const } : answers[model] ?? { status: "ok" as const, latency_ms: 700 }) }));
+    models.map(model => ({
+      model,
+      api: API,
+      ...(ALL_404 ? { status: "not_found" as const } : (answers[model] ?? { status: "ok" as const, latency_ms: 700 })),
+    }));
   const plan = {
     client: "Pi",
     api: API,
-    path: API === "google-generative-ai" ? "/v1beta/models/model:generateContent" : API === "anthropic-messages" ? "/v1/messages" : API === "openai-responses" ? "/v1/responses" : "/v1/chat/completions",
+    path:
+      API === "google-generative-ai"
+        ? "/v1beta/models/model:generateContent"
+        : API === "anthropic-messages"
+          ? "/v1/messages"
+          : API === "openai-responses"
+            ? "/v1/responses"
+            : "/v1/chat/completions",
     guessed: new URLSearchParams(location.search).has("guessed"),
   };
-  const panel = () => h(ModelSelection, {
-    catalog,
-    selected: selected.value,
-    probe,
-    plan,
-    windowText: (model: string) => (model === "qwen3-max" ? "262144" : ""),
-    placeholder: (model: string) => (model.startsWith("claude") ? "200000" : "128000"),
-    // What an endpoint says, what is published, and nothing at all.
-    knownWindow: (model: string) => model.startsWith("claude") ? { tokens: 200_000, source: "endpoint" as const }
-      : model.startsWith("gpt") ? { tokens: 400_000, source: "published" as const } : undefined,
-    "onUpdate:selected": (value: string[]) => { selected.value = value; },
-    onWindow: () => {},
-    onLook: () => {},
-  });
+  const panel = () =>
+    h(ModelSelection, {
+      catalog,
+      selected: selected.value,
+      probe,
+      plan,
+      windowText: (model: string) => (model === "qwen3-max" ? "262144" : ""),
+      placeholder: (model: string) => (model.startsWith("claude") ? "200000" : "128000"),
+      // What an endpoint says, what is published, and nothing at all.
+      knownWindow: (model: string) =>
+        model.startsWith("claude")
+          ? { tokens: 200_000, source: "endpoint" as const }
+          : model.startsWith("gpt")
+            ? { tokens: 400_000, source: "published" as const }
+            : undefined,
+      "onUpdate:selected": (value: string[]) => {
+        selected.value = value;
+      },
+      onWindow: () => {},
+      onLook: () => {},
+    });
   return () => h("div", { class: "shot-frame" }, [h("h1", { class: "shot-title" }, "端点模型"), panel()]);
 });
 

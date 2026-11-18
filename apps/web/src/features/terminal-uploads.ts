@@ -25,7 +25,19 @@ export function pasteText(paths: string[]): string {
   return paths.length ? paths.map(shellPath).join(" ") + " " : "";
 }
 
-const EXTENSIONS: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/heic": "heic", "image/heif": "heif", "image/avif": "avif", "image/bmp": "bmp", "image/tiff": "tiff", "application/pdf": "pdf", "text/plain": "txt" };
+const EXTENSIONS: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/heic": "heic",
+  "image/heif": "heif",
+  "image/avif": "avif",
+  "image/bmp": "bmp",
+  "image/tiff": "tiff",
+  "application/pdf": "pdf",
+  "text/plain": "txt",
+};
 const pad = (value: number) => String(value).padStart(2, "0");
 
 /**
@@ -34,7 +46,8 @@ const pad = (value: number) => String(value).padStart(2, "0");
  * when they were pasted instead. A real file keeps its own name.
  */
 export function uploadName(file: { name: string; type: string }, now = new Date()): string {
-  const generic = !file.name || /^image\.(png|jpe?g|gif|webp|heic|tiff?)$/i.test(file.name) || /^blob$/i.test(file.name);
+  const generic =
+    !file.name || /^image\.(png|jpe?g|gif|webp|heic|tiff?)$/i.test(file.name) || /^blob$/i.test(file.name);
   if (!generic) return file.name;
   const extension = EXTENSIONS[file.type] ?? (file.name.split(".").pop() || "bin");
   const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
@@ -50,28 +63,44 @@ export function uploadProblem(file: { size: number }): string | undefined {
 
 /** HEIC and HEIF upload fine, but neither client accepts them as images. */
 export function imageCaveat(name: string): string | undefined {
-  return /\.(heic|heif)$/i.test(name) ? "HEIC photos are pasted as a file path; Claude Code and Codex cannot view them as images." : undefined;
+  return /\.(heic|heif)$/i.test(name)
+    ? "HEIC photos are pasted as a file path; Claude Code and Codex cannot view them as images."
+    : undefined;
 }
 
-export const isImage = (name: string, type = "") => type.startsWith("image/") || ["image", "converted"].includes(mediaKind(name));
+export const isImage = (name: string, type = "") =>
+  type.startsWith("image/") || ["image", "converted"].includes(mediaKind(name));
 
 /** Files carried by a paste or a drop, if any: those win over any text that came along. */
 export function filesFrom(data: DataTransfer | null | undefined): File[] {
   if (!data) return [];
   const files = [...(data.files ?? [])];
   if (files.length) return files;
-  return [...(data.items ?? [])].filter(item => item.kind === "file").map(item => item.getAsFile()).filter((file): file is File => !!file);
+  return [...(data.items ?? [])]
+    .filter(item => item.kind === "file")
+    .map(item => item.getAsFile())
+    .filter((file): file is File => !!file);
 }
 
 /** Upload one file for a session, reporting progress; XHR because fetch cannot report upload progress. */
-export function uploadToSession(sessionId: string, file: File, name: string, progress: (fraction: number) => void): { promise: Promise<Attachment>; abort: () => void } {
+export function uploadToSession(
+  sessionId: string,
+  file: File,
+  name: string,
+  progress: (fraction: number) => void,
+): { promise: Promise<Attachment>; abort: () => void } {
   const xhr = new XMLHttpRequest();
   const promise = new Promise<Attachment>((resolve, reject) => {
-    xhr.open("POST", routedUrl(`/api/sessions/${encodeURIComponent(sessionId)}/uploads?name=${encodeURIComponent(name)}`));
+    xhr.open(
+      "POST",
+      routedUrl(`/api/sessions/${encodeURIComponent(sessionId)}/uploads?name=${encodeURIComponent(name)}`),
+    );
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
     xhr.setRequestHeader("X-Tendly-Client", "web");
     xhr.responseType = "json";
-    xhr.upload.onprogress = event => { if (event.lengthComputable) progress(event.loaded / event.total); };
+    xhr.upload.onprogress = event => {
+      if (event.lengthComputable) progress(event.loaded / event.total);
+    };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300 && xhr.response) resolve(xhr.response as Attachment);
       else reject(new Error((xhr.response as { error?: string } | null)?.error ?? `Upload failed (${xhr.status})`));
@@ -84,7 +113,16 @@ export function uploadToSession(sessionId: string, file: File, name: string, pro
 }
 
 /** A file on its way into the terminal, shown as a chip while it uploads. */
-export interface Upload { id: number; file: File; name: string; progress: number; failed?: string; retryable?: boolean; preview?: string; abort?: () => void }
+export interface Upload {
+  id: number;
+  file: File;
+  name: string;
+  progress: number;
+  failed?: string;
+  retryable?: boolean;
+  preview?: string;
+  abort?: () => void;
+}
 
 export interface TerminalUploadOptions {
   sessionId: () => string;
@@ -126,7 +164,9 @@ export function useTerminalUploads(options: TerminalUploadOptions) {
     }
     entry.failed = undefined;
     entry.progress = 0;
-    const job = upload(options.sessionId(), entry.file, entry.name, fraction => { entry.progress = fraction; });
+    const job = upload(options.sessionId(), entry.file, entry.name, fraction => {
+      entry.progress = fraction;
+    });
     entry.abort = job.abort;
     try {
       const saved = await job.promise;
@@ -150,7 +190,13 @@ export function useTerminalUploads(options: TerminalUploadOptions) {
     }
     const batch = files.map(file => {
       const name = uploadName(file);
-      const entry: Upload = { id: ++seq, file, name, progress: 0, preview: isImage(name, file.type) ? URL.createObjectURL(file) : undefined };
+      const entry: Upload = {
+        id: ++seq,
+        file,
+        name,
+        progress: 0,
+        preview: isImage(name, file.type) ? URL.createObjectURL(file) : undefined,
+      };
       uploads.value = [...uploads.value, entry];
       // The reactive copy, so progress and failures show as they change.
       return uploads.value[uploads.value.length - 1]!;

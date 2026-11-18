@@ -37,9 +37,23 @@ export function resolveReference(
   if (/^([A-Za-z]:)?\//.test(path)) {
     const inside = (root?: string | null) => !!root && folded(path).startsWith(folded(root) + "/");
     const base = [workspace.root_path, reference.checkout].find(inside);
-    if (base) return { kind: "workspace", workspaceId: workspace.id, checkout: base === workspace.root_path ? null : base, path: path.slice(folded(base).length + 1) };
-    const other = workspaces.filter(item => inside(item.root_path)).sort((a, b) => b.root_path.length - a.root_path.length)[0];
-    if (other) return { kind: "workspace", workspaceId: other.id, checkout: null, path: path.slice(folded(other.root_path).length + 1) };
+    if (base)
+      return {
+        kind: "workspace",
+        workspaceId: workspace.id,
+        checkout: base === workspace.root_path ? null : base,
+        path: path.slice(folded(base).length + 1),
+      };
+    const other = workspaces
+      .filter(item => inside(item.root_path))
+      .sort((a, b) => b.root_path.length - a.root_path.length)[0];
+    if (other)
+      return {
+        kind: "workspace",
+        workspaceId: other.id,
+        checkout: null,
+        path: path.slice(folded(other.root_path).length + 1),
+      };
     return { kind: "host", path };
   }
   const checkout = reference.checkout ?? null;
@@ -56,13 +70,18 @@ export function rememberPane(history: readonly string[], previous: string, curre
 }
 
 /** Where Back goes from the pane in view: the most recent other pane still open, for a pushed view only. */
-export function backTargetFor(focused: { id: string; kind: string } | undefined, history: readonly string[], openIds: ReadonlySet<string>): string | undefined {
+export function backTargetFor(
+  focused: { id: string; kind: string } | undefined,
+  history: readonly string[],
+  openIds: ReadonlySet<string>,
+): string | undefined {
   if (!focused || !PUSHED_KINDS.includes(focused.kind)) return undefined;
   return [...history].reverse().find(id => openIds.has(id) && id !== focused.id);
 }
 
 /** The workspace column's width bounds, in CSS pixels. */
-export const SIDEBAR_MIN = 184, SIDEBAR_MAX = 380;
+export const SIDEBAR_MIN = 184,
+  SIDEBAR_MAX = 380;
 
 /** A remembered column width, if it is one the column can take. */
 export function storedSidebarWidth(raw: string | null | undefined): number | undefined {
@@ -79,6 +98,11 @@ export function draggedSidebarWidth(pointerX: number, left: number): number {
 const UNSAVED_LAYOUT = ["Saving…", "Save failed", "Save conflict", "Memory only"];
 
 /** Whether leaving the page now would lose work: an unsaved file or commit draft, or a layout not yet saved. */
-export function hasUnsavedWork(state: { fileDrafts: boolean; gitDrafts: boolean; layoutPending: boolean; layoutStatus: string }): boolean {
+export function hasUnsavedWork(state: {
+  fileDrafts: boolean;
+  gitDrafts: boolean;
+  layoutPending: boolean;
+  layoutStatus: string;
+}): boolean {
   return state.fileDrafts || state.gitDrafts || state.layoutPending || UNSAVED_LAYOUT.includes(state.layoutStatus);
 }

@@ -17,16 +17,20 @@ type Translate = (source: string, values?: Record<string, string>) => string;
  * the sentence around it can be translated, and put back untranslated.
  */
 const FILLED: { pattern: RegExp; template: string; name: string }[] = [
-  { pattern: /^Use the default model \(currently (.+)\)$/, template: 'Use the default model (currently {model})', name: 'model' },
-  { pattern: /^(\$[\d.]+\/\$[\d.]+) per Mtok$/, template: '{price} per Mtok', name: 'price' },
+  {
+    pattern: /^Use the default model \(currently (.+)\)$/,
+    template: "Use the default model (currently {model})",
+    name: "model",
+  },
+  { pattern: /^(\$[\d.]+\/\$[\d.]+) per Mtok$/, template: "{price} per Mtok", name: "price" },
 ];
 
 export function describeModel(description: string, t: Translate): string {
   return description
-    .split('·')
+    .split("·")
     .map(segment => segment.trim())
     .map(segment => translateSegment(segment, t))
-    .join(' · ');
+    .join(" · ");
 }
 
 function translateSegment(segment: string, t: Translate): string {
@@ -47,9 +51,12 @@ function translateSegment(segment: string, t: Translate): string {
  * say what is answering, so the name is lifted out — only when it is the
  * name of another model in the same list, or the client said "currently".
  */
-export function resolvedDefaultName(entry: { id: string; description?: string }, models: readonly { id: string; name: string }[]): string | undefined {
-  if (entry.id !== 'default' || !entry.description) return undefined;
-  for (const segment of entry.description.split('·').map(part => part.trim())) {
+export function resolvedDefaultName(
+  entry: { id: string; description?: string },
+  models: readonly { id: string; name: string }[],
+): string | undefined {
+  if (entry.id !== "default" || !entry.description) return undefined;
+  for (const segment of entry.description.split("·").map(part => part.trim())) {
     const current = /^Use the default model \(currently (.+)\)$/.exec(segment)?.[1];
     if (current) return current;
     if (models.some(model => model.id !== entry.id && model.name === segment)) return segment;

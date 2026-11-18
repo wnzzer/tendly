@@ -11,9 +11,17 @@
  * it is still gathered. The window stays open while items keep arriving and
  * closes on the first frame that finds nothing waiting.
  */
-export function createFrameBatch<T>(apply: (items: T[]) => void, schedule: (run: () => void) => unknown = defaultSchedule, options: { leading?: boolean } = {}) {
-  let queue: T[] = [], pending = false;
-  const open = () => { pending = true; schedule(flush); };
+export function createFrameBatch<T>(
+  apply: (items: T[]) => void,
+  schedule: (run: () => void) => unknown = defaultSchedule,
+  options: { leading?: boolean } = {},
+) {
+  let queue: T[] = [],
+    pending = false;
+  const open = () => {
+    pending = true;
+    schedule(flush);
+  };
   const flush = () => {
     pending = false;
     if (!queue.length) return;
@@ -34,13 +42,18 @@ export function createFrameBatch<T>(apply: (items: T[]) => void, schedule: (run:
     },
     flush,
     /** Drops what is waiting: the view it was for has gone. */
-    clear() { queue = []; },
-    get size() { return queue.length; },
+    clear() {
+      queue = [];
+    },
+    get size() {
+      return queue.length;
+    },
   };
 }
 
 /** The next frame; a hidden page has none, so a short timer stands in. */
 function defaultSchedule(run: () => void) {
-  if (typeof document !== 'undefined' && document.hidden || typeof requestAnimationFrame !== 'function') return setTimeout(run, 100);
+  if ((typeof document !== "undefined" && document.hidden) || typeof requestAnimationFrame !== "function")
+    return setTimeout(run, 100);
   return requestAnimationFrame(() => run());
 }

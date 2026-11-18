@@ -1,0 +1,8 @@
+# Only the web app is formatted by Prettier; Rust has cargo fmt.
+/*
+!/apps/
+/apps/*
+!/apps/web/
+/apps/web/*
+!/apps/web/src/
+apps/web/src/assets/

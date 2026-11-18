@@ -11,7 +11,15 @@ import { createRouter, createWebHistory } from "vue-router";
  */
 const Page = { render: () => null };
 
-export const SETTINGS_SECTIONS = ["preferences", "agents", "endpoints", "accounts", "remote", "machines", "updates"] as const;
+export const SETTINGS_SECTIONS = [
+  "preferences",
+  "agents",
+  "endpoints",
+  "accounts",
+  "remote",
+  "machines",
+  "updates",
+] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export const router = createRouter({
@@ -21,10 +29,16 @@ export const router = createRouter({
     { path: "/sessions", name: "sessions", component: Page },
     { path: "/system", name: "system", component: Page },
     { path: "/usage", name: "usage", component: Page },
-    { path: "/settings/:section?", name: "settings", component: Page, beforeEnter: to => {
-      const section = String(to.params.section ?? "");
-      if (!(SETTINGS_SECTIONS as readonly string[]).includes(section)) return { name: "settings", params: { section: "preferences" }, replace: true };
-    } },
+    {
+      path: "/settings/:section?",
+      name: "settings",
+      component: Page,
+      beforeEnter: to => {
+        const section = String(to.params.section ?? "");
+        if (!(SETTINGS_SECTIONS as readonly string[]).includes(section))
+          return { name: "settings", params: { section: "preferences" }, replace: true };
+      },
+    },
     // A link to one session: it opens on the canvas, and the address returns to it.
     { path: "/session/:id", name: "session", component: Page },
     { path: "/:rest(.*)*", redirect: "/" },

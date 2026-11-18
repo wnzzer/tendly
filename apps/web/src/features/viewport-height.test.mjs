@@ -1,8 +1,8 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
-import { shellHeight, shellTop } from './viewport-height.ts';
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { shellHeight, shellTop } from "./viewport-height.ts";
 
-test('the page is only resized for the one thing dvh cannot see', () => {
+test("the page is only resized for the one thing dvh cannot see", () => {
   // A keyboard: half the screen, and the page is never told by anything else.
   assert.equal(shellHeight({ height: 420, scale: 1 }, 896), 420);
   // Nothing in the way, so nothing to do: dvh is left to do its job.
@@ -18,7 +18,7 @@ test('the page is only resized for the one thing dvh cannot see', () => {
   assert.equal(shellHeight({ height: 419.6, scale: 1 }, 896), 420);
 });
 
-test('the shell follows the visible part of the page down while a keyboard is up', () => {
+test("the shell follows the visible part of the page down while a keyboard is up", () => {
   // iOS pans to the caret instead of resizing: the shell moves with it, or it
   // ends above the keyboard with empty page beneath.
   assert.equal(shellTop({ height: 420, scale: 1, offsetTop: 310.4 }, 420), 310);

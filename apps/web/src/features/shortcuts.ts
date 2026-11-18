@@ -20,11 +20,26 @@
  * terminal keeps every key but Ctrl+B and its own find; a field keeps plain
  * typing, and only chords with mod leave it.
  */
-export const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+export const isMac =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
-export interface Chord { key: string; prefix?: boolean; code?: string; mod?: boolean; shift?: boolean; alt?: boolean }
+export interface Chord {
+  key: string;
+  prefix?: boolean;
+  code?: string;
+  mod?: boolean;
+  shift?: boolean;
+  alt?: boolean;
+}
 /** `mac` marks a chord that exists only on a Mac: elsewhere ⌘ is Ctrl, and Ctrl+B is the prefix. */
-export interface Shortcut { id: string; chord: Chord; label: string; group: "General"; terminal?: boolean; mac?: boolean }
+export interface Shortcut {
+  id: string;
+  chord: Chord;
+  label: string;
+  group: "General";
+  terminal?: boolean;
+  mac?: boolean;
+}
 
 /** The verbs every area shares. */
 export const CHORDS = {
@@ -43,23 +58,67 @@ export const CHORDS = {
  * `pages` marks the keys that also work on a page, away from the canvas.
  */
 export type PrefixGroup = "Panes" | "Layout" | "Tabs" | "Create" | "Go to" | "App";
-export interface PrefixCommand { id: string; keys: readonly string[]; label: string; group: PrefixGroup; display?: string; repeat?: boolean; pages?: boolean; action?: (key: string) => string }
-const DIRECTIONS: Record<string, "left" | "right" | "up" | "down"> = { ArrowLeft: "left", h: "left", H: "left", ArrowRight: "right", l: "right", L: "right", ArrowUp: "up", k: "up", K: "up", ArrowDown: "down", j: "down", J: "down" };
+export interface PrefixCommand {
+  id: string;
+  keys: readonly string[];
+  label: string;
+  group: PrefixGroup;
+  display?: string;
+  repeat?: boolean;
+  pages?: boolean;
+  action?: (key: string) => string;
+}
+const DIRECTIONS: Record<string, "left" | "right" | "up" | "down"> = {
+  ArrowLeft: "left",
+  h: "left",
+  H: "left",
+  ArrowRight: "right",
+  l: "right",
+  L: "right",
+  ArrowUp: "up",
+  k: "up",
+  K: "up",
+  ArrowDown: "down",
+  j: "down",
+  J: "down",
+};
 export const PREFIX_COMMANDS: readonly PrefixCommand[] = [
   { id: "split-horizontal", keys: ["%", "|"], label: "Split side by side", group: "Panes" },
   { id: "split-vertical", keys: ['"', "-"], label: "Split top and bottom", group: "Panes" },
-  { id: "focus", keys: ["ArrowLeft", "ArrowDown", "ArrowUp", "ArrowRight", "h", "j", "k", "l"], display: "←↓↑→ hjkl", label: "Move to the pane in that direction", group: "Panes", action: key => `focus-${DIRECTIONS[key]}` },
+  {
+    id: "focus",
+    keys: ["ArrowLeft", "ArrowDown", "ArrowUp", "ArrowRight", "h", "j", "k", "l"],
+    display: "←↓↑→ hjkl",
+    label: "Move to the pane in that direction",
+    group: "Panes",
+    action: key => `focus-${DIRECTIONS[key]}`,
+  },
   { id: "next-pane", keys: ["o"], label: "Next pane", group: "Panes" },
   { id: "last-pane", keys: [";"], label: "The pane used before", group: "Panes" },
   { id: "maximize-pane", keys: ["z"], label: "Maximize or restore pane", group: "Panes" },
   { id: "close-pane", keys: ["x"], label: "Close pane", group: "Panes" },
-  { id: "resize", keys: ["H", "J", "K", "L"], display: "H J K L", label: "Move the divider, again and again", group: "Layout", repeat: true, action: key => `resize-${DIRECTIONS[key]}` },
+  {
+    id: "resize",
+    keys: ["H", "J", "K", "L"],
+    display: "H J K L",
+    label: "Move the divider, again and again",
+    group: "Layout",
+    repeat: true,
+    action: key => `resize-${DIRECTIONS[key]}`,
+  },
   { id: "swap-previous", keys: ["{"], label: "Swap with the previous pane", group: "Layout" },
   { id: "swap-next", keys: ["}"], label: "Swap with the next pane", group: "Layout" },
   { id: "next-layout", keys: [" "], display: "Space", label: "Next layout preset", group: "Layout" },
   { id: "next-tab", keys: ["n"], label: "Next tab", group: "Tabs" },
   { id: "previous-tab", keys: ["p"], label: "Previous tab", group: "Tabs" },
-  { id: "tab", keys: ["1", "2", "3", "4", "5", "6", "7", "8", "9"], display: "1–9", label: "Tab by its number", group: "Tabs", action: key => `tab-${key}` },
+  {
+    id: "tab",
+    keys: ["1", "2", "3", "4", "5", "6", "7", "8", "9"],
+    display: "1–9",
+    label: "Tab by its number",
+    group: "Tabs",
+    action: key => `tab-${key}`,
+  },
   { id: "new-here", keys: ["c"], label: "New session here", group: "Create" },
   { id: "new-session", keys: ["C"], label: "New session…", group: "Create", pages: true },
   { id: "new-terminal", keys: ["t"], label: "New terminal here", group: "Create" },
@@ -88,7 +147,11 @@ export const PREFIX_GROUPS: readonly PrefixGroup[] = ["Panes", "Layout", "Tabs",
  * here is the key that works.
  */
 export type KeyArea = "Everywhere" | "Lists" | "Conversation" | "Terminal" | "Files" | "Git";
-export interface AreaKey { area: KeyArea; keys: readonly (Chord | string)[]; label: string }
+export interface AreaKey {
+  area: KeyArea;
+  keys: readonly (Chord | string)[];
+  label: string;
+}
 export const AREA_KEYS: readonly AreaKey[] = [
   { area: "Everywhere", keys: ["Esc"], label: "Back one step: a menu, an edit, a field, the sidebar" },
   { area: "Everywhere", keys: [CHORDS.find], label: "Find in this area" },
@@ -109,9 +172,21 @@ export const AREA_KEYS: readonly AreaKey[] = [
   { area: "Conversation", keys: [CHORDS.remove], label: "Decline it, with the composer empty" },
   { area: "Conversation", keys: ["/"], label: "Commands, typed anywhere in the conversation" },
   // ⌘ is not a terminal key, so a Mac uses it; elsewhere Ctrl belongs to the shell and the app's keys add Shift, as other terminals do.
-  { area: "Terminal", keys: [isMac ? { key: "f", mod: true } : { key: "f", mod: true, shift: true }], label: "Find in the history" },
-  { area: "Terminal", keys: isMac ? [{ key: "c", mod: true }] : [{ key: "c", mod: true, shift: true }, "Ctrl+Insert"], label: "Copy the selection" },
-  { area: "Terminal", keys: isMac ? [{ key: "v", mod: true }] : [{ key: "v", mod: true, shift: true }, "Shift+Insert"], label: "Paste" },
+  {
+    area: "Terminal",
+    keys: [isMac ? { key: "f", mod: true } : { key: "f", mod: true, shift: true }],
+    label: "Find in the history",
+  },
+  {
+    area: "Terminal",
+    keys: isMac ? [{ key: "c", mod: true }] : [{ key: "c", mod: true, shift: true }, "Ctrl+Insert"],
+    label: "Copy the selection",
+  },
+  {
+    area: "Terminal",
+    keys: isMac ? [{ key: "v", mod: true }] : [{ key: "v", mod: true, shift: true }, "Shift+Insert"],
+    label: "Paste",
+  },
   { area: "Terminal", keys: ["Ctrl+B Ctrl+B"], label: "Send Ctrl+B to the terminal" },
   { area: "Files", keys: [CHORDS.save], label: "Save" },
   { area: "Git", keys: [CHORDS.confirm], label: "Commit" },
@@ -123,7 +198,10 @@ export function isRename(event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey
   return event.key === "F2" && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 }
 /** Delete, or ⌘⌫ on a Mac, whose keyboards have no Delete: remove what is focused. */
-export function isRemove(event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">, mac = isMac): boolean {
+export function isRemove(
+  event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">,
+  mac = isMac,
+): boolean {
   if (event.key === "Delete" && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) return true;
   return matches(event, CHORDS.remove, mac);
 }
@@ -139,7 +217,11 @@ export function prefixCommand(key: string): { command: PrefixCommand; id: string
  * targets. `repeating` is the moment after a repeatable command, when only
  * its keys are taken and anything else is typed as usual.
  */
-export function prefixKey(event: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey" | "repeat" | "isComposing">, active: boolean, repeating = false): string | undefined {
+export function prefixKey(
+  event: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey" | "repeat" | "isComposing">,
+  active: boolean,
+  repeating = false,
+): string | undefined {
   if (event.isComposing || event.key === "Process" || event.key === "Dead") return active ? "cancel-pass" : undefined;
   if (["Control", "Shift", "Alt", "Meta"].includes(event.key)) return undefined;
   const prefix = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "b";
@@ -174,23 +256,39 @@ export const SHORTCUTS: readonly Shortcut[] = [
 ];
 
 /** The chords this platform has. */
-export function platformShortcuts(mac = isMac): Shortcut[] { return SHORTCUTS.filter(item => !item.mac || mac); }
-
+export function platformShortcuts(mac = isMac): Shortcut[] {
+  return SHORTCUTS.filter(item => !item.mac || mac);
+}
 
 /** ⌘⇧O on a Mac, Ctrl+Shift+O elsewhere. */
 export function formatChord(chord: Chord, mac = isMac): string {
   if (chord.prefix) return `Ctrl+B → ${chord.key.replace("Arrow", "")}`;
-  const symbols: Record<string, string> = { ArrowLeft: "←", ArrowRight: "→", Enter: mac ? "↵" : "Enter", Backspace: mac ? "⌫" : "Backspace" };
+  const symbols: Record<string, string> = {
+    ArrowLeft: "←",
+    ArrowRight: "→",
+    Enter: mac ? "↵" : "Enter",
+    Backspace: mac ? "⌫" : "Backspace",
+  };
   const key = symbols[chord.key] ?? (chord.key.length === 1 ? chord.key.toUpperCase() : chord.key);
-  const parts = [chord.mod ? (mac ? "⌘" : "Ctrl") : "", chord.alt ? (mac ? "⌥" : "Alt") : "", chord.shift ? (mac ? "⇧" : "Shift") : "", key].filter(Boolean);
+  const parts = [
+    chord.mod ? (mac ? "⌘" : "Ctrl") : "",
+    chord.alt ? (mac ? "⌥" : "Alt") : "",
+    chord.shift ? (mac ? "⇧" : "Shift") : "",
+    key,
+  ].filter(Boolean);
   return mac ? parts.join("") : parts.join("+");
 }
 
-export function matches(event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey"> & { code?: string }, chord: Chord, mac = isMac): boolean {
+export function matches(
+  event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey"> & { code?: string },
+  chord: Chord,
+  mac = isMac,
+): boolean {
   if (chord.prefix) return false;
   const mod = mac ? event.metaKey : event.ctrlKey;
   if (mac ? event.ctrlKey : event.metaKey) return false;
-  if (Boolean(chord.mod) !== mod || Boolean(chord.shift) !== event.shiftKey || Boolean(chord.alt) !== event.altKey) return false;
+  if (Boolean(chord.mod) !== mod || Boolean(chord.shift) !== event.shiftKey || Boolean(chord.alt) !== event.altKey)
+    return false;
   // Shift changes the character ("/" becomes "?"), so compare case-insensitively and accept both.
   if (chord.code && event.code) return event.code === chord.code;
   return event.key.toLowerCase() === chord.key.toLowerCase() || (chord.key === "/" && event.key === "?");
@@ -204,7 +302,10 @@ export function keyBelongsToTarget(target: EventTarget | null, chord: Chord, ter
   return Boolean(field) && !chord.mod;
 }
 
-export function shortcutFor(event: KeyboardEvent, list: readonly Shortcut[] = platformShortcuts()): Shortcut | undefined {
+export function shortcutFor(
+  event: KeyboardEvent,
+  list: readonly Shortcut[] = platformShortcuts(),
+): Shortcut | undefined {
   if (event.isComposing || event.key === "Process" || event.key === "Dead") return undefined;
   const hit = list.find(item => matches(event, item.chord));
   return hit && !keyBelongsToTarget(event.target, hit.chord, hit.terminal) ? hit : undefined;

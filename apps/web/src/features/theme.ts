@@ -20,21 +20,31 @@ function pinned(value: unknown): "light" | "dark" | undefined {
   return value === "light" || value === "dark" ? value : undefined;
 }
 function cached(key: string) {
-  try { return pinned(localStorage.getItem(key)); } catch { return undefined; }
+  try {
+    return pinned(localStorage.getItem(key));
+  } catch {
+    return undefined;
+  }
 }
 function cache(key: string, value: "light" | "dark" | undefined) {
   try {
-    if (value) localStorage.setItem(key, value); else localStorage.removeItem(key);
-  } catch { /* Private browsing: the server still has it. */ }
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
+  } catch {
+    /* Private browsing: the server still has it. */
+  }
 }
 
-const query = typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : undefined;
+const query =
+  typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : undefined;
 export const themePreference = ref<ThemePreference>(cached(KEY) ?? "system");
 export const terminalThemePreference = ref<TerminalThemePreference>(cached(TERMINAL_KEY) ?? "interface");
 /** Whether the interface is dark right now, for what CSS cannot reach (the terminal's canvas). */
 export const darkScheme = ref(false);
 /** Whether terminals are dark right now. */
-export const terminalDark = computed(() => terminalThemePreference.value === "interface" ? darkScheme.value : terminalThemePreference.value === "dark");
+export const terminalDark = computed(() =>
+  terminalThemePreference.value === "interface" ? darkScheme.value : terminalThemePreference.value === "dark",
+);
 
 function apply() {
   const preference = themePreference.value;
@@ -49,24 +59,35 @@ apply();
 
 // Whatever the server says wins: on load, after a save, after an agent's change.
 watch(preferences, value => {
-  const interfaceScheme = pinned(value.appearance), terminalScheme = pinned(value.terminal_appearance);
-  themePreference.value = interfaceScheme ?? "system"; cache(KEY, interfaceScheme);
-  terminalThemePreference.value = terminalScheme ?? "interface"; cache(TERMINAL_KEY, terminalScheme);
+  const interfaceScheme = pinned(value.appearance),
+    terminalScheme = pinned(value.terminal_appearance);
+  themePreference.value = interfaceScheme ?? "system";
+  cache(KEY, interfaceScheme);
+  terminalThemePreference.value = terminalScheme ?? "interface";
+  cache(TERMINAL_KEY, terminalScheme);
   apply();
 });
 
 async function save(key: "appearance" | "terminal_appearance", value: "light" | "dark" | undefined) {
   const next = { ...(await loadPreferences()) };
-  if (value) next[key] = value; else delete next[key];
-  try { await savePreferences(next); } catch { /* The change shows here until the next load. */ }
+  if (value) next[key] = value;
+  else delete next[key];
+  try {
+    await savePreferences(next);
+  } catch {
+    /* The change shows here until the next load. */
+  }
 }
 
 export function setThemePreference(preference: ThemePreference) {
-  themePreference.value = preference; cache(KEY, pinned(preference)); apply();
+  themePreference.value = preference;
+  cache(KEY, pinned(preference));
+  apply();
   void save("appearance", pinned(preference));
 }
 
 export function setTerminalThemePreference(preference: TerminalThemePreference) {
-  terminalThemePreference.value = preference; cache(TERMINAL_KEY, pinned(preference));
+  terminalThemePreference.value = preference;
+  cache(TERMINAL_KEY, pinned(preference));
   void save("terminal_appearance", pinned(preference));
 }

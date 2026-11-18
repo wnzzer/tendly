@@ -30,13 +30,22 @@ export function onPageReturn(callback: (stale: boolean) => void, events: PageEve
   let hiddenAt = events.hidden() ? events.now() : undefined;
   const stops = [
     events.on("document", "visibilitychange", () => {
-      if (events.hidden()) { hiddenAt ??= events.now(); return; }
+      if (events.hidden()) {
+        hiddenAt ??= events.now();
+        return;
+      }
       const away = hiddenAt === undefined ? 0 : events.now() - hiddenAt;
       hiddenAt = undefined;
       callback(away >= STALE_AFTER_MS);
     }),
-    events.on("window", "pageshow", event => { if ((event as PageTransitionEvent).persisted) callback(true); }),
-    events.on("window", "online", () => { if (!events.hidden()) callback(true); }),
+    events.on("window", "pageshow", event => {
+      if ((event as PageTransitionEvent).persisted) callback(true);
+    }),
+    events.on("window", "online", () => {
+      if (!events.hidden()) callback(true);
+    }),
   ];
-  return () => { for (const stop of stops) stop(); };
+  return () => {
+    for (const stop of stops) stop();
+  };
 }

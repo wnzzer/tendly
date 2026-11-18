@@ -24,7 +24,10 @@ export function arrowSequence(key: ArrowKey, applicationCursorKeys: boolean, mod
 }
 
 /** The one-shot modifiers armed on the bar for the next key. */
-export interface KeyModifiers { shift?: boolean; ctrl?: boolean }
+export interface KeyModifiers {
+  shift?: boolean;
+  ctrl?: boolean;
+}
 
 /** What the Enter key sends: a carriage return, not a newline. */
 export const ENTER_SEQUENCE = "\r";
@@ -84,7 +87,11 @@ export function ctrlSequence(data: string): string {
  * The count is bounded because a mistaken row — or a tap in a program that
  * does not behave this way — should cost a few keystrokes, not hundreds.
  */
-export function selectionPresses(cursorRow: number, targetRow: number, limit = 40): { key: ArrowKey; count: number } | undefined {
+export function selectionPresses(
+  cursorRow: number,
+  targetRow: number,
+  limit = 40,
+): { key: ArrowKey; count: number } | undefined {
   if (!Number.isInteger(cursorRow) || !Number.isInteger(targetRow)) return undefined;
   const distance = targetRow - cursorRow;
   if (distance === 0) return undefined;
@@ -122,7 +129,12 @@ export function keyClient(provider?: string | null): KeyClient {
  * press: Esc twice is two presses, because a single write of two escapes reads
  * to a client as Alt+Esc rather than as Esc pressed twice.
  */
-export interface FixedKey { label: string; title: string; send: string[]; translated?: boolean }
+export interface FixedKey {
+  label: string;
+  title: string;
+  send: string[];
+  translated?: boolean;
+}
 
 /**
  * Every fixed key the bar can show. The control codes are what a physical
@@ -151,7 +163,11 @@ export type FixedKeyId = keyof typeof FIXED_KEYS;
 /** What a client does with a key, where that differs from the key's own title. */
 const CLIENT_TITLES: Partial<Record<KeyClient, Partial<Record<FixedKeyId, string>>>> = {
   claude_code: { escEsc: "Escape twice · clear the input", ctrlT: "Ctrl+T · show or hide tasks" },
-  codex: { escEsc: "Escape twice · edit the last message", ctrlT: "Ctrl+T · open the transcript", tab: "Tab · queue the message" },
+  codex: {
+    escEsc: "Escape twice · edit the last message",
+    ctrlT: "Ctrl+T · open the transcript",
+    tab: "Tab · queue the message",
+  },
 };
 export function keyTitle(client: KeyClient, id: FixedKeyId): string {
   return CLIENT_TITLES[client]?.[id] ?? FIXED_KEYS[id].title;

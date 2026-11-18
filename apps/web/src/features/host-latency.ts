@@ -11,10 +11,7 @@ export const SLOW_LATENCY_MS = 150;
  * shows. `online` is the connection the rest of the app already tracks; a stale
  * `ms` never overrides it, so a dropped host reads as offline at once.
  */
-export function formatLatency(
-  ms: number | undefined,
-  online: boolean,
-): { text: string; level: HostLevel } {
+export function formatLatency(ms: number | undefined, online: boolean): { text: string; level: HostLevel } {
   if (!online) return { text: "Offline", level: "offline" };
   if (ms === undefined) return { text: "—", level: "online" };
   return { text: `${ms}ms`, level: ms > SLOW_LATENCY_MS ? "slow" : "online" };

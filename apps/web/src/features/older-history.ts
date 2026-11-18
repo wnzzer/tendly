@@ -1,7 +1,7 @@
-import { nextTick, onBeforeUnmount, ref, watch, type Ref } from 'vue';
-import type { Virtualizer } from '@tanstack/vue-virtual';
-import { request, sessionPath } from './api';
-import { parseConversationPage, prependChatEvents, type ChatEvent } from './chat-model';
+import { nextTick, onBeforeUnmount, ref, watch, type Ref } from "vue";
+import type { Virtualizer } from "@tanstack/vue-virtual";
+import { request, sessionPath } from "./api";
+import { parseConversationPage, prependChatEvents, type ChatEvent } from "./chat-model";
 
 /**
  * The history before what the view holds. A conversation opens on its latest
@@ -13,7 +13,10 @@ import { parseConversationPage, prependChatEvents, type ChatEvent } from './chat
 export const OLDER_MARGIN = 1200;
 
 /** The first row in view and how far it sits below the top, to keep it there when rows are put in front of it. */
-export function anchorRow(items: readonly { key: unknown; start: number; end: number }[], scrollTop: number): { key: string; offset: number } | undefined {
+export function anchorRow(
+  items: readonly { key: unknown; start: number; end: number }[],
+  scrollTop: number,
+): { key: string; offset: number } | undefined {
   const anchor = items.find(item => item.end > scrollTop);
   return anchor ? { key: String(anchor.key), offset: anchor.start - scrollTop } : undefined;
 }
@@ -36,18 +39,25 @@ export interface OlderHistoryOptions {
 export function useOlderHistory(options: OlderHistoryOptions) {
   const { events, viewport, windowed } = options;
   /** The cursor to the history before what the view holds, while there is any. */
-  const older = ref<number | undefined>(), loadingOlder = ref(false), olderSentinel = ref<HTMLElement>();
+  const older = ref<number | undefined>(),
+    loadingOlder = ref(false),
+    olderSentinel = ref<HTMLElement>();
   /** Whether the view holds the event `seq`: everything from the older cursor on is held. */
   const holds = (seq: number) => older.value === undefined || seq >= older.value;
   /** Reads the page before what the view holds, once at a time for everyone who asks. */
   let olderRead: Promise<void> | undefined;
   function loadOlder(): Promise<void> {
-    olderRead ??= readOlder().finally(() => { olderRead = undefined; });
+    olderRead ??= readOlder().finally(() => {
+      olderRead = undefined;
+    });
     return olderRead;
   }
   /** The page before what the view holds, keeping the row in view where it was. */
   async function readOlder() {
-    const id = options.sessionId(), own = options.generation(), before = older.value, el = viewport.value;
+    const id = options.sessionId(),
+      own = options.generation(),
+      before = older.value,
+      el = viewport.value;
     if (before === undefined || options.preview() || !el) return;
     const current = () => own === options.generation();
     loadingOlder.value = true;
@@ -59,18 +69,30 @@ export function useOlderHistory(options: OlderHistoryOptions) {
       older.value = page.older;
       await nextTick();
       const index = anchor ? options.rowKeys().indexOf(anchor.key) : -1;
-      if (anchor && index >= 0) { const start = windowed()?.getOffsetForIndex(index, 'start')?.[0]; if (start !== undefined) el.scrollTop = start - anchor.offset; }
+      if (anchor && index >= 0) {
+        const start = windowed()?.getOffsetForIndex(index, "start")?.[0];
+        if (start !== undefined) el.scrollTop = start - anchor.offset;
+      }
       options.measured();
-    } catch { if (current()) options.failed('Could not load earlier messages.'); }
-    finally { if (current()) loadingOlder.value = false; }
+    } catch {
+      if (current()) options.failed("Could not load earlier messages.");
+    } finally {
+      if (current()) loadingOlder.value = false;
+    }
     // A short page may leave the top still in reach.
     if (current() && older.value !== undefined && el.scrollTop < OLDER_MARGIN) queueMicrotask(() => void loadOlder());
   }
   let olderObserver: IntersectionObserver | undefined;
   watch(olderSentinel, sentinel => {
-    olderObserver?.disconnect(); olderObserver = undefined;
-    if (!sentinel || !viewport.value || typeof IntersectionObserver !== 'function') return;
-    olderObserver = new IntersectionObserver(entries => { if (entries.some(entry => entry.isIntersecting)) void loadOlder(); }, { root: viewport.value, rootMargin: `${OLDER_MARGIN}px 0px 0px 0px` });
+    olderObserver?.disconnect();
+    olderObserver = undefined;
+    if (!sentinel || !viewport.value || typeof IntersectionObserver !== "function") return;
+    olderObserver = new IntersectionObserver(
+      entries => {
+        if (entries.some(entry => entry.isIntersecting)) void loadOlder();
+      },
+      { root: viewport.value, rootMargin: `${OLDER_MARGIN}px 0px 0px 0px` },
+    );
     olderObserver.observe(sentinel);
   });
   onBeforeUnmount(() => olderObserver?.disconnect());

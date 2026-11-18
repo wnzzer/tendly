@@ -32,16 +32,27 @@ export function treeParent(path: string): string {
 export function isTreeChild(parent: string, path: string): boolean {
   const prefix = parent ? `${parent}/` : "";
   const name = path.slice(prefix.length);
-  return path.startsWith(prefix) && !!name && !name.includes("/") && name !== "." && name !== ".." && !name.includes("\0");
+  return (
+    path.startsWith(prefix) && !!name && !name.includes("/") && name !== "." && name !== ".." && !name.includes("\0")
+  );
 }
 
 const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
 export function sortTreeEntries(entries: readonly FileEntry[]): FileEntry[] {
-  return [...entries].sort((a, b) => Number(b.kind === "directory") - Number(a.kind === "directory") || collator.compare(a.name, b.name) || a.path.localeCompare(b.path));
+  return [...entries].sort(
+    (a, b) =>
+      Number(b.kind === "directory") - Number(a.kind === "directory") ||
+      collator.compare(a.name, b.name) ||
+      a.path.localeCompare(b.path),
+  );
 }
 
 /** Project the cached hierarchy only: filtering never crawls the filesystem. */
-export function flattenTree(directories: ReadonlyMap<string, TreeDirectory>, expanded: ReadonlySet<string>, query = ""): TreeRow[] {
+export function flattenTree(
+  directories: ReadonlyMap<string, TreeDirectory>,
+  expanded: ReadonlySet<string>,
+  query = "",
+): TreeRow[] {
   const term = query.trim().toLocaleLowerCase();
   function project(parent: string, depth: number): TreeRow[] {
     const branches: TreeRow[][] = [];
@@ -51,10 +62,17 @@ export function flattenTree(directories: ReadonlyMap<string, TreeDirectory>, exp
       const isDirectory = entry.kind === "directory";
       const children = isDirectory && (term || expanded.has(entry.path)) ? project(entry.path, depth + 1) : [];
       if (term && !entry.path.toLocaleLowerCase().includes(term) && !children.length) continue;
-      branches.push([{
-        entry, parent, depth, position: 0, siblings: 0,
-        expanded: isDirectory && (expanded.has(entry.path) || (!!term && !!children.length)),
-      }, ...children]);
+      branches.push([
+        {
+          entry,
+          parent,
+          depth,
+          position: 0,
+          siblings: 0,
+          expanded: isDirectory && (expanded.has(entry.path) || (!!term && !!children.length)),
+        },
+        ...children,
+      ]);
     }
     return branches.flatMap((branch, index) => {
       branch[0].position = index + 1;
@@ -67,10 +85,7 @@ export function flattenTree(directories: ReadonlyMap<string, TreeDirectory>, exp
 
 /** What a key does on a row of the tree; the explorer carries it out. */
 export type TreeKeyAction =
-  | { kind: "open" }
-  | { kind: "focus"; path: string }
-  | { kind: "expand" }
-  | { kind: "collapse"; path: string };
+  { kind: "open" } | { kind: "focus"; path: string } | { kind: "expand" } | { kind: "collapse"; path: string };
 
 /**
  * The file tree's keys, as a tree view's: up and down move by row, Home and
@@ -78,10 +93,17 @@ export type TreeKeyAction =
  * an open folder and otherwise goes to the parent, Enter and Space open.
  * Keys with a modifier, and any other key, are not the tree's.
  */
-export function treeKeyAction(key: string, modifier: boolean, rows: readonly TreeRow[], row: TreeRow): TreeKeyAction | "ignore" | "none" {
-  if (modifier || !["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", "Enter", " "].includes(key)) return "ignore";
+export function treeKeyAction(
+  key: string,
+  modifier: boolean,
+  rows: readonly TreeRow[],
+  row: TreeRow,
+): TreeKeyAction | "ignore" | "none" {
+  if (modifier || !["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", "Enter", " "].includes(key))
+    return "ignore";
   const index = rows.findIndex(item => item.entry.path === row.entry.path);
-  const focus = (target: TreeRow | undefined): TreeKeyAction | "none" => target ? { kind: "focus", path: target.entry.path } : "none";
+  const focus = (target: TreeRow | undefined): TreeKeyAction | "none" =>
+    target ? { kind: "focus", path: target.entry.path } : "none";
   if (key === "Enter" || key === " ") return { kind: "open" };
   if (key === "ArrowDown") return focus(rows[index + 1]);
   if (key === "ArrowUp") return focus(rows[index - 1]);

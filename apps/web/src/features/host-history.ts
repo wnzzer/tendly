@@ -44,16 +44,23 @@ export interface HostHistory {
 }
 
 export const RANGES = [
-  { key: '1h', seconds: 3600 },
-  { key: '24h', seconds: 86400 },
-  { key: '7d', seconds: 7 * 86400 },
+  { key: "1h", seconds: 3600 },
+  { key: "24h", seconds: 86400 },
+  { key: "7d", seconds: 7 * 86400 },
 ] as const;
-export type RangeKey = typeof RANGES[number]['key'];
+export type RangeKey = (typeof RANGES)[number]["key"];
 
-export interface Sample { ts: number; avg: number; max: number }
+export interface Sample {
+  ts: number;
+  avg: number;
+  max: number;
+}
 
 /** The points that carry a reading for one measure, in time order. */
-export function samples(points: HostHistoryPoint[], pick: (point: HostHistoryPoint) => [number | null, number | null]): Sample[] {
+export function samples(
+  points: HostHistoryPoint[],
+  pick: (point: HostHistoryPoint) => [number | null, number | null],
+): Sample[] {
   const out: Sample[] = [];
   for (const point of points) {
     const [avg, max] = pick(point);
@@ -65,9 +72,10 @@ export function samples(points: HostHistoryPoint[], pick: (point: HostHistoryPoi
 
 export const measures = {
   cpu: (p: HostHistoryPoint): [number, number] => [p.cpu_avg, p.cpu_max],
-  memory: (p: HostHistoryPoint): [number | null, number | null] => p.memory_total > 0
-    ? [p.memory_used_avg / p.memory_total * 100, p.memory_used_max / p.memory_total * 100]
-    : [null, null],
+  memory: (p: HostHistoryPoint): [number | null, number | null] =>
+    p.memory_total > 0
+      ? [(p.memory_used_avg / p.memory_total) * 100, (p.memory_used_max / p.memory_total) * 100]
+      : [null, null],
   temperature: (p: HostHistoryPoint): [number | null, number | null] => [p.temperature_avg, p.temperature_max],
   fan: (p: HostHistoryPoint): [number | null, number | null] => [p.fan_rpm_avg, p.fan_rpm_max],
   clock: (p: HostHistoryPoint): [number | null, number | null] => [p.cpu_mhz_avg ?? null, p.cpu_mhz_max ?? null],
@@ -88,7 +96,7 @@ export function gigahertz(mhz: number): string {
 export function niceCeiling(value: number, floor = 1): number {
   const target = Math.max(value, floor, Number.MIN_VALUE);
   const power = 10 ** Math.floor(Math.log10(target));
-  return ([1, 2, 5, 10].map(step => step * power).find(step => step >= target) ?? 10 * power);
+  return [1, 2, 5, 10].map(step => step * power).find(step => step >= target) ?? 10 * power;
 }
 
 /**
@@ -98,8 +106,10 @@ export function niceCeiling(value: number, floor = 1): number {
  */
 export function niceRange(points: Sample[], step: number, minSpan: number): { bottom: number; top: number } {
   if (!points.length) return { bottom: 0, top: minSpan };
-  const low = Math.min(...points.map(point => point.avg)), high = Math.max(...points.map(point => point.max));
-  let bottom = Math.max(0, Math.floor(low / step) * step), top = Math.ceil(high / step) * step;
+  const low = Math.min(...points.map(point => point.avg)),
+    high = Math.max(...points.map(point => point.max));
+  let bottom = Math.max(0, Math.floor(low / step) * step),
+    top = Math.ceil(high / step) * step;
   if (top - bottom < minSpan) {
     const grow = minSpan - (top - bottom);
     bottom = Math.max(0, bottom - Math.ceil(grow / 2 / step) * step);
@@ -115,19 +125,32 @@ export function niceRange(points: Sample[], step: number, minSpan: number): { bo
  * buckets stay empty, so gaps survive. Points already sparser than a bucket
  * are returned as they are.
  */
-export function bin(points: Sample[], from: number, to: number, bins: number, resolution: number): { points: Sample[]; resolution: number } {
+export function bin(
+  points: Sample[],
+  from: number,
+  to: number,
+  bins: number,
+  resolution: number,
+): { points: Sample[]; resolution: number } {
   const width = (to - from) / Math.max(1, bins);
   if (width <= resolution) return { points, resolution };
   const buckets = new Map<number, { sum: number; count: number; max: number }>();
   for (const point of points) {
     const index = Math.floor((point.ts - from) / width);
     const bucket = buckets.get(index) ?? { sum: 0, count: 0, max: -Infinity };
-    bucket.sum += point.avg; bucket.count += 1; bucket.max = Math.max(bucket.max, point.max);
+    bucket.sum += point.avg;
+    bucket.count += 1;
+    bucket.max = Math.max(bucket.max, point.max);
     buckets.set(index, bucket);
   }
   return {
-    points: [...buckets].sort(([a], [b]) => a - b)
-      .map(([index, bucket]) => ({ ts: from + (index + 0.5) * width, avg: bucket.sum / bucket.count, max: bucket.max })),
+    points: [...buckets]
+      .sort(([a], [b]) => a - b)
+      .map(([index, bucket]) => ({
+        ts: from + (index + 0.5) * width,
+        avg: bucket.sum / bucket.count,
+        max: bucket.max,
+      })),
     resolution: width,
   };
 }
@@ -144,7 +167,14 @@ export function segments(points: Sample[], resolution: number): Sample[][] {
 }
 
 /** The plotted window; values run from `bottom` (zero when absent) to `top`. */
-export interface Frame { from: number; to: number; width: number; height: number; top: number; bottom?: number }
+export interface Frame {
+  from: number;
+  to: number;
+  width: number;
+  height: number;
+  top: number;
+  bottom?: number;
+}
 
 /**
  * SVG path data for the average line and the band up to the peak. A run of
@@ -152,17 +182,26 @@ export interface Frame { from: number; to: number; width: number; height: number
  */
 export function chartPaths(points: Sample[], resolution: number, frame: Frame): { line: string; band: string } {
   const span = Math.max(1, frame.to - frame.from);
-  const x = (ts: number) => +((ts - frame.from) / span * frame.width).toFixed(2);
-  const bottom = frame.bottom ?? 0, range = Math.max(Number.MIN_VALUE, frame.top - bottom);
-  const y = (value: number) => +(frame.height - (Math.min(Math.max(value, bottom), frame.top) - bottom) / range * frame.height).toFixed(2);
-  const half = Math.max(0.75, resolution / span * frame.width / 2);
-  let line = '', band = '';
+  const x = (ts: number) => +(((ts - frame.from) / span) * frame.width).toFixed(2);
+  const bottom = frame.bottom ?? 0,
+    range = Math.max(Number.MIN_VALUE, frame.top - bottom);
+  const y = (value: number) =>
+    +(frame.height - ((Math.min(Math.max(value, bottom), frame.top) - bottom) / range) * frame.height).toFixed(2);
+  const half = Math.max(0.75, ((resolution / span) * frame.width) / 2);
+  let line = "",
+    band = "";
   for (const run of segments(points, resolution)) {
     const xs = run.length === 1 ? [x(run[0].ts) - half, x(run[0].ts) + half] : run.map(p => x(p.ts));
     const values = run.length === 1 ? [run[0], run[0]] : run;
-    line += values.map((p, i) => `${i ? 'L' : 'M'}${xs[i]} ${y(p.avg)}`).join('');
-    band += values.map((p, i) => `${i ? 'L' : 'M'}${xs[i]} ${y(p.max)}`).join('')
-      + values.map((p, i) => [p, i] as const).reverse().map(([p, i]) => `L${xs[i]} ${y(p.avg)}`).join('') + 'Z';
+    line += values.map((p, i) => `${i ? "L" : "M"}${xs[i]} ${y(p.avg)}`).join("");
+    band +=
+      values.map((p, i) => `${i ? "L" : "M"}${xs[i]} ${y(p.max)}`).join("") +
+      values
+        .map((p, i) => [p, i] as const)
+        .reverse()
+        .map(([p, i]) => `L${xs[i]} ${y(p.avg)}`)
+        .join("") +
+      "Z";
   }
   return { line, band };
 }
@@ -174,7 +213,12 @@ export function nearest(points: Sample[], ts: number, resolution: number): Sampl
   return best && Math.abs(best.ts - ts) <= resolution * 1.5 ? best : undefined;
 }
 
-export interface SessionSummary { session_id: string; cpu_avg: number; cpu_max: number; memory_max: number }
+export interface SessionSummary {
+  session_id: string;
+  cpu_avg: number;
+  cpu_max: number;
+  memory_max: number;
+}
 
 /**
  * Sessions ranked by how much CPU they used over the range, as a share of the
@@ -185,13 +229,20 @@ export function busiestSessions(points: SessionHistoryPoint[], cores: number, li
   const by = new Map<string, { sum: number; count: number; max: number; memory: number }>();
   for (const point of points) {
     const entry = by.get(point.session_id) ?? { sum: 0, count: 0, max: 0, memory: 0 };
-    entry.sum += point.cpu_avg; entry.count += 1;
+    entry.sum += point.cpu_avg;
+    entry.count += 1;
     entry.max = Math.max(entry.max, point.cpu_max);
     entry.memory = Math.max(entry.memory, point.memory_max);
     by.set(point.session_id, entry);
   }
   const share = Math.max(1, cores);
-  return [...by].map(([session_id, entry]) => ({ session_id, cpu_avg: entry.sum / entry.count / share, cpu_max: entry.max / share, memory_max: entry.memory }))
+  return [...by]
+    .map(([session_id, entry]) => ({
+      session_id,
+      cpu_avg: entry.sum / entry.count / share,
+      cpu_max: entry.max / share,
+      memory_max: entry.memory,
+    }))
     .sort((a, b) => b.cpu_avg - a.cpu_avg || b.memory_max - a.memory_max)
     .slice(0, limit);
 }

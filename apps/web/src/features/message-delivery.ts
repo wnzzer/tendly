@@ -10,8 +10,20 @@ import { acknowledgeReceipt, type ChatDraft } from "./chat-model";
 type Pending = NonNullable<ChatDraft["pending"]>;
 
 /** A message on its way, tied to the endpoint and configuration it was sent under. */
-export function pendingMessage(id: string, content: string, text: string, session: Pick<Session, "endpoint_profile_id" | "configuration_revision">): Pending {
-  return { id, content, text, state: "sending", profileId: session.endpoint_profile_id, configurationRevision: session.configuration_revision ?? 0 };
+export function pendingMessage(
+  id: string,
+  content: string,
+  text: string,
+  session: Pick<Session, "endpoint_profile_id" | "configuration_revision">,
+): Pending {
+  return {
+    id,
+    content,
+    text,
+    state: "sending",
+    profileId: session.endpoint_profile_id,
+    configurationRevision: session.configuration_revision ?? 0,
+  };
 }
 
 /**
@@ -34,7 +46,10 @@ export function settleAccepted(draft: ChatDraft, messageId: string, content: str
   if (draft.text === content) draft.text = "";
   // A durable receipt can acknowledge an older, already-trimmed message.
   // Missing receipts still need the canonical event; never replay automatically.
-  if (draft.pending?.id === messageId) { draft.pending.state = "unknown"; draft.notice = "Message accepted. Refresh the conversation if its event has not appeared."; }
+  if (draft.pending?.id === messageId) {
+    draft.pending.state = "unknown";
+    draft.notice = "Message accepted. Refresh the conversation if its event has not appeared.";
+  }
 }
 
 /**
@@ -43,6 +58,12 @@ export function settleAccepted(draft: ChatDraft, messageId: string, content: str
  */
 export function settleFailed(draft: ChatDraft, messageId: string, content: string, cause: unknown) {
   if (draft.pending?.id !== messageId) return;
-  if (deliveryUncertain(cause)) { draft.pending.state = "unknown"; draft.notice = "Delivery is uncertain. Your draft is kept; refresh the conversation before deciding what to do. It will not be sent again automatically."; }
-  else { draft.pending = undefined; if (!draft.text) draft.text = content; }
+  if (deliveryUncertain(cause)) {
+    draft.pending.state = "unknown";
+    draft.notice =
+      "Delivery is uncertain. Your draft is kept; refresh the conversation before deciding what to do. It will not be sent again automatically.";
+  } else {
+    draft.pending = undefined;
+    if (!draft.text) draft.text = content;
+  }
 }

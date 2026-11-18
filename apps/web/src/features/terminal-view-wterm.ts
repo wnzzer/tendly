@@ -3,7 +3,13 @@ import type { GhosttyCore } from "@wterm/ghostty";
 import "@wterm/dom/css";
 import { createFrameBatch } from "./frame-batch";
 import { quietGhostty } from "./terminal-engine";
-import { concatBytes, themeVariables, type TerminalTheme, type TerminalView, type TerminalViewEvents } from "./terminal-view";
+import {
+  concatBytes,
+  themeVariables,
+  type TerminalTheme,
+  type TerminalView,
+  type TerminalViewEvents,
+} from "./terminal-view";
 
 /**
  * Draw with wterm: Ghostty's emulator, compiled to WebAssembly, with the rows
@@ -38,9 +44,13 @@ export function createWtermView(host: HTMLElement, theme: TerminalTheme, events:
    * parsing does. The first frame after a quiet spell is written at once, so a
    * keystroke echoes without delay; the rest of a burst goes in once a frame.
    */
-  const output = createFrameBatch<Uint8Array>(parts => {
-    if (!disposed) term?.write(concatBytes(parts));
-  }, undefined, { leading: true });
+  const output = createFrameBatch<Uint8Array>(
+    parts => {
+      if (!disposed) term?.write(concatBytes(parts));
+    },
+    undefined,
+    { leading: true },
+  );
   const scrolled = () => events.scrolled();
 
   applyTheme(theme);
@@ -69,27 +79,35 @@ export function createWtermView(host: HTMLElement, theme: TerminalTheme, events:
       // goes back to what wterm took it from -- not to what had it when init
       // began, which the person may have left for this very terminal since
       // (focusing the host is asking for it) or for another one.
-      let wanted = host.contains(document.activeElement), stolenFrom: Element | null = null;
+      let wanted = host.contains(document.activeElement),
+        stolenFrom: Element | null = null;
       const quietFocus = (event: FocusEvent) => {
         event.stopPropagation();
-        if (event.target === host) { wanted = true; return; }
-        const from = event.relatedTarget instanceof Element && !host.contains(event.relatedTarget) ? event.relatedTarget : null;
+        if (event.target === host) {
+          wanted = true;
+          return;
+        }
+        const from =
+          event.relatedTarget instanceof Element && !host.contains(event.relatedTarget) ? event.relatedTarget : null;
         if (from) stolenFrom = from;
         // Focus passed on inside a terminal that was asked for it is its own, not taken.
-        if (!wanted && event.target instanceof Element && (from || !event.relatedTarget)) takenFrom.set(event.target, from);
+        if (!wanted && event.target instanceof Element && (from || !event.relatedTarget))
+          takenFrom.set(event.target, from);
       };
       host.addEventListener("focusin", quietFocus);
       initializing++;
-      try { await view.init(); }
-      finally {
+      try {
+        await view.init();
+      } finally {
         host.removeEventListener("focusin", quietFocus);
         const active = document.activeElement;
         if (!wanted && active instanceof HTMLElement && host.contains(active)) {
           let from = stolenFrom as Element | null;
           for (let hops = 0; from && takenFrom.has(from) && hops < 16; hops++) from = takenFrom.get(from) ?? null;
           // Traced back to this terminal itself: it was asked for before its init began, and keeps the keys.
-          if (from && host.contains(from)) { /* stays */ }
-          else if (from instanceof HTMLElement && from.isConnected) from.focus({ preventScroll: true });
+          if (from && host.contains(from)) {
+            /* stays */
+          } else if (from instanceof HTMLElement && from.isConnected) from.focus({ preventScroll: true });
           else active.blur();
         }
         if (--initializing === 0) takenFrom.clear();
@@ -118,7 +136,9 @@ export function createWtermView(host: HTMLElement, theme: TerminalTheme, events:
   }
 
   return {
-    get ready() { return !!term; },
+    get ready() {
+      return !!term;
+    },
     size: () => (term ? { cols: term.cols, rows: term.rows } : undefined),
     fit: () => term?.fit(),
     write(bytes) {
@@ -173,7 +193,9 @@ export function createWtermView(host: HTMLElement, theme: TerminalTheme, events:
       try {
         term?.destroy();
         core?.dispose();
-      } catch { /* Already gone. */ }
+      } catch {
+        /* Already gone. */
+      }
       term = undefined;
       core = undefined;
     },

@@ -11,7 +11,9 @@ export const MOBILE_QUERY = `(max-width: ${SIDEBAR_RAIL_MIN_WIDTH - 1}px)`;
 export function useMobile() {
   const query = typeof window !== "undefined" && window.matchMedia ? window.matchMedia(MOBILE_QUERY) : undefined;
   const mobile = ref(!!query?.matches);
-  const change = (event: MediaQueryListEvent) => { mobile.value = event.matches; };
+  const change = (event: MediaQueryListEvent) => {
+    mobile.value = event.matches;
+  };
   query?.addEventListener("change", change);
   onUnmounted(() => query?.removeEventListener("change", change));
   return mobile;
