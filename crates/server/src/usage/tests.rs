@@ -324,7 +324,10 @@ fn a_window_counts_only_what_its_percentage_has_seen() {
     assert!(!covered_by_reading(999, from, read_at), "before the window");
     assert!(covered_by_reading(from, from, read_at));
     assert!(covered_by_reading(read_at, from, read_at));
-    assert!(!covered_by_reading(read_at + 1, from, read_at), "after the reading");
+    assert!(
+        !covered_by_reading(read_at + 1, from, read_at),
+        "after the reading"
+    );
     // Had it been counted, the week would look half again as large.
     let seen = window_size(18.0, 520_000_000, 260.0).unwrap();
     let with_later = window_size(18.0, 780_000_000, 390.0).unwrap();
