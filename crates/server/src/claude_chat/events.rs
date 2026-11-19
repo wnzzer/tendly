@@ -80,6 +80,11 @@ impl Claude {
         }
         // The echo of a message the model just read. A steered one is no
         // longer waiting; one read with no turn open opens one.
+        //
+        // What a local command printed is echoed the same way, but the model
+        // reads none of it and no result follows. `set_model` between turns
+        // echoes "Set model to …": taken for a turn, it ran forever, and Stop
+        // could not end it, since the client had nothing to interrupt.
         if kind == "user" && message.get("isReplay") == Some(&Value::Bool(true)) {
             if let Some(id) = message
                 .get("uuid")
@@ -87,7 +92,7 @@ impl Claude {
                 .filter(|id| !id.is_empty())
             {
                 self.unconsumed.shift_remove(id);
-                if self.core.active.is_none() {
+                if self.core.active.is_none() && !local_command_echo(&message) {
                     let id = if self.core.has_seen(id) {
                         id.to_owned()
                     } else {

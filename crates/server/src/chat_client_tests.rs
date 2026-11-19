@@ -1462,6 +1462,15 @@ async fn claude_models_depths_and_permission_modes() {
             .any(|e| e["type"] == "settings" && e["model"] == "claude-sonnet-5-fixture"),
         "the listed choice was replaced by the resolved id"
     );
+    // The client echoes "Set model to …" as a replayed message; it opens no
+    // turn, which no result would ever end.
+    assert!(
+        !events.iter().any(|e| e["type"] == "turn"
+            && e["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("background-"))),
+        "a model change opened a turn"
+    );
     let refused = events.iter().find(|e| e["type"] == "error").unwrap();
     assert!(
         refused["message"]

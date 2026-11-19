@@ -128,7 +128,7 @@ for await(const line of createInterface({input:process.stdin})){
   if(message.type==='control_request'){
     const request=message.request;
     if(request.subtype==='initialize'){success(message,{commands:[{name:'review',description:'Review'},'compact',{nameless:true}],models:[{value:'default',displayName:'Default (Sonnet)'},{value:'sonnet',displayName:'Sonnet',supportsEffort:true,supportedEffortLevels:['low','medium','high']},{value:'opus',displayName:'Opus',description:'Fixture opus'},{displayName:'no value'}]});continue;}
-    if(request.subtype==='set_model'){if(request.model==='refused-model')refuse(message,'API error: 400 availability probe refused');else success(message);continue;}
+    if(request.subtype==='set_model'){if(request.model==='refused-model')refuse(message,'API error: 400 availability probe refused');else{send({type:'user',isReplay:true,uuid:'model-echo-'+request.model,message:{role:'user',content:'<local-command-stdout>Set model to `'+request.model+'`</local-command-stdout>'}});success(message);}continue;}
     // The status that follows comes a moment later: written in the same chunk,
     // the bridge reads it before its awaited answer and reports the mode twice.
     if(request.subtype==='set_permission_mode'){success(message,{mode:request.mode});setTimeout(()=>send({type:'system',subtype:'status',permissionMode:request.mode}),50);continue;}

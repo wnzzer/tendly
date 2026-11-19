@@ -22,6 +22,29 @@ pub(super) fn context_tokens(usage: Option<&Value>) -> Option<Value> {
     Some(json!(parts.iter().map(|p| p.unwrap_or(0)).sum::<i64>()))
 }
 
+/// Whether a replayed user message is what a local command printed (or the
+/// command itself), which the model never reads.
+pub fn local_command_echo(message: &Value) -> bool {
+    let content = message.get("message").and_then(|m| m.get("content"));
+    let text = match content {
+        Some(Value::String(text)) => text.as_str(),
+        Some(Value::Array(blocks)) => match blocks.as_slice() {
+            [block] => block.get("text").and_then(Value::as_str).unwrap_or(""),
+            _ => return false,
+        },
+        _ => return false,
+    };
+    let text = text.trim_start();
+    [
+        "<local-command-stdout>",
+        "<local-command-stderr>",
+        "<local-command-caveat>",
+        "<command-name>",
+    ]
+    .iter()
+    .any(|tag| text.starts_with(tag))
+}
+
 /// `modelEntries`: the models the client lists at initialize time, with the
 /// effort levels each states it supports.
 pub(super) fn model_entries(value: Option<&Value>) -> Option<Vec<Value>> {
