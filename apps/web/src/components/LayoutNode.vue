@@ -18,6 +18,7 @@ import { SESSION_ACTIONS } from "../features/session-actions-context";
 import { sessionStatuses } from "../features/attention";
 import { DEFAULT_CLIENT, PROVIDER_KINDS, providerLabel } from "../features/clients";
 import { firstAppearance } from "./pane-entrance";
+import { draggedTab, insertionIsNoop, tabInsertion } from "../features/tab-drag";
 const { t } = useI18n();
 
 const props = defineProps<{
@@ -42,7 +43,7 @@ const emit = defineEmits<{
   resizing: [active: boolean];
   close: [id: string];
   maximize: [id: string];
-  "drop-pane": [targetId: string, pane: PaneNode, position: DockPosition];
+  "drop-pane": [targetId: string, pane: PaneNode, position: DockPosition, before?: string | null];
   "add-pane": [targetId: string, kind: LeafPaneKind];
   "create-session": [targetId: string, provider: ProviderKind, ephemeral: boolean];
 }>();
@@ -50,6 +51,23 @@ const emit = defineEmits<{
 const splitElement = ref<HTMLElement | null>(null);
 const paneElement = ref<HTMLElement | null>(null);
 const dropPosition = ref<DockPosition | null>(null);
+/** A drag over the tab strip: the tab it would land before (`null`: last), and the slot opened for it. */
+const tabDrop = ref<{ before: string | null; gap: number; left: number } | null>(null);
+const tabStrip = ref<HTMLElement | null>(null);
+/** Tabs at and after the drop slide aside by the dragged tab's width. */
+function tabShift(index: number) {
+  const drop = tabDrop.value;
+  if (!drop) return undefined;
+  const at = drop.before === null ? tabs.value.length : tabs.value.findIndex(pane => pane.id === drop.before);
+  return index >= at ? { transform: `translateX(${drop.gap}px)` } : undefined;
+}
+// A drag that ends anywhere (dropped elsewhere, or cancelled) closes the gap here.
+watch(draggedTab, value => {
+  if (!value) {
+    tabDrop.value = null;
+    dropPosition.value = null;
+  }
+});
 const addMenu = ref<HTMLDetailsElement | null>(null);
 /**
  * Tab context menu.
@@ -264,8 +282,8 @@ function forwardSplit(id: string, direction: SplitDirection) {
 function forwardResize(id: string, ratio: number, final: boolean) {
   emit("resize", id, ratio, final);
 }
-function forwardDrop(id: string, pane: PaneNode, position: DockPosition) {
-  emit("drop-pane", id, pane, position);
+function forwardDrop(id: string, pane: PaneNode, position: DockPosition, before?: string | null) {
+  emit("drop-pane", id, pane, position, before);
 }
 function forwardAdd(id: string, kind: LeafPaneKind) {
   emit("add-pane", id, kind);
@@ -316,10 +334,55 @@ function keyboardResize(event: KeyboardEvent) {
   event.preventDefault();
   emit("resize", props.node.id, ratio, true);
 }
+/**
+ * When the tabs change order, or one joins or leaves, each glides from where
+ * it was drawn to its new place (FLIP), and a tab that arrived fades in where
+ * its slot was. Not on first draw, nor when the pane shows another group.
+ */
+watch(
+  () => tabs.value.map(pane => pane.id).join("\n"),
+  (ids, previous) => {
+    const strip = tabStrip.value;
+    if (!strip || previous === undefined || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const before = new Map(
+      Array.from(strip.querySelectorAll<HTMLElement>("[data-pane-tab-id]")).map(element => [
+        element.dataset.paneTabId!,
+        element.getBoundingClientRect().left,
+      ]),
+    );
+    const old = new Set(previous.split("\n"));
+    if (!ids.split("\n").some(id => old.has(id))) return;
+    void nextTick(() => {
+      for (const element of Array.from(strip.querySelectorAll<HTMLElement>("[data-pane-tab-id]"))) {
+        const from = before.get(element.dataset.paneTabId!);
+        const dx = from === undefined ? 0 : from - element.getBoundingClientRect().left;
+        if (from !== undefined && Math.abs(dx) < 1) continue;
+        element.animate(
+          from === undefined
+            ? [
+                { opacity: 0, transform: "translateY(-3px) scale(.96)" },
+                { opacity: 1, transform: "none" },
+              ]
+            : [{ transform: `translateX(${dx}px)` }, { transform: "none" }],
+          { duration: 200, easing: "cubic-bezier(.16, 1, .3, 1)" },
+        );
+      }
+    });
+  },
+  { flush: "pre" },
+);
 function dragStart(event: DragEvent, pane: PaneNode) {
   if (!event.dataTransfer) return;
   event.dataTransfer.effectAllowed = "move";
   event.dataTransfer.setData("application/tendly-pane", JSON.stringify(pane));
+  const width = (event.currentTarget as HTMLElement | null)?.offsetWidth ?? 140;
+  // After the browser has taken its picture of the tab, so the picture is not the faded one.
+  requestAnimationFrame(() => {
+    draggedTab.value = { id: pane.id, title: titleFor(pane), width };
+  });
+}
+function dragEnd() {
+  draggedTab.value = null;
 }
 function isPaneDrag(event: DragEvent) {
   return event.dataTransfer?.types.includes("application/tendly-pane");
@@ -339,22 +402,51 @@ function dragOver(event: DragEvent) {
     event.dataTransfer.dropEffect = ["copy", "copyLink"].includes(event.dataTransfer.effectAllowed) ? "copy" : "move";
   }
   dropPosition.value = detectPosition(event);
+  tabDrop.value = dropPosition.value === "center" ? detectTabDrop(event) : null;
+}
+/** Over the tab strip, the drop lands among the tabs, where the gap opens. */
+function detectTabDrop(event: DragEvent): typeof tabDrop.value {
+  const strip = tabStrip.value;
+  if (!strip) return null;
+  const bounds = strip.getBoundingClientRect();
+  if (event.clientY < bounds.top || event.clientY > bounds.bottom) return null;
+  const elements = Array.from(strip.querySelectorAll<HTMLElement>("[data-pane-tab-id]"));
+  const slots = elements.map(element => ({
+    id: element.dataset.paneTabId!,
+    left: element.offsetLeft,
+    width: element.offsetWidth,
+  }));
+  const before = tabInsertion(event.clientX - bounds.left + strip.scrollLeft, slots);
+  const dragged = draggedTab.value;
+  const noop = insertionIsNoop(
+    slots.map(slot => slot.id),
+    dragged?.id,
+    before,
+  );
+  const at = before === null ? undefined : slots.find(slot => slot.id === before);
+  const last = slots[slots.length - 1];
+  const left = at ? at.left : last ? last.left + last.width : 0;
+  return { before, gap: noop ? 0 : (dragged?.width ?? 140), left };
 }
 function dragLeave(event: DragEvent) {
   if (event.relatedTarget instanceof Node && paneElement.value?.contains(event.relatedTarget)) return;
   dropPosition.value = null;
+  tabDrop.value = null;
 }
 function drop(event: DragEvent) {
   if (!isPaneDrag(event)) return;
   event.preventDefault();
   event.stopPropagation();
   const position = dropPosition.value ?? detectPosition(event);
+  const before = position === "center" ? (tabDrop.value ?? detectTabDrop(event))?.before : undefined;
   dropPosition.value = null;
+  tabDrop.value = null;
+  draggedTab.value = null;
   const raw = event.dataTransfer?.getData("application/tendly-pane");
   if (!raw || raw.length > 32768) return;
   try {
     const pane: unknown = JSON.parse(raw);
-    if (isPaneNode(pane)) emit("drop-pane", targetId.value, pane, position);
+    if (isPaneNode(pane)) emit("drop-pane", targetId.value, pane, position, before);
   } catch {
     /* Foreign or malformed drag payload. */
   }
@@ -463,15 +555,34 @@ onBeforeUnmount(() => {
     @drop="drop"
   >
     <header class="dock-header" @contextmenu="openPaneMenu">
-      <div class="dock-tabs" role="tablist" :aria-label="t('Pane tabs')">
+      <div
+        ref="tabStrip"
+        class="dock-tabs"
+        :class="{ 'is-drop-target': !!tabDrop }"
+        role="tablist"
+        :aria-label="t('Pane tabs')"
+      >
         <div
-          v-for="pane in tabs"
+          v-if="tabDrop && tabDrop.gap"
+          class="dock-tab-slot"
+          :style="{ left: tabDrop.left + 'px', width: tabDrop.gap + 'px' }"
+          aria-hidden="true"
+        >
+          <span>{{ draggedTab?.title }}</span>
+        </div>
+        <div
+          v-for="(pane, index) in tabs"
           :key="pane.id"
+          :style="tabShift(index)"
           :id="`dock-tab-${pane.id}`"
           :data-pane-tab-id="pane.id"
           role="tab"
           class="dock-tab"
-          :class="{ 'is-active': pane.id === activePane?.id, 'is-ephemeral': isEphemeral(pane) }"
+          :class="{
+            'is-active': pane.id === activePane?.id,
+            'is-ephemeral': isEphemeral(pane),
+            'is-dragging': draggedTab?.id === pane.id,
+          }"
           :aria-selected="pane.id === activePane?.id"
           :aria-controls="`dock-panel-${pane.id}`"
           :aria-label="tabLabel(pane)"
@@ -484,6 +595,7 @@ onBeforeUnmount(() => {
           draggable="true"
           @contextmenu="openTabMenu($event, pane)"
           @dragstart="dragStart($event, pane)"
+          @dragend="dragEnd"
           @click.stop="select(pane)"
           @keydown="tabKey($event, pane)"
           @keydown.enter.prevent="select(pane)"
@@ -758,7 +870,7 @@ onBeforeUnmount(() => {
         <Icon name="close" :size="14" />{{ t("Close empty pane") }}
       </button>
     </ContextMenu>
-    <div v-if="dropPosition" class="dock-drop-overlay" :class="'drop-' + dropPosition">
+    <div v-if="dropPosition && !tabDrop" class="dock-drop-overlay" :class="'drop-' + dropPosition">
       <span>{{ t(dropPosition === "center" ? "Add as tab" : "Split " + dropPosition) }}</span>
     </div>
   </section>
@@ -1187,6 +1299,74 @@ onBeforeUnmount(() => {
   background: var(--fill);
   border-color: var(--line-strong);
   color: var(--ink);
+}
+/* A tab dragged over a strip: the tabs after the drop slide aside, and the slot they leave shows where it lands. */
+.dock-tabs {
+  position: relative;
+}
+.dock-tabs.is-drop-target .dock-tab {
+  transition:
+    transform var(--duration-normal) var(--ease-out),
+    color var(--duration-fast),
+    background var(--duration-fast);
+}
+.dock-tab.is-dragging {
+  opacity: 0.35;
+}
+.dock-tab-slot {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 8px;
+  border: 1.5px dashed var(--focus);
+  border-radius: var(--radius-md);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  pointer-events: none;
+  animation: dock-slot-in var(--duration-normal) var(--ease-out);
+  transition:
+    left var(--duration-normal) var(--ease-out),
+    width var(--duration-normal) var(--ease-out);
+}
+.dock-tab-slot span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@keyframes dock-slot-in {
+  from {
+    opacity: 0;
+    transform: scaleX(0.6);
+  }
+}
+.dock-drop-overlay {
+  transition:
+    top var(--duration-normal) var(--ease-out),
+    right var(--duration-normal) var(--ease-out),
+    bottom var(--duration-normal) var(--ease-out),
+    left var(--duration-normal) var(--ease-out);
+  animation: dock-overlay-in var(--duration-normal) var(--ease-out);
+}
+@keyframes dock-overlay-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dock-tabs.is-drop-target .dock-tab,
+  .dock-tab-slot,
+  .dock-drop-overlay {
+    transition: none;
+    animation: none;
+  }
 }
 .dock-drop-overlay {
   position: absolute;

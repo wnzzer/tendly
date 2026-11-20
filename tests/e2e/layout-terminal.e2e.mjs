@@ -237,6 +237,37 @@ test('a tab dragged to the middle of a pane joins its tabs; to an edge, splits i
   assert.deepEqual(browser.errors, []);
 });
 
+test('a tab dragged onto the tabs opens a slot there and lands in it, in its own group or another', async () => {
+  const { page } = await canvasOf(['one', 'two', 'three', 'four'], ([one, two, three, four]) => row(one, stack('tabs', [two, three, four], 'two')));
+  await settle(page);
+  // Mid-drag the tabs after the drop slide aside, and a slot shows where it lands.
+  const slid = await page.evaluate(async () => {
+    const tab = id => document.querySelector(`[data-pane-tab-id="${id}"]`);
+    const frame = () => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)));
+    const data = new DataTransfer();
+    const at = (type, element, x) => element.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: data, clientX: x, clientY: element.getBoundingClientRect().top + 10 }));
+    const two = tab('two'), start = two.getBoundingClientRect().left;
+    at('dragstart', tab('four'), tab('four').getBoundingClientRect().left + 20);
+    await frame();
+    at('dragover', two, start + 10);
+    await new Promise(done => setTimeout(done, 400));
+    const result = { slot: !!document.querySelector('.dock-tab-slot'), moved: two.getBoundingClientRect().left - start };
+    at('drop', two, start + 10);
+    at('dragend', tab('four'), 0);
+    return result;
+  });
+  assert.equal(slid.slot, true, 'the slot opens');
+  assert.ok(slid.moved > 50, `two slides aside (${slid.moved}px)`);
+  await savedAs({ row: 0.5, first: 'one', second: { tabs: ['four', 'two', 'three'], active: 'four' } }, 'four moved before two');
+  assert.equal(await page.locator('.dock-tab-slot').count(), 0, 'the slot closes on drop');
+  const three = await tab(page, 'three').boundingBox();
+  await tab(page, 'four').dragTo(tab(page, 'three'), { targetPosition: { x: three.width - 4, y: 10 } });
+  await savedAs({ row: 0.5, first: 'one', second: { tabs: ['two', 'three', 'four'], active: 'four' } }, 'four moved after three');
+  await tab(page, 'three').dragTo(tab(page, 'one'), { targetPosition: { x: 4, y: 10 } });
+  await savedAs({ row: 0.5, first: { tabs: ['three', 'one'], active: 'three' }, second: { tabs: ['two', 'four'], active: 'four' } }, 'three before one, in the other group');
+  assert.deepEqual(browser.errors, []);
+});
+
 test('the divider follows a drag, resets on double-click and moves with the arrow keys', async () => {
   const { page } = await canvasOf(['one', 'two']);
   const divider = page.locator('.dock-separator');

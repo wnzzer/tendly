@@ -157,6 +157,27 @@ test("moving existing session into another group never duplicates its ID", () =>
   assert.equal(validateLayout(next), true);
 });
 
+test("a drop on a tab lands before it, reordering within its own group", () => {
+  const ids = node => node.panes.map(item => item.id);
+  const group = stack("tabs", [pane("a"), pane("b"), pane("c")], "a");
+  assert.deepEqual(ids(dockPane(group, pane("c"), "tabs", "center", "a")), ["c", "a", "b"]);
+  assert.deepEqual(ids(dockPane(group, pane("a"), "tabs", "center", null)), ["b", "c", "a"]);
+  assert.equal(dockPane(group, pane("a"), "tabs", "center", "b").activePaneId, "a");
+  assert.deepEqual(ids(dockPane(group, pane("a"), "tabs", "center", "b")), ["a", "b", "c"]);
+  const original = split("s", stack("left", [pane("a"), pane("b")]), stack("right", [pane("c"), pane("d")]));
+  const moved = dockPane(original, pane("b"), "right", "center", "d");
+  assert.deepEqual(
+    moved.second.panes.map(item => item.id),
+    ["c", "b", "d"],
+  );
+  const single = dockPane(split("s", pane("a"), pane("b")), pane("b"), "a", "center", "a");
+  assert.deepEqual(
+    single.panes.map(item => item.id),
+    ["b", "a"],
+  );
+  assert.equal(validateLayout(moved), true);
+});
+
 test("moving only leaf across sibling handles split pruning without data loss", () => {
   const original = split("s", pane("a"), pane("b"));
   const next = dockPane(original, pane("a"), "b", "bottom");

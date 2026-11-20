@@ -264,20 +264,23 @@ function restoreView() {
 }
 
 const centerTarget = (id: string) => centerDockTarget(working.value.root, projected.value, id);
-function drop(targetId: string, pane: PaneNode, position: DockPosition) {
+/** `before` is set for a drop on a tab: the tab to land before, or `null` for last. */
+function drop(targetId: string, pane: PaneNode, position: DockPosition, before?: string | null) {
   maximized.value = null;
-  const target = position === "center" ? centerTarget(targetId) : targetId;
-  commit(dockPane(working.value.root, pane, target, position));
+  // A tab shown in a collapsed group lives in its own group: land beside it there.
+  const target =
+    position !== "center" ? targetId : before ? containerId(working.value.root, before) : centerTarget(targetId);
+  commit(dockPane(working.value.root, pane, target, position, before));
   const inserted = findNode(working.value.root, pane.id);
   if (inserted?.type === "pane") selectPane(inserted);
 }
-function dropFromPointer(targetId: string, pane: PaneNode, position: DockPosition) {
+function dropFromPointer(targetId: string, pane: PaneNode, position: DockPosition, before?: string | null) {
   if (props.acceptPane && !props.acceptPane(pane)) {
     notice.value = "This pane does not match a known workspace or session.";
     return;
   }
   const existed = !!findNode(working.value.root, pane.id);
-  drop(targetId, pane, position);
+  drop(targetId, pane, position, before);
   const inserted = findNode(working.value.root, pane.id);
   // A successful new sidebar drop is an explicit open. Moving existing tabs is
   // only layout editing and must never restart an ended session.

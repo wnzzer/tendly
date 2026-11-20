@@ -264,16 +264,40 @@ export function closePane(root: LayoutNode, paneId: string, recent: readonly str
   return remove(root) ?? emptyStack(newId("empty-workspace", idsOf(root)));
 }
 
-/** Move an existing pane, or insert a new session/file. Center = tab; edge = split. */
-export function dockPane(root: LayoutNode, incoming: PaneNode, targetId: string, position: DockPosition): LayoutNode {
+/** Where a tab lands among others: before the tab named, or at the end (`null`). */
+function insertTab(panes: PaneNode[], pane: PaneNode, before: string | null | undefined): PaneNode[] {
+  const rest = panes.filter(item => item.id !== pane.id);
+  const index = before ? rest.findIndex(item => item.id === before) : -1;
+  return index < 0 ? [...rest, pane] : [...rest.slice(0, index), pane, ...rest.slice(index)];
+}
+
+/**
+ * Move an existing pane, or insert a new session/file. Center = tab; edge = split.
+ * `before` places a centre drop among the tabs (a drop on a tab): before that
+ * tab, or last for `null`. Within its own group, that reorders the tab.
+ */
+export function dockPane(
+  root: LayoutNode,
+  incoming: PaneNode,
+  targetId: string,
+  position: DockPosition,
+  before?: string | null,
+): LayoutNode {
   if (!isPaneNode(incoming)) return root;
   const target = findNode(root, containerId(root, targetId));
   if (!target) return root;
   const existing = findNode(root, incoming.id);
   const pane = existing?.type === "pane" ? existing : incoming;
   if (target.type === "pane" && target.id === pane.id) return root;
-  if (position === "center" && target.type === "stack" && target.panes.some(item => item.id === pane.id))
-    return activatePane(root, pane.id);
+  if (position === "center" && target.type === "stack" && target.panes.some(item => item.id === pane.id)) {
+    if (before === undefined || before === pane.id) return activatePane(root, pane.id);
+    const panes = insertTab(target.panes, pane, before);
+    const moved = panes.some((item, index) => item.id !== target.panes[index]?.id);
+    return activatePane(
+      moved ? replaceNode(root, target.id, node => (node.type === "stack" ? { ...node, panes } : node)) : root,
+      pane.id,
+    );
+  }
   const fallbackIds = flattenPanes(target)
     .filter(item => item.id !== pane.id)
     .map(item => item.id);
@@ -294,13 +318,13 @@ export function dockPane(root: LayoutNode, incoming: PaneNode, targetId: string,
   occupied.add(pane.id);
   next = replaceNode(next, destination?.id ?? next.id, node => {
     if (position === "center") {
-      if (node.type === "stack") return { ...node, panes: [...node.panes, pane], activePaneId: pane.id };
+      if (node.type === "stack") return { ...node, panes: insertTab(node.panes, pane, before), activePaneId: pane.id };
       if (node.type === "pane")
         return {
           type: "stack",
           kind: "stack",
           id: newId(`${node.id}:tabs`, occupied),
-          panes: [node, pane],
+          panes: before === node.id ? [pane, node] : [node, pane],
           activePaneId: pane.id,
         };
       return node;
