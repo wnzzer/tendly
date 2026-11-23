@@ -44,6 +44,7 @@ import {
   selectionGroups,
   splitPane,
   swapGroups,
+  swapInto,
   updatePane,
   validateLayout,
   type DockPosition,
@@ -280,6 +281,17 @@ function dropFromPointer(targetId: string, pane: PaneNode, position: DockPositio
     return;
   }
   const existed = !!findNode(working.value.root, pane.id);
+  // A tab already on the canvas dropped in the middle of another group trades places with it.
+  if (existed && position === "center" && before === undefined) {
+    const swapped = swapInto(working.value.root, pane.id, centerTarget(targetId));
+    if (swapped !== working.value.root) {
+      maximized.value = null;
+      commit(swapped);
+      const moved = findNode(working.value.root, pane.id);
+      if (moved?.type === "pane") selectPane(moved);
+      return;
+    }
+  }
   drop(targetId, pane, position, before);
   const inserted = findNode(working.value.root, pane.id);
   // A successful new sidebar drop is an explicit open. Moving existing tabs is

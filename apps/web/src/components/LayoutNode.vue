@@ -54,6 +54,16 @@ const dropPosition = ref<DockPosition | null>(null);
 /** A drag over the tab strip: the tab it would land before (`null`: last), and the slot opened for it. */
 const tabDrop = ref<{ before: string | null; gap: number; left: number } | null>(null);
 const tabStrip = ref<HTMLElement | null>(null);
+/**
+ * What a drop in the middle does: a tab from another group trades places
+ * (Canvas.swapInto), its whole window when it is alone there; anything else
+ * (a sidebar row, a tab of this group) joins the tabs.
+ */
+const centerDropLabel = computed(() => {
+  const dragged = draggedTab.value;
+  if (!dragged || tabs.value.some(pane => pane.id === dragged.id) || !activePane.value) return t("Add as tab");
+  return dragged.alone ? t("Swap windows") : t("Swap with {title}", { title: titleFor(activePane.value) });
+});
 /** Tabs at and after the drop slide aside by the dragged tab's width. */
 function tabShift(index: number) {
   const drop = tabDrop.value;
@@ -378,7 +388,7 @@ function dragStart(event: DragEvent, pane: PaneNode) {
   const width = (event.currentTarget as HTMLElement | null)?.offsetWidth ?? 140;
   // After the browser has taken its picture of the tab, so the picture is not the faded one.
   requestAnimationFrame(() => {
-    draggedTab.value = { id: pane.id, title: titleFor(pane), width };
+    draggedTab.value = { id: pane.id, title: titleFor(pane), width, alone: tabs.value.length === 1 };
   });
 }
 function dragEnd() {
@@ -871,7 +881,7 @@ onBeforeUnmount(() => {
       </button>
     </ContextMenu>
     <div v-if="dropPosition && !tabDrop" class="dock-drop-overlay" :class="'drop-' + dropPosition">
-      <span>{{ t(dropPosition === "center" ? "Add as tab" : "Split " + dropPosition) }}</span>
+      <span>{{ dropPosition === "center" ? centerDropLabel : t("Split " + dropPosition) }}</span>
     </div>
   </section>
 </template>

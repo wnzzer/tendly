@@ -210,6 +210,43 @@ export function swapGroups(root: LayoutNode, firstId: string, secondId: string):
   };
   return swap(root);
 }
+/** Two panes trade places, each taking the other's tab (and active tab) in its group. */
+function swapPanes(root: LayoutNode, first: PaneNode, second: PaneNode): LayoutNode {
+  const other = (id: string) => (id === first.id ? second : id === second.id ? first : undefined);
+  const swap = (node: LayoutNode): LayoutNode => {
+    if (node.type === "pane") return other(node.id) ?? node;
+    if (node.type === "stack") {
+      if (!node.panes.some(pane => other(pane.id))) return node;
+      const active = node.activePaneId && other(node.activePaneId);
+      return {
+        ...node,
+        panes: node.panes.map(pane => other(pane.id) ?? pane),
+        ...(active ? { activePaneId: active.id } : {}),
+      };
+    }
+    const a = swap(node.first),
+      b = swap(node.second);
+    return a === node.first && b === node.second ? node : { ...node, first: a, second: b };
+  };
+  return swap(root);
+}
+/**
+ * A pane dropped in the middle of another group trades places with it. A pane
+ * alone in its group takes the whole group along, as the window it is; one of
+ * several trades with the tab the other group shows. Unchanged when the pane
+ * is not on the canvas or is already in that group.
+ */
+export function swapInto(root: LayoutNode, paneId: string, targetId: string): LayoutNode {
+  const pane = findNode(root, paneId);
+  const source = findNode(root, containerId(root, paneId));
+  const target = findNode(root, containerId(root, targetId));
+  if (pane?.type !== "pane" || !source || !target || source.id === target.id || target.type === "split") return root;
+  if (source.type === "pane" || (source.type === "stack" && source.panes.length === 1))
+    return swapGroups(root, source.id, target.id);
+  const shown = representativePane(target);
+  if (!shown) return root;
+  return activatePane(swapPanes(root, pane, shown), pane.id);
+}
 /**
  * Moves the divider nearest to `id` that runs across `direction`, as tmux's
  * resize-pane does: left and up move it towards the start, right and down

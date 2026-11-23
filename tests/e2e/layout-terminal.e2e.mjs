@@ -226,13 +226,17 @@ test('Ctrl+B t opens a terminal in the group and types into it; g opens Git chan
 
 // ---- the mouse ---------------------------------------------------------------
 
-test('a tab dragged to the middle of a pane joins its tabs; to an edge, splits it', async () => {
+test('a tab dragged to the middle of another pane swaps with it; to an edge, splits it', async () => {
   const { page } = await canvasOf(['one', 'two', 'three', 'four'], ([one, two, three, four]) => row(one, stack('tabs', [two, three, four], 'two')));
+  // One of several tabs trades places with the tab the other pane shows.
   await tab(page, 'three').dragTo(pane(page, 'one').locator('.dock-content'));
-  await savedAs({ row: 0.5, first: { tabs: ['one', 'three'], active: 'three' }, second: { tabs: ['two', 'four'], active: 'two' } }, 'three stacked on one');
-  const box = await pane(page, 'two').boundingBox();
-  await tab(page, 'four').dragTo(pane(page, 'two'), { targetPosition: { x: box.width / 2, y: box.height - 20 } });
-  await savedAs({ row: 0.5, first: { tabs: ['one', 'three'], active: 'three' }, second: { column: 0.5, first: { tabs: ['two'], active: 'two' }, second: 'four' } }, 'four below two');
+  await savedAs({ row: 0.5, first: 'three', second: { tabs: ['two', 'one', 'four'], active: 'two' } }, 'three swapped with one');
+  // A tab alone in its pane takes the whole window along.
+  await tab(page, 'three').dragTo(pane(page, 'two').locator('.dock-content'));
+  await savedAs({ row: 0.5, first: { tabs: ['two', 'one', 'four'], active: 'two' }, second: 'three' }, 'the windows swapped');
+  const box = await pane(page, 'three').boundingBox();
+  await tab(page, 'four').dragTo(pane(page, 'three'), { targetPosition: { x: box.width / 2, y: box.height - 20 } });
+  await savedAs({ row: 0.5, first: { tabs: ['two', 'one'], active: 'two' }, second: { column: 0.5, first: 'three', second: 'four' } }, 'four below three');
   await ready(page, 'four');
   assert.deepEqual(browser.errors, []);
 });

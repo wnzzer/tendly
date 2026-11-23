@@ -4,9 +4,10 @@ import { ref } from "vue";
  * The tab being dragged, shared by every pane: a drag's payload cannot be
  * read until the drop, and a strip needs its width to open a gap of that size
  * as the drag passes over it, and its id to leave alone a drop that would not
- * move it. Null for drags that are not of a tab (a sidebar row, a file).
+ * move it; and whether it is alone in its group, as a swap then takes the
+ * whole group along. Null for drags that are not of a tab (a sidebar row, a file).
  */
-export const draggedTab = ref<{ id: string; title: string; width: number } | null>(null);
+export const draggedTab = ref<{ id: string; title: string; width: number; alone: boolean } | null>(null);
 
 /**
  * Where a drop at `x` (in the strip's own coordinates) lands among tabs laid

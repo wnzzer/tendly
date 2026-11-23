@@ -6,6 +6,7 @@ import {
   nudgeDivider,
   paneGroups,
   swapGroups,
+  swapInto,
   activatePane,
   applyPreset,
   cloneNode,
@@ -176,6 +177,32 @@ test("a drop on a tab lands before it, reordering within its own group", () => {
     ["b", "a"],
   );
   assert.equal(validateLayout(moved), true);
+});
+
+test("a pane dropped in the middle of another group swaps with it", () => {
+  const ids = node => (node.type === "stack" ? node.panes.map(item => item.id) : node.id);
+  // Alone in its group, the whole group moves: sizes stay with the places.
+  const windows = split("s", pane("a"), stack("right", [pane("b"), pane("c")], "c"), "horizontal", 0.3);
+  const swapped = swapInto(windows, "a", "right");
+  assert.equal(swapped.ratio, 0.3);
+  assert.deepEqual([ids(swapped.first), ids(swapped.second)], [["b", "c"], "a"]);
+  assert.equal(swapped.first.activePaneId, "c");
+  // One of several: trades with the tab the other group shows.
+  const tabs = split("s", stack("left", [pane("a"), pane("b")], "a"), stack("right", [pane("c"), pane("d")], "d"));
+  const traded = swapInto(tabs, "b", "right");
+  assert.deepEqual(
+    [ids(traded.first), ids(traded.second)],
+    [
+      ["a", "d"],
+      ["c", "b"],
+    ],
+  );
+  assert.equal(traded.first.activePaneId, "a");
+  assert.equal(traded.second.activePaneId, "b");
+  assert.equal(validateLayout(traded), true);
+  // Its own group, or a pane not on the canvas: nothing to swap.
+  assert.equal(swapInto(tabs, "a", "left"), tabs);
+  assert.equal(swapInto(tabs, "zz", "right"), tabs);
 });
 
 test("moving only leaf across sibling handles split pruning without data loss", () => {

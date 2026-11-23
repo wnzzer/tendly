@@ -2168,6 +2168,8 @@ export const zhCN: Readonly<Record<string, string>> = {
   "A little room for your next idea": "为下一个想法，留一片空间",
   "Drop a session here, or add a pane.": "将会话拖入此处，或添加一个窗格。",
   "Add as tab": "添加为标签",
+  "Swap windows": "交换窗口",
+  "Swap with {title}": "与「{title}」交换",
   "Split left": "向左分屏",
   "Split right": "向右分屏",
   "Split top": "向上分屏",
