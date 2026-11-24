@@ -1041,11 +1041,11 @@ async fn claude_a_turn_with_its_reply_usage_and_settings() {
             |e| e["type"] == "usage" && e["turn"] == json!({"input":42,"output":4,"cached":30})
         )
     );
-    // The models it listed, and `default` as the starting point.
+    // Only the runtime report identifies the model, not the catalog default.
     assert!(
         events
             .iter()
-            .any(|e| e["type"] == "settings" && e["model"] == "default")
+            .any(|e| e["type"] == "settings" && e["model"] == "claude-sonnet-5-fixture")
     );
 }
 
@@ -1763,4 +1763,49 @@ async fn real_claude_a_turn_and_an_interrupt() {
                 .collect::<std::collections::BTreeSet<_>>()
         );
     }
+}
+
+#[tokio::test]
+async fn claude_resume_does_not_guess_default_model() {
+    let events = scenario_for(
+        &CLAUDE,
+        "claude-resume-fable-model",
+        &["--resume", "resumed-fable-session"],
+        &[send_message(1, "simple"), finished(1, "completed")],
+    )
+    .await;
+    assert!(
+        !events
+            .iter()
+            .any(|e| e["type"] == "settings" && e["model"] == "default"),
+        "a catalog default must not overwrite a resumed model"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e["type"] == "settings" && e["model"] == "claude-fable-5-2"),
+        "the runtime model must reach the UI"
+    );
+}
+
+#[tokio::test]
+async fn claude_default_selection_yields_to_runtime_model() {
+    let events = scenario_for(
+        &CLAUDE,
+        "claude-default-resolved-model",
+        &[],
+        &[
+            Send(json!({"type":"model","model":"default"})),
+            Wait(|e| e["type"] == "settings" && e["model"] == "default"),
+            send_message(1, "simple"),
+            finished(1, "completed"),
+        ],
+    )
+    .await;
+    let model = events
+        .iter()
+        .rev()
+        .find(|e| e["type"] == "settings" && e["model"].is_string())
+        .unwrap();
+    assert_eq!(model["model"], "claude-sonnet-5-fixture");
 }

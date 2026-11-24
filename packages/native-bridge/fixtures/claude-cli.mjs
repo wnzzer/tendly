@@ -31,7 +31,7 @@ const permission=(name,input,extra={})=>{
 
 function begin(text){
   turn++;mode=text;
-  send({type:'system',subtype:'init',session_id:session,model:'claude-sonnet-5-fixture',slash_commands:['review','compact']});
+  send({type:'system',subtype:'init',session_id:session,model:process.argv.includes('resumed-fable-session')?'claude-fable-5-2':'claude-sonnet-5-fixture',slash_commands:['review','compact']});
   switch(text){
     case 'hold':holding=true;send({type:'tool_progress',tool_use_id:'hold-'+turn,tool_name:'Fixture wait'});return;
     case 'tools':

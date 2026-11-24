@@ -88,7 +88,7 @@ import type { Virtualizer } from "@tanstack/vue-virtual";
 import VirtualRows from "./VirtualRows.vue";
 import { estimateRowHeight, rowHeights } from "./row-heights";
 import { followsAfterScroll, PERSON_WINDOW_MS, UPWARD_KEYS } from "./scroll-follow";
-import { filterModels, mergeModels, resolveModel, offeredModels } from "./model-choices";
+import { filterModels, mergeModels, resolveModel, offeredModels, sessionModel } from "./model-choices";
 import { openLightbox } from "./image-lightbox";
 import {
   compactCount,
@@ -584,14 +584,15 @@ const models = computed(() =>
 );
 /** The window the server knows for the model in use (context-meter.ts weighs it against the client's). */
 const modelContext = ref<KnownWindow>();
-// Before the client speaks, the model in use is the profile's, or the one the
-// catalog marks as its default — the same answer the client would give.
-const currentModel = computed(
-  () =>
-    view.value.model ??
-    activeProfile.value?.model ??
-    (view.value.ready ? undefined : models.value.find(entry => entry.isDefault)?.id) ??
-    undefined,
+// A restored session can retain a model unlike the profile or catalog default.
+const currentModel = computed(() =>
+  sessionModel(
+    view.value.model,
+    view.value.ready,
+    !!props.session.provider_session_id,
+    activeProfile.value?.model ?? undefined,
+    models.value,
+  ),
 );
 watch(
   currentModel,

@@ -67,9 +67,7 @@ const modelDefault = computed(() =>
  * model is answering is the first thing a reader of the conversation wants to
  * know. Whether it was chosen shows in the chip's emphasis, not its words.
  */
-const shownModel = computed(
-  () => currentEntry.value ?? (props.current ? undefined : props.models.find(entry => entry.isDefault)),
-);
+const shownModel = computed(() => currentEntry.value);
 const modelName = computed(
   () =>
     (shownModel.value && resolvedDefaultName(shownModel.value, props.models)) ??

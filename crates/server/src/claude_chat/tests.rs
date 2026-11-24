@@ -156,7 +156,8 @@ fn a_selection_is_kept_while_it_describes_the_resolved_model() {
     let keeps =
         |selected: Option<&str>, reported: &str| keeps_selection(Some(&models), selected, reported);
     assert!(keeps(Some("sonnet"), "claude-sonnet-5"));
-    assert!(keeps(Some("default"), "claude-opus-5"));
+    assert!(!keeps(Some("default"), "claude-opus-5"));
+    assert!(!keeps(Some("default"), "claude-fable-5-2"));
     assert!(keeps(Some("opus[1m]"), "claude-opus-5-5[1m]"));
     assert!(!keeps(Some("sonnet"), "claude-opus-5"));
     assert!(keeps(Some("claude-x"), "claude-x"));

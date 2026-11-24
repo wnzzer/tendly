@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { filterModels, mergeModels, offeredModels, resolveModel } from "./model-choices.ts";
+import { filterModels, mergeModels, offeredModels, resolveModel, sessionModel } from "./model-choices.ts";
 
 // An endpoint behind a gateway that serves models under IDs nobody would type.
 const endpoint = [
@@ -82,4 +82,14 @@ test("the menu narrows to models whose name or ID matches", () => {
     "by ID too",
   );
   assert.equal(filterModels(endpoint, "  ").length, endpoint.length);
+});
+
+test("reconnecting sessions never borrow the catalog or profile default", () => {
+  const catalog = [{ id: "default", name: "Opus 5.5", isDefault: true }];
+  assert.equal(sessionModel(undefined, false, true, "opus", catalog), undefined);
+  assert.equal(sessionModel(undefined, true, true, "opus", catalog), undefined);
+  assert.equal(sessionModel(undefined, true, false, "opus", catalog), undefined);
+  assert.equal(sessionModel("claude-fable-5-2", true, true, "opus", catalog), "claude-fable-5-2");
+  assert.equal(sessionModel(undefined, false, false, "opus", catalog), "opus");
+  assert.equal(sessionModel(undefined, false, false, undefined, catalog), "default");
 });

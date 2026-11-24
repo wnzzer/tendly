@@ -237,17 +237,16 @@ impl Claude {
         self.core
             .announce(session.as_deref(), command_names(result.get("commands")));
         self.models = model_entries(result.get("models"));
-        // `default` means "whatever this configuration resolves to": a truthful
-        // start, when the client listed it. A launch flag is more specific.
-        let lists_default = self.models.as_ref().is_some_and(|models| {
-            models
-                .iter()
-                .any(|entry| entry.get("id").and_then(Value::as_str) == Some("default"))
+        // A resumed CLI may retain a per-session model independently of the
+        // configured default. The catalog is not evidence of the active model.
+        // Stay unknown until init reports it; never invent a default selection.
+        self.model = launch.model.clone().or_else(|| {
+            result
+                .get("model")
+                .and_then(Value::as_str)
+                .filter(|model| !model.is_empty())
+                .map(str::to_owned)
         });
-        self.model = launch
-            .model
-            .clone()
-            .or_else(|| lists_default.then(|| "default".to_owned()));
         // The depth it was launched with is the one in force.
         self.effort = launch.effort.clone();
         self.report();

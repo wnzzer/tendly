@@ -63,3 +63,16 @@ export function filterModels(models: readonly NativeModel[], query: string): Nat
   const term = query.trim().toLocaleLowerCase();
   return term ? models.filter(entry => `${entry.name} ${entry.id}`.toLocaleLowerCase().includes(term)) : [...models];
 }
+
+/** Catalog defaults describe new sessions, not the model retained by a resumed CLI. */
+export function sessionModel(
+  reported: string | undefined,
+  ready: boolean,
+  resumed: boolean,
+  profile: string | undefined,
+  catalog: readonly NativeModel[],
+): string | undefined {
+  if (reported) return reported;
+  if (ready || resumed) return undefined;
+  return profile ?? catalog.find(entry => entry.isDefault)?.id;
+}

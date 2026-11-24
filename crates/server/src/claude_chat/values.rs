@@ -129,7 +129,9 @@ pub fn keeps_selection(models: Option<&[Value]>, selected: Option<&str>, reporte
         return selected == Some(reported);
     };
     if selected == "default" {
-        return true;
+        // The default catalog label can describe a different model from the
+        // one restored by the CLI. Prefer its concrete runtime report.
+        return false;
     }
     let base = match (selected.find('['), selected.ends_with(']')) {
         (Some(at), true) => &selected[..at],
