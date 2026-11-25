@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-20T11:38:30Z",
+  "updatedAt": "2026-11-25T12:53:32Z",
   "source": "LiteLLM model_prices_and_context_window.json, with data/prices-overrides.json",
   "models": {
     "claude-3-5-haiku": {
@@ -998,6 +998,13 @@
       "maxOutput": 128000,
       "cacheWrite": 12.5
     },
+    "gpt-6-astra-healthcare": {
+      "input": 10,
+      "output": 50,
+      "cacheRead": 1,
+      "contextWindow": 922000,
+      "maxOutput": 128000
+    },
     "gpt-6-astra-law": {
       "input": 10,
       "output": 50,
@@ -1045,6 +1052,13 @@
       "maxOutput": 128000,
       "cacheWrite": 2.5
     },
+    "gpt-6.1-sol-healthcare": {
+      "input": 2,
+      "output": 10,
+      "cacheRead": 0.1,
+      "contextWindow": 922000,
+      "maxOutput": 128000
+    },
     "gpt-6.1-terra": {
       "input": 1,
       "output": 5,
@@ -1061,6 +1075,14 @@
       "maxOutput": 128000,
       "cacheWrite": 10
     },
+    "gpt-6.2-astra-healthcare": {
+      "input": 8,
+      "output": 40,
+      "cacheRead": 0.4,
+      "contextWindow": 922000,
+      "maxOutput": 128000,
+      "cacheWrite": 10
+    },
     "gpt-6.2-astra-law": {
       "input": 8,
       "output": 40,
@@ -1070,6 +1092,14 @@
       "cacheWrite": 10
     },
     "gpt-6.2-sol": {
+      "input": 2,
+      "output": 10,
+      "cacheRead": 0.1,
+      "contextWindow": 922000,
+      "maxOutput": 128000,
+      "cacheWrite": 2.5
+    },
+    "gpt-6.2-sol-healthcare": {
       "input": 2,
       "output": 10,
       "cacheRead": 0.1,
@@ -1383,7 +1413,21 @@
       "contextWindow": 500000,
       "maxOutput": 500000
     },
+    "grok-4.6-latest": {
+      "input": 2,
+      "output": 6,
+      "cacheRead": 0.5,
+      "contextWindow": 500000,
+      "maxOutput": 500000
+    },
     "grok-4.7": {
+      "input": 2,
+      "output": 6,
+      "cacheRead": 0.5,
+      "contextWindow": 500000,
+      "maxOutput": 500000
+    },
+    "grok-4.7-latest": {
       "input": 2,
       "output": 6,
       "cacheRead": 0.5,
