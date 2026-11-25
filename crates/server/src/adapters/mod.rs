@@ -12,6 +12,7 @@ use tendly_domain::{EndpointProfile, ProviderKind};
 
 mod claude_code;
 mod codex;
+pub mod gemini;
 mod pi;
 
 /// A launch Tendly configures itself, as opposed to one that defers to a
@@ -165,6 +166,14 @@ pub trait ClientAdapter: Sync {
     }
     fn catalog_opening(&self) -> &'static str;
     fn catalog_step(&self, packet: &serde_json::Value, stage: &mut u8) -> CatalogStep;
+    /// For a client whose model list is plain text it prints and exits on
+    /// (an empty `catalog_opening`): the list read from all of that output.
+    fn catalog_text(
+        &self,
+        _output: &str,
+    ) -> Option<Result<crate::model_catalog::ModelCatalog, ApiError>> {
+        None
+    }
 
     /// The account operations its tooling supports.
     fn account_operations(&self) -> AccountOperations;
@@ -215,6 +224,7 @@ pub trait ClientAdapter: Sync {
 static CLAUDE_CODE: claude_code::ClaudeCode = claude_code::ClaudeCode;
 static CODEX: codex::Codex = codex::Codex;
 static PI: pi::Pi = pi::Pi;
+static GEMINI: gemini::Gemini = gemini::Gemini;
 
 /// The adapter for an agent client; a plain terminal has none.
 /// A request with the profile's key where its endpoint reads it: the
@@ -253,6 +263,7 @@ pub fn adapter(kind: ProviderKind) -> Option<&'static dyn ClientAdapter> {
         ProviderKind::ClaudeCode => Some(&CLAUDE_CODE),
         ProviderKind::Codex => Some(&CODEX),
         ProviderKind::Pi => Some(&PI),
+        ProviderKind::Gemini => Some(&GEMINI),
         ProviderKind::Terminal => None,
     }
 }

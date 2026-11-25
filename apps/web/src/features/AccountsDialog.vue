@@ -620,7 +620,7 @@ onBeforeUnmount(() => {
     <p class="accounts-lead">
       {{
         t(
-          "Sign in to official Claude Code or Codex accounts and watch their usage. Each account can be picked as a session configuration.",
+          "Sign in to official Claude Code, Codex or Gemini accounts and watch their usage. Each account can be picked as a session configuration.",
         )
       }}
     </p>
@@ -647,7 +647,7 @@ onBeforeUnmount(() => {
             ><ProviderIcon :provider="client" :size="20" /></span
         ></span>
         <h3>{{ t("Keep your accounts in one place") }}</h3>
-        <p>{{ t("Add an account to sign in, or link a Claude Code or Codex already set up on this host.") }}</p>
+        <p>{{ t("Add an account to sign in, or link a Claude Code, Codex or Gemini already set up on this host.") }}</p>
         <div>
           <button
             class="account-add"
@@ -1110,7 +1110,10 @@ onBeforeUnmount(() => {
                   }}
                   {{ usageRetryText || "" }}
                 </p>
-                <p v-if="selected.usage?.source !== 'claude_oauth_usage'" class="account-quiet">
+                <p v-if="selected.usage?.source === 'agy_quota'" class="account-quiet">
+                  {{ t("Read from agy's own quota report for this Google account.") }}
+                </p>
+                <p v-else-if="selected.usage?.source !== 'claude_oauth_usage'" class="account-quiet">
                   {{ t("From the official client's own status-line snapshot.") }}
                 </p></template
               >

@@ -6,7 +6,7 @@ import { ApiError, errorMessage, json, providerLabel, request } from "./api";
 import Icon from "./Icon.vue";
 import ProviderIcon from "./ProviderIcon.vue";
 import { useI18n } from "../i18n";
-import { clientTone } from "./clients";
+import { clientInfo, clientTone } from "./clients";
 
 /** Where the program a session launches was resolved from. */
 type ProgramSource = "override" | "path" | "managed" | "missing";
@@ -191,6 +191,9 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </div>
+        <p v-else-if="!client.npm_package && clientInfo(client.provider).installNote" class="clients-quiet">
+          {{ t(clientInfo(client.provider).installNote!) }}
+        </p>
         <div v-else-if="client.install_available" class="client-actions">
           <button
             type="button"

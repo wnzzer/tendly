@@ -13,14 +13,18 @@
 import { claudeAccount } from './account-claude.mjs';
 import { codexAccount } from './account-codex.mjs';
 import { piAccount } from './account-pi.mjs';
+import { geminiAccount } from './account-gemini.mjs';
 import { claudeHistory } from './history-claude.mjs';
 import { codexHistory } from './history-codex.mjs';
 import { piHistory } from './history-pi.mjs';
+import { geminiHistory } from './history-gemini.mjs';
 
 export const CLIENTS = Object.freeze({
   claude_code: Object.freeze({ account: claudeAccount, history: claudeHistory, configEnv: 'CLAUDE_CONFIG_DIR', envStrip: /^(ANTHROPIC_|CLAUDE_|CLAUDECODE$)/i }),
   codex: Object.freeze({ account: codexAccount, history: codexHistory, configEnv: 'CODEX_HOME', envStrip: /^(OPENAI_|CODEX_|AZURE_OPENAI_)/i }),
   pi: Object.freeze({ account: piAccount, history: piHistory, configEnv: 'PI_CODING_AGENT_DIR', envStrip: /^PI_/i }),
+  // agy has no variable for its home; TENDLY_GEMINI_DIR is Tendly's own record of it.
+  gemini: Object.freeze({ account: geminiAccount, history: geminiHistory, configEnv: 'TENDLY_GEMINI_DIR', envStrip: /^(GEMINI_|GOOGLE_GEMINI_|AGY_|ANTIGRAVITY_)/i }),
 });
 
 /** The registered client for a provider id; inherited keys such as `constructor` are not ids. */

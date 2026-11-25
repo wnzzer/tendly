@@ -17,11 +17,11 @@ import {
 import { ICON_PALETTE } from "./icon-palette.ts";
 
 test("agent clients come in menu order, the default first, and the terminal only among session kinds", () => {
-  assert.deepEqual(AGENT_CLIENTS, ["claude_code", "codex", "pi"]);
+  assert.deepEqual(AGENT_CLIENTS, ["claude_code", "codex", "pi", "gemini"]);
   assert.equal(DEFAULT_CLIENT, "claude_code");
-  assert.deepEqual(PROVIDER_KINDS, ["claude_code", "codex", "pi", "terminal"]);
+  assert.deepEqual(PROVIDER_KINDS, ["claude_code", "codex", "pi", "gemini", "terminal"]);
   // The account form has always opened on Codex.
-  assert.deepEqual(ACCOUNT_CLIENTS, ["codex", "claude_code", "pi"]);
+  assert.deepEqual(ACCOUNT_CLIENTS, ["codex", "claude_code", "pi", "gemini"]);
   assert.ok(isAgentClient("codex"));
   assert.ok(!isAgentClient("terminal"));
   assert.ok(!isAgentClient("toString"));

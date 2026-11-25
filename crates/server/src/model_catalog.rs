@@ -402,6 +402,22 @@ async fn ask_client(
         .take()
         .ok_or_else(|| ApiError::bad("Unable to open the client output"))?;
     let query = async {
+        if client.catalog_opening().is_empty() {
+            drop(input);
+            use tokio::io::AsyncReadExt;
+            let mut text = String::new();
+            output
+                .take(MAX_BYTES as u64 + 1)
+                .read_to_string(&mut text)
+                .await
+                .map_err(ApiError::internal)?;
+            if text.len() > MAX_BYTES {
+                return Err(ApiError::bad("Native model list exceeds limit"));
+            }
+            return client
+                .catalog_text(&text)
+                .unwrap_or_else(|| Err(ApiError::bad("The client did not list its models")));
+        }
         input
             .write_all(client.catalog_opening().as_bytes())
             .await

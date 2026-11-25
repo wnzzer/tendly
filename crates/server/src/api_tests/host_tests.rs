@@ -83,6 +83,8 @@ async fn client_discovery_reports_this_host_and_refuses_an_unconfirmed_install()
                 "codex" => "@openai/codex",
                 "claude_code" => "@anthropic-ai/claude-code",
                 "pi" => "@earendil-works/pi-coding-agent",
+                // agy installs from Google, not npm, so none is offered.
+                "gemini" => "",
                 other => panic!("an unexpected client {other}"),
             }
         );
@@ -112,6 +114,11 @@ async fn client_discovery_reports_this_host_and_refuses_an_unconfirmed_install()
             StatusCode::BAD_REQUEST,
         ),
         (
+            "gemini",
+            json!({"confirmed": true}),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
             "nonsense",
             json!({"confirmed": true}),
             StatusCode::BAD_REQUEST,
@@ -134,7 +141,10 @@ async fn preferences_are_validated_per_provider_and_kept() {
     let f = Fixture::new("127.0.0.1:8787".parse().unwrap(), None);
     let (status, empty) = call(f.app(), "GET", "/api/preferences", Value::Null).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(empty, json!({"claude_code":{},"codex":{},"pi":{}}));
+    assert_eq!(
+        empty,
+        json!({"claude_code":{},"codex":{},"pi":{},"gemini":{}})
+    );
     // Codex has no plan mode, and a depth must be one the clients know.
     for bad in [
         json!({"codex":{"permission":"plan"}}),
@@ -173,7 +183,7 @@ async fn preferences_are_validated_per_provider_and_kept() {
         call(f.app(), "GET", "/api/preferences", Value::Null)
             .await
             .1,
-        json!({"claude_code":chosen["claude_code"],"codex":chosen["codex"],"pi":{}}),
+        json!({"claude_code":chosen["claude_code"],"codex":chosen["codex"],"pi":{},"gemini":{}}),
         "every client is listed, set or not"
     );
     // A new session takes the preferred depth unless it says otherwise; an

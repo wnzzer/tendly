@@ -163,7 +163,8 @@ pub async fn view(state: &AppState, provider: ProviderKind) -> Option<ClientView
         version,
         shadowed: managed.is_some() && source != ProgramSource::Managed,
         managed_path: managed.map(|path| path.to_string_lossy().into_owned()),
-        install_available: on_path("npm").is_some(),
+        // A client not published on npm (Gemini's agy) installs its own way.
+        install_available: !package.is_empty() && on_path("npm").is_some(),
         program,
     })
 }
@@ -202,8 +203,9 @@ async fn install(
     }
     let provider = ProviderKind::parse_agent(&provider)
         .ok_or_else(|| ApiError::bad("Only an agent client can be installed"))?;
-    let package =
-        npm_package(&provider).ok_or_else(|| ApiError::bad("No package for this client"))?;
+    let package = npm_package(&provider)
+        .filter(|package| !package.is_empty())
+        .ok_or_else(|| ApiError::bad("This client is not installed from npm"))?;
     let npm = on_path("npm").ok_or_else(|| {
         ApiError::bad("Installing a native client needs npm on the server's PATH")
     })?;

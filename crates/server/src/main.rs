@@ -29,6 +29,7 @@ mod environment;
 mod file_routes;
 mod file_search;
 mod file_watch;
+mod gemini_chat;
 mod git_ops;
 mod git_routes;
 mod host_grants;

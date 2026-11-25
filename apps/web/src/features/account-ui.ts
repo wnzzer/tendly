@@ -28,7 +28,7 @@ export interface AccountUsage {
   availability: AccountUsageAvailability;
   capture_path?: string;
   captured_at?: number;
-  source?: "claude_oauth_usage" | "status_line_capture";
+  source?: "claude_oauth_usage" | "status_line_capture" | "agy_quota";
   /** Provider-supplied wait hint for a rate-limited query. */
   retry_after_seconds?: number;
   /** Set when a failed query kept the previous figures; stamps when they were read. */

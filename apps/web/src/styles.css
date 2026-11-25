@@ -143,6 +143,8 @@
   --codex-soft: #f0e9ff;
   --pi: #326eb4;
   --pi-soft: #e8f0fa;
+  --gemini: #0c8376;
+  --gemini-soft: #e5f4f1;
   /* How strongly a pastel tint shows: full on light surfaces, a trace on dark. */
   --tint-mix: 100%;
   /* Chart series, validated as a set (adjacent CVD and contrast) for these surfaces. */
@@ -296,6 +298,8 @@
     --codex-soft: #2a2242;
     --pi: #7fb0ea;
     --pi-soft: #1c2a3d;
+    --gemini: #5cc2b4;
+    --gemini-soft: #15302c;
     --tint-mix: 14%;
     --chart-1: #3987e5;
     --chart-2: #d95926;
@@ -381,6 +385,8 @@
   --codex-soft: #2a2242;
   --pi: #7fb0ea;
   --pi-soft: #1c2a3d;
+  --gemini: #5cc2b4;
+  --gemini-soft: #15302c;
   --tint-mix: 14%;
   --chart-1: #3987e5;
   --chart-2: #d95926;

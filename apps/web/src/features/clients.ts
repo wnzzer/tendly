@@ -46,6 +46,8 @@ export interface ClientInfo {
   account: { loginDomains: readonly string[]; order: number };
   /** Variables that locate its home or mark a nested run; a session cannot override them. */
   reservedEnvironment: readonly string[];
+  /** How it is installed, for a client Tendly cannot install from npm. */
+  installNote?: string;
 }
 
 const CLIENTS: Record<AgentProviderKind, ClientInfo> = {
@@ -128,6 +130,35 @@ const CLIENTS: Record<AgentProviderKind, ClientInfo> = {
       "Pi runs its tools without asking. Send messages only for work you are happy for it to carry out in this directory.",
     account: { loginDomains: [], order: 2 },
     reservedEnvironment: ["PI_CODING_AGENT_DIR"],
+  },
+  gemini: {
+    label: "Gemini",
+    shortLabel: "Gemini",
+    // Gemini's spark. Source: @lobehub/icons-static-svg 1.95.0, MIT; see docs/third-party-notices.md.
+    glyph: {
+      path: "M20.616 10.835a14.147 14.147 0 01-4.45-3.001 14.111 14.111 0 01-3.678-6.452.503.503 0 00-.975 0 14.134 14.134 0 01-3.679 6.452 14.155 14.155 0 01-4.45 3.001c-.65.28-1.318.505-2.002.678a.502.502 0 000 .975c.684.172 1.35.397 2.002.677a14.147 14.147 0 014.45 3.001 14.112 14.112 0 013.679 6.453.502.502 0 00.975 0c.172-.685.397-1.351.677-2.003a14.145 14.145 0 013.001-4.45 14.113 14.113 0 016.453-3.678.503.503 0 000-.975 13.245 13.245 0 01-2.003-.678z",
+      evenOdd: true,
+    },
+    iconTone: "teal",
+    tabTint: "#E5F4F1",
+    colorToken: "gemini",
+    // `danger` runs agy in its auto mode and Tendly approves what it still asks (server gemini_chat.rs).
+    permissionModes: ["ask", "plan", "accept_edits", "danger"],
+    approvals: true,
+    profilePlan: true,
+    effortLadder: false,
+    modelSlots: false,
+    contextWindow: { help: "agy decides the context window itself; Tendly has no way to tell it one." },
+    nativeCatalog: {
+      source: "agy://models",
+      note: "Loaded from agy for this Google account. Quota and access follow the account's plan.",
+    },
+    chatNote:
+      "Gemini runs through Google's Antigravity CLI (agy acp). Messages sent while it works wait and go as the next turn.",
+    account: { loginDomains: ["accounts.google.com"], order: 3 },
+    reservedEnvironment: ["TENDLY_GEMINI_DIR"],
+    installNote:
+      "Gemini runs through Google's Antigravity CLI (agy), which installs from Google rather than npm. Once it is on the PATH, agy update keeps it current.",
   },
 };
 

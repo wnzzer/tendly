@@ -40,6 +40,7 @@ export const PROBE_APIS: Readonly<Record<ModelProbeApi, { label: string; short: 
 export const FIXED_APIS: Readonly<Record<string, ModelProbeApi>> = {
   claude_code: "anthropic-messages",
   codex: "openai-responses",
+  gemini: "google-generative-ai",
 };
 
 /** The protocols a batch of answers used, in the order they first appear. */

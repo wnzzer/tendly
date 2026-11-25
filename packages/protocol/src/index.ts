@@ -1,4 +1,4 @@
-export type ProviderKind = "claude_code" | "codex" | "pi" | "terminal";
+export type ProviderKind = "claude_code" | "codex" | "pi" | "gemini" | "terminal";
 export type AgentProviderKind = Exclude<ProviderKind, "terminal">;
 export type SessionStatus = "starting" | "running" | "waiting" | "stopped" | "failed";
 /** `main_model`: the session's main model ID at launch (how Claude Code's slot variables follow it); `main_model_context`: the context window set for that model. */

@@ -461,10 +461,10 @@ export const zhCN: Readonly<Record<string, string>> = {
   "Name a server environment variable such as env:TENDLY_SECRET_WORK. Its value never reaches the browser.":
     "填写服务器上的环境变量名，例如 env:TENDLY_SECRET_WORK。密钥值不会传到浏览器。",
   "Reads the endpoint's model list. No model is run.": "只读取端点的模型列表，不会调用模型。",
-  "Sign in to official Claude Code or Codex accounts and watch their usage. Each account can be picked as a session configuration.":
-    "登录官方 Claude Code 或 Codex 账号并查看用量；每个账号都能在新建会话时直接选用。",
-  "Add an account to sign in, or link a Claude Code or Codex already set up on this host.":
-    "添加一个账号来登录，或关联本机已配置好的 Claude Code / Codex。",
+  "Sign in to official Claude Code, Codex or Gemini accounts and watch their usage. Each account can be picked as a session configuration.":
+    "登录官方 Claude Code、Codex 或 Gemini 账号并查看用量；每个账号都能在新建会话时直接选用。",
+  "Add an account to sign in, or link a Claude Code, Codex or Gemini already set up on this host.":
+    "添加一个账号来登录，或关联本机已配置好的 Claude Code / Codex / Gemini。",
   "Continue with another agent": "换一个 Agent 继续",
   "Continue this conversation in {provider}?": "用 {provider} 继续这段对话？",
   "A new {provider} session opens with this conversation written into its message box. Read it, add what to do next, then send. This session stays as it is; tool output and files it opened are not carried over.":
@@ -615,6 +615,14 @@ export const zhCN: Readonly<Record<string, string>> = {
     "会按模型写进 Tendly 为该端点生成的 models.json 告诉 Pi。留空则由 Pi 自行判断。",
   "Pi runs its tools without asking. Send messages only for work you are happy for it to carry out in this directory.":
     "Pi 运行工具前不会询问。只发送你愿意让它在这个目录里直接执行的任务。",
+  "Gemini runs through Google's Antigravity CLI (agy acp). Messages sent while it works wait and go as the next turn.":
+    "Gemini 通过 Google 的 Antigravity CLI（agy acp）运行。它工作时发送的消息会排队，作为下一轮发出。",
+  "agy decides the context window itself; Tendly has no way to tell it one.":
+    "上下文窗口由 agy 自己决定，Tendly 无法替它设定。",
+  "Loaded from agy for this Google account. Quota and access follow the account's plan.":
+    "从 agy 读取这个 Google 账号可用的模型。额度和权限以账号套餐为准。",
+  "Gemini runs through Google's Antigravity CLI (agy), which installs from Google rather than npm. Once it is on the PATH, agy update keeps it current.":
+    "Gemini 通过 Google 的 Antigravity CLI（agy）运行，它从 Google 安装，不走 npm。装好并在 PATH 上后，用 agy update 保持更新。",
   "Filter by name or ID": "按名称或 ID 筛选",
   "{chosen} of {count} chosen": "已选 {chosen} / {count}",
   "Choose matches": "选中筛选结果",
@@ -867,6 +875,7 @@ export const zhCN: Readonly<Record<string, string>> = {
     "共享配置：该账号通过宿主已有的目录登录。任何其他改动该目录的操作——配置切换工具、原生重新登录——都会一并改变此账号。",
   "Query failed; showing the earlier result from {time}.": "查询失败，显示 {time} 的旧结果。",
   "From the official client's own status-line snapshot.": "来自官方客户端自己的状态栏快照。",
+  "Read from agy's own quota report for this Google account.": "来自 agy 为这个 Google 账号给出的额度报告。",
   "Check again in {n}s": "{n} 秒后可再查",
   "Check again in {n} min": "{n} 分钟后可再查",
   "The official endpoint allows about one check per window. Waiting avoids spending the next allowance.":

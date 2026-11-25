@@ -172,16 +172,18 @@ pub enum ProviderKind {
     ClaudeCode,
     Codex,
     Pi,
+    Gemini,
     Terminal,
 }
 
 impl ProviderKind {
     /// The agent clients, in the order the interface offers them. A plain
     /// terminal is a session kind, not a client, so it is not among them.
-    pub const AGENTS: [ProviderKind; 3] = [
+    pub const AGENTS: [ProviderKind; 4] = [
         ProviderKind::ClaudeCode,
         ProviderKind::Codex,
         ProviderKind::Pi,
+        ProviderKind::Gemini,
     ];
 
     /// The name stored and sent on the wire, as serde writes it.
@@ -190,6 +192,7 @@ impl ProviderKind {
             ProviderKind::ClaudeCode => "claude_code",
             ProviderKind::Codex => "codex",
             ProviderKind::Pi => "pi",
+            ProviderKind::Gemini => "gemini",
             ProviderKind::Terminal => "terminal",
         }
     }
@@ -216,6 +219,7 @@ impl ProviderKind {
             ProviderKind::ClaudeCode => "Claude Code",
             ProviderKind::Codex => "Codex",
             ProviderKind::Pi => "Pi",
+            ProviderKind::Gemini => "Gemini",
             ProviderKind::Terminal => "Terminal",
         }
     }
@@ -497,7 +501,7 @@ mod provider_tests {
                 serde_json::Value::from(kind.as_str())
             );
         }
-        assert_eq!(ProviderKind::parse("gemini"), None);
+        assert_eq!(ProviderKind::parse("aider"), None);
         assert_eq!(ProviderKind::parse_agent("terminal"), None);
         assert!(ProviderKind::AGENTS.iter().all(ProviderKind::is_agent));
     }
