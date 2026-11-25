@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { parseQuota, signedInEmail } from "./account-gemini.mjs";
 import { geminiSession } from "./history-gemini.mjs";
 
@@ -43,8 +44,10 @@ test("a sign-in is read by its email only, and a missing or broken one is signed
 });
 
 test("a listed conversation has a workspace and steps, and is neither internal nor in the cloud", () => {
-  const row = { ID: "c-1", WorkspaceURIs: ["file:///work"], NumSteps: 2, UpdatedAt: "2026-11-25T00:00:00Z" };
-  assert.deepEqual(geminiSession(row), { id: "c-1", cwd: "/work", time: Date.parse("2026-11-25T00:00:00Z") });
+  // A path of this platform's own, which on Windows carries a drive.
+  const work = resolve("/work");
+  const row = { ID: "c-1", WorkspaceURIs: [pathToFileURL(work).href], NumSteps: 2, UpdatedAt: "2026-11-25T00:00:00Z" };
+  assert.deepEqual(geminiSession(row), { id: "c-1", cwd: work, time: Date.parse("2026-11-25T00:00:00Z") });
   assert.equal(geminiSession({ ...row, NumSteps: 0 }), undefined);
   assert.equal(geminiSession({ ...row, WorkspaceURIs: [] }), undefined);
   assert.equal(geminiSession({ ...row, Cloud: true }), undefined);
