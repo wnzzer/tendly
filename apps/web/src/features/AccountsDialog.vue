@@ -620,7 +620,7 @@ onBeforeUnmount(() => {
     <p class="accounts-lead">
       {{
         t(
-          "Sign in to official Claude Code, Codex or Gemini accounts and watch their usage. Each account can be picked as a session configuration.",
+          "Sign in to official Claude Code, Codex or Antigravity accounts and watch their usage. Each account can be picked as a session configuration.",
         )
       }}
     </p>
@@ -647,7 +647,9 @@ onBeforeUnmount(() => {
             ><ProviderIcon :provider="client" :size="20" /></span
         ></span>
         <h3>{{ t("Keep your accounts in one place") }}</h3>
-        <p>{{ t("Add an account to sign in, or link a Claude Code, Codex or Gemini already set up on this host.") }}</p>
+        <p>
+          {{ t("Add an account to sign in, or link a Claude Code, Codex or Antigravity already set up on this host.") }}
+        </p>
         <div>
           <button
             class="account-add"

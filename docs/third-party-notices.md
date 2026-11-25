@@ -1,6 +1,6 @@
 # Third-party brand vectors
 
-Claude asterisk and OpenAI knot paths are sourced from `@lobehub/icons-static-svg@1.95.0` ([LobeHub Icons](https://github.com/lobehub/lobe-icons)). Codex is identified with the OpenAI mark **and the Codex text label**; this does not claim a distinct official Codex logo or any endorsement. Pi's mark is the shape of the logo pi.dev publishes (`https://pi.dev/logo-auto.svg`), redrawn in one colour at icon size. Brand trademarks remain their owners' property.
+Claude asterisk and OpenAI knot paths are sourced from `@lobehub/icons-static-svg@1.95.0` ([LobeHub Icons](https://github.com/lobehub/lobe-icons)). Codex is identified with the OpenAI mark **and the Codex text label**; this does not claim a distinct official Codex logo or any endorsement. Antigravity's mark is from `@lobehub/icons-static-svg@1.106.0`. Pi's mark is the shape of the logo pi.dev publishes (`https://pi.dev/logo-auto.svg`), redrawn in one colour at icon size. Brand trademarks remain their owners' property.
 
 MIT License
 

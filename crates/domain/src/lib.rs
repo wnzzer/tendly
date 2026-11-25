@@ -219,7 +219,7 @@ impl ProviderKind {
             ProviderKind::ClaudeCode => "Claude Code",
             ProviderKind::Codex => "Codex",
             ProviderKind::Pi => "Pi",
-            ProviderKind::Gemini => "Gemini",
+            ProviderKind::Gemini => "Antigravity",
             ProviderKind::Terminal => "Terminal",
         }
     }

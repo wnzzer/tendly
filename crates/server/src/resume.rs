@@ -82,7 +82,7 @@ fn client_label(provider: &str) -> &str {
         "claude_code" => "Claude Code",
         "codex" => "Codex",
         "pi" => "Pi",
-        "gemini" => "Gemini",
+        "gemini" => "Antigravity",
         "terminal" => "a shell",
         other => other,
     }

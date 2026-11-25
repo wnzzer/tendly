@@ -48,7 +48,7 @@ pub fn gemini_launch(init: &ChatInit, gemini_dir: Option<&str>) -> Result<Launch
             .args
             .extend(["--gemini-dir".to_owned(), dir.to_owned()]);
     }
-    let mut flags = LaunchArgs::new(&init.args, "Gemini", false);
+    let mut flags = LaunchArgs::new(&init.args, "Antigravity", false);
     while let Some(arg) = flags.next_flag() {
         let flag = arg.name;
         let mut value = || flags.value(&arg);
@@ -61,10 +61,10 @@ pub fn gemini_launch(init: &ChatInit, gemini_dir: Option<&str>) -> Result<Launch
             }
             "--conversation" | "--resume" | "-r" => {
                 if !take_resume(&mut launch.resume, value()?) {
-                    return Err("Invalid or conflicting Gemini conversation ID.".into());
+                    return Err("Invalid or conflicting Antigravity conversation ID.".into());
                 }
             }
-            _ => return Err("Unsupported Gemini launch option in structured mode.".into()),
+            _ => return Err("Unsupported Antigravity launch option in structured mode.".into()),
         }
     }
     Ok(launch)
@@ -526,7 +526,8 @@ impl Gemini {
             Some("cancelled") => "interrupted",
             _ if self.core.turns[turn].interrupted => "interrupted",
             Some("refusal") => {
-                self.core.error("Gemini declined to answer this message.");
+                self.core
+                    .error("Antigravity declined to answer this message.");
                 "failed"
             }
             _ => "completed",
@@ -576,7 +577,7 @@ impl Gemini {
             let cancel =
                 json!({"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":session}});
             if self.core.send(cancel).is_err() {
-                self.core.error("Gemini could not be asked to stop.");
+                self.core.error("Antigravity could not be asked to stop.");
             }
         }
     }
@@ -690,7 +691,7 @@ impl Gemini {
                     .filter(|id| native_id(id));
                 let Some(id) = id else {
                     return self
-                        .turn_failed(turn, "Gemini did not return a usable conversation ID.");
+                        .turn_failed(turn, "Antigravity did not return a usable conversation ID.");
                 };
                 self.core.native_session_id = Some(id);
                 self.adopt(&result);
@@ -723,7 +724,7 @@ impl Gemini {
                 };
                 let Some(id) = id else {
                     return self
-                        .turn_failed(turn, "Gemini did not return a usable conversation ID.");
+                        .turn_failed(turn, "Antigravity did not return a usable conversation ID.");
                 };
                 let mut commands = self.commands.clone();
                 commands.extend(clear_command());
@@ -764,7 +765,7 @@ impl Gemini {
                 let result = match acp_reply(&message) {
                     Some((_, Ok(result))) => Ok(result),
                     Some((_, Err(stated))) => Err(format!(
-                        "Gemini refused: {}",
+                        "Antigravity refused: {}",
                         clip(stated.as_str().unwrap_or("the turn failed"), 400)
                     )),
                     None => Ok(Value::Null),
@@ -903,7 +904,7 @@ impl Gemini {
             tool.name = clip(name, 256);
         }
         if tool.name.is_empty() {
-            tool.name = "Gemini tool".into();
+            tool.name = "Antigravity tool".into();
         }
         let described = describe(update);
         if !described.is_empty() {
@@ -935,7 +936,7 @@ impl Gemini {
         let ours = params.get("sessionId").and_then(Value::as_str)
             == self.core.native_session_id.as_deref();
         if method != "session/request_permission" {
-            let reply = json!({"jsonrpc":"2.0","id":id,"error":{"code":-32601,"message":"Tendly does not offer this to Gemini."}});
+            let reply = json!({"jsonrpc":"2.0","id":id,"error":{"code":-32601,"message":"Tendly does not offer this to Antigravity."}});
             let _ = self.core.send(reply);
             return;
         }
@@ -1116,7 +1117,7 @@ fn describe(update: &Value) -> String {
 fn explain(message: &str) -> String {
     if message.contains("Authentication required") {
         format!(
-            "{message}. This Gemini account is not signed in: run the sign-in command shown for it under Settings → Accounts."
+            "{message}. This Antigravity account is not signed in: run the sign-in command shown for it under Settings → Accounts."
         )
     } else {
         message.to_owned()
@@ -1141,8 +1142,8 @@ pub fn adapter(env: &BTreeMap<String, String>, env_remove: &[String]) -> NativeA
         Protocol {
             frame: acp_frame,
             reply: acp_reply,
-            client_name: "Gemini",
-            exited: "Gemini (agy acp) exited.",
+            client_name: "Antigravity",
+            exited: "Antigravity (agy acp) exited.",
             permission_modes: Some(&["ask", "plan", "accept_edits", "danger"]),
         },
         |core| Gemini {

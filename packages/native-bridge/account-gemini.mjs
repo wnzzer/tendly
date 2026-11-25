@@ -70,12 +70,12 @@ function quota(job, env, signal) {
   return withHome(job, env, home => new Promise((resolveQuota, rejectQuota) => {
     let output = '';
     const child = spawn(job.program || 'agy', ['-p', '/quota'], { cwd: home.HOME ?? job.config_dir, env: home, stdio: ['ignore', 'pipe', 'ignore'] });
-    const timer = setTimeout(() => { child.kill('SIGKILL'); rejectQuota(new Error('Gemini quota check timed out.')); }, 45000);
+    const timer = setTimeout(() => { child.kill('SIGKILL'); rejectQuota(new Error('Antigravity quota check timed out.')); }, 45000);
     const abort = () => child.kill('SIGKILL');
     signal?.addEventListener('abort', abort, { once: true });
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', chunk => { output += chunk; if (output.length > MAX_OUTPUT) child.kill('SIGKILL'); });
-    child.once('error', () => { clearTimeout(timer); rejectQuota(new Error('Native Gemini client (agy) is unavailable.')); });
+    child.once('error', () => { clearTimeout(timer); rejectQuota(new Error('Native Antigravity client (agy) is unavailable.')); });
     child.once('close', code => {
       clearTimeout(timer); signal?.removeEventListener('abort', abort);
       if (code === 0) resolveQuota(output); else rejectQuota(new Error('agy could not read this account\'s quota.'));
