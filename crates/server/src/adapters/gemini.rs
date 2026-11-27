@@ -129,6 +129,29 @@ pub fn parse_model_list(output: &str) -> Vec<Value> {
         .collect()
 }
 
+/// The model agy runs a new conversation on, as `agy models` lists it first,
+/// with its level where the list gives the model several.
+pub fn listed_default(output: &str) -> Option<(String, Option<String>)> {
+    let rows = parse_model_list(output);
+    let first = output.lines().find_map(|line| {
+        let (id, _) = line.split_once('\t')?;
+        let id = id.trim();
+        (!id.is_empty() && !id.contains(char::is_whitespace)).then_some(id)
+    })?;
+    rows.iter().find_map(|row| {
+        let base = row["id"].as_str()?;
+        if base == first {
+            return Some((base.to_owned(), None));
+        }
+        let level = first.strip_prefix(base)?.strip_prefix('-')?;
+        let offered = row["supportedReasoningEfforts"].as_array()?;
+        offered
+            .iter()
+            .any(|e| e.as_str() == Some(level))
+            .then(|| (base.to_owned(), Some(level.to_owned())))
+    })
+}
+
 impl ClientAdapter for Gemini {
     fn kind(&self) -> ProviderKind {
         ProviderKind::Gemini
@@ -380,6 +403,22 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn the_default_is_the_first_model_listed_at_its_level() {
+        let output = "Fetching available models...\n\
+            gemini-4-neon-high\tGemini 4 Neon (High)\n\
+            gemini-4-neon-low\tGemini 4 Neon (Low)\n";
+        assert_eq!(
+            listed_default(output),
+            Some(("gemini-4-neon".into(), Some("high".into())))
+        );
+        assert_eq!(
+            listed_default("gpt-oss-120b-medium\tGPT-OSS\n"),
+            Some(("gpt-oss-120b-medium".into(), None))
+        );
+        assert_eq!(listed_default("Error: sign in\n"), None);
     }
 
     #[test]

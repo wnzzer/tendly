@@ -257,14 +257,24 @@ struct Gemini {
     tools: HashMap<String, Tool>,
     assistant: Option<String>,
     messages: u64,
+    /// What `agy models` is run with: the launch's own environment, its home
+    /// found as `$HOME/.gemini` (adapters/gemini.rs).
+    catalog_env: BTreeMap<String, String>,
+    env_remove: Vec<String>,
+    /// The models `agy models` listed, offered until a conversation opens
+    /// and says its own.
+    listed: Option<Vec<Value>>,
 }
+
+/// The message the background `agy models` run sends the conversation.
+const LISTED: &str = "tendly/models";
 
 impl Gemini {
     fn session(&self) -> Option<String> {
         self.core.native_session_id.clone()
     }
     fn report(&mut self) {
-        let models = session_models(&self.options, &self.variants);
+        let models = session_models(&self.options, &self.variants).or_else(|| self.listed.clone());
         let (model, effort) = (self.model.clone(), self.effort.clone());
         if let Some(mode) = &self.mode {
             self.core.permission_mode = Some(mode.clone());
@@ -362,6 +372,7 @@ impl Gemini {
             self.failure("Could not launch the configured native client.");
             return;
         }
+        self.list_models();
         self.rpc(
             "initialize",
             json!({
@@ -372,6 +383,68 @@ impl Gemini {
             Then::Initialize,
             false,
         );
+    }
+    /// A conversation opens only with the first message, so that a chat left
+    /// empty leaves nothing in agy's history; until then the model and depth
+    /// chips are offered what `agy models` lists, which opens nothing either.
+    fn list_models(&self) {
+        let mut command = tokio::process::Command::new(&self.program);
+        command
+            .arg("models")
+            .current_dir(&self.core.cwd)
+            .envs(&self.catalog_env)
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true);
+        for key in self
+            .env_remove
+            .iter()
+            .cloned()
+            .chain(crate::bridge::tendly_secrets())
+        {
+            command.env_remove(key);
+        }
+        let inputs = self.core.inputs.clone();
+        tokio::spawn(async move {
+            let run = tokio::time::timeout(std::time::Duration::from_secs(30), command.output());
+            let Ok(Ok(output)) = run.await else {
+                return;
+            };
+            if output.status.success() && output.stdout.len() <= 1024 * 1024 {
+                let text = String::from_utf8_lossy(&output.stdout).into_owned();
+                let _ = inputs.send(crate::native_chat::Input::Native(json!({ LISTED: text })));
+            }
+        });
+    }
+    /// What `agy models` listed: the models, and the one a new conversation
+    /// starts on, unless the launch or the person chose another.
+    fn listed_models(&mut self, output: &str) {
+        let rows: Vec<Value> = crate::adapters::gemini::parse_model_list(output)
+            .into_iter()
+            .map(|row| {
+                let mut entry = json!({"id": row["id"], "name": row["display_name"]});
+                if row["supportedReasoningEfforts"]
+                    .as_array()
+                    .is_some_and(|e| !e.is_empty())
+                {
+                    entry["efforts"] = row["supportedReasoningEfforts"].clone();
+                }
+                entry
+            })
+            .collect();
+        if rows.is_empty() {
+            return;
+        }
+        self.listed = Some(rows);
+        if self.model.is_none()
+            && let Some((model, effort)) = crate::adapters::gemini::listed_default(output)
+        {
+            self.model = Some(model);
+            if self.effort.is_none() {
+                self.effort = effort;
+            }
+        }
+        self.report();
     }
     fn started(&mut self) {
         self.core.initializing = false;
@@ -752,6 +825,14 @@ impl Gemini {
         if !message.is_object() {
             return;
         }
+        if let Some(output) = message.get(LISTED).and_then(Value::as_str) {
+            // A conversation already open has said its own models.
+            if self.options.is_empty() {
+                let output = output.to_owned();
+                self.listed_models(&output);
+            }
+            return;
+        }
         let method = message.get("method").and_then(Value::as_str).unwrap_or("");
         if !method.is_empty() && message.get("id").is_some() {
             return self.request(&message);
@@ -1130,6 +1211,7 @@ pub fn adapter(env: &BTreeMap<String, String>, env_remove: &[String]) -> NativeA
     // is given to find it there (adapters/gemini.rs) is not this one's, and
     // the commands it runs keep the person's own.
     let gemini_dir = env.get(GEMINI_DIR).cloned();
+    let catalog_env = env.clone();
     let mut env = env.clone();
     if gemini_dir.is_some() {
         env.remove("HOME");
@@ -1167,6 +1249,9 @@ pub fn adapter(env: &BTreeMap<String, String>, env_remove: &[String]) -> NativeA
             tools: HashMap::new(),
             assistant: None,
             messages: 0,
+            catalog_env,
+            env_remove: env_remove.to_vec(),
+            listed: None,
         },
     )
 }

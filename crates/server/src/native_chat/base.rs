@@ -96,7 +96,7 @@ pub struct Core<T, R, X> {
     pub(super) secrets: Vec<String>,
     pub(super) env: Vec<(String, String)>,
     pub(super) env_remove: Vec<String>,
-    pub(super) inputs: mpsc::UnboundedSender<Input>,
+    pub(crate) inputs: mpsc::UnboundedSender<Input>,
     pub(super) writer: Option<mpsc::UnboundedSender<Vec<u8>>>,
     pub(super) queued: Arc<AtomicUsize>,
     pub(super) group: OwnedGroup,
