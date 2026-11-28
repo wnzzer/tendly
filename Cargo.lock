@@ -2189,6 +2189,7 @@ dependencies = [
  "qrcode",
  "reqwest",
  "rquickjs",
+ "rusqlite",
  "rust-embed",
  "serde",
  "serde_json",

@@ -1568,8 +1568,8 @@ export const zhCN: Readonly<Record<string, string>> = {
   "Each of your messages led to {calls} model calls on average.": "你每发一条消息，平均触发 {calls} 次模型调用。",
   Usage: "用量",
   "Tokens, cost and subscription allowance": "Token、费用与订阅额度",
-  "Tokens and cost for Claude Code and Codex, read from this host's own client logs.":
-    "Claude Code 与 Codex 的 token 与费用，读自本机客户端日志。",
+  "Tokens and cost for every agent client, read from this host's own client logs.":
+    "各智能体客户端的 token 与费用，读自本机客户端日志。",
   Today: "今天",
   "7 days": "7 天",
   "30 days": "30 天",

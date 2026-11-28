@@ -13,6 +13,7 @@ use tendly_domain::{EndpointProfile, ProviderKind};
 mod claude_code;
 mod codex;
 pub mod gemini;
+mod gemini_usage;
 mod pi;
 
 /// A launch Tendly configures itself, as opposed to one that defers to a
@@ -189,6 +190,19 @@ pub trait ClientAdapter: Sync {
 
     /// Where under a configuration home its transcripts are, and how deep.
     fn transcripts(&self) -> &'static [(&'static str, usize)];
+    /// For a client whose transcripts are not JSON lines: the extension of
+    /// its files, each read whole by `read_transcript_file` whenever it (or
+    /// its SQLite write-ahead log) changes.
+    fn transcript_file_extension(&self) -> Option<&'static str> {
+        None
+    }
+    fn read_transcript_file(
+        &self,
+        _path: &Path,
+        _source: &crate::usage::Source,
+        _state: &mut crate::usage::FileState,
+    ) {
+    }
     /// What one transcript line adds to the calls read from its file.
     fn read_transcript_line(
         &self,

@@ -82,6 +82,12 @@ pub(crate) fn empty() -> Arc<str> {
 
 /// Read what the file has gained since last time; start over if it shrank.
 fn refresh(source: &Source, state: &mut FileState) {
+    let Some(client) = crate::adapters::adapter(source.provider) else {
+        return;
+    };
+    if client.transcript_file_extension().is_some() {
+        return refresh_whole(client, source, state);
+    }
     let Ok(metadata) = std::fs::metadata(&source.file) else {
         return;
     };
@@ -110,11 +116,36 @@ fn refresh(source: &Source, state: &mut FileState) {
             break;
         }
         state.offset += read as u64;
-        if let Some(client) = crate::adapters::adapter(source.provider) {
-            client.read_transcript_line(&line, source, state);
-        }
+        client.read_transcript_line(&line, source, state);
     }
     state.len = metadata.len();
+    state.modified = modified;
+}
+
+/// A file read whole, again whenever it or its write-ahead log changes: a
+/// SQLite database takes new rows into `-wal` long before the file itself.
+fn refresh_whole(
+    client: &dyn crate::adapters::ClientAdapter,
+    source: &Source,
+    state: &mut FileState,
+) {
+    let Ok(metadata) = std::fs::metadata(&source.file) else {
+        return;
+    };
+    let mut wal = source.file.clone().into_os_string();
+    wal.push("-wal");
+    let log = std::fs::metadata(&wal).ok();
+    let len = metadata.len() + log.as_ref().map_or(0, |log| log.len());
+    let modified = metadata
+        .modified()
+        .ok()
+        .max(log.and_then(|log| log.modified().ok()));
+    if len == state.len && modified == state.modified {
+        return;
+    }
+    *state = new_state();
+    client.read_transcript_file(&source.file, source, state);
+    state.len = len;
     state.modified = modified;
 }
 
@@ -146,6 +177,10 @@ fn new_state() -> FileState {
 }
 
 pub(crate) fn jsonl_files(root: &Path, out: &mut Vec<PathBuf>, depth: usize) {
+    files_with(root, "jsonl", out, depth);
+}
+
+fn files_with(root: &Path, extension: &str, out: &mut Vec<PathBuf>, depth: usize) {
     let Ok(entries) = std::fs::read_dir(root) else {
         return;
     };
@@ -155,8 +190,8 @@ pub(crate) fn jsonl_files(root: &Path, out: &mut Vec<PathBuf>, depth: usize) {
             continue;
         };
         if kind.is_dir() && depth > 0 {
-            jsonl_files(&path, out, depth - 1);
-        } else if kind.is_file() && path.extension().is_some_and(|ext| ext == "jsonl") {
+            files_with(&path, extension, out, depth - 1);
+        } else if kind.is_file() && path.extension().is_some_and(|ext| ext == extension) {
             out.push(path);
         }
     }
@@ -176,11 +211,13 @@ fn sources(homes: &[Home]) -> Vec<Source> {
             client
                 .transcripts()
                 .iter()
-                .map(move |(subdir, depth)| (client.kind(), *subdir, *depth))
+                .map(move |(subdir, depth)| (client, *subdir, *depth))
         });
-        for (provider, subdir, depth) in transcripts {
+        for (client, subdir, depth) in transcripts {
+            let provider = client.kind();
+            let extension = client.transcript_file_extension().unwrap_or("jsonl");
             let mut files = Vec::new();
-            jsonl_files(&home.join(subdir), &mut files, depth);
+            files_with(&home.join(subdir), extension, &mut files, depth);
             sources.extend(files.into_iter().map(|file| Source {
                 provider,
                 file,

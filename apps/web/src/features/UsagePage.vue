@@ -344,7 +344,7 @@ const insights = computed(() => (report.value ? usageInsights(report.value, t, w
   <PageShell
     named-above
     :title="t('Usage')"
-    :subtitle="t('Tokens and cost for Claude Code and Codex, read from this host\'s own client logs.')"
+    :subtitle="t('Tokens and cost for every agent client, read from this host\'s own client logs.')"
     @back="emit('back')"
   >
     <template #actions

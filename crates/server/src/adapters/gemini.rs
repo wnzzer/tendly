@@ -9,9 +9,8 @@
 //! so the commands agy runs keep their git, ssh and tool configuration. The
 //! chat (gemini_chat.rs) runs `agy acp --gemini-dir` instead and keeps HOME.
 //!
-//! agy stores its conversations in SQLite databases of its own encoding, so
-//! the usage page does not count its calls; a chat reports each turn's tokens
-//! as it ends.
+//! agy keeps each conversation in a SQLite database of its own encoding;
+//! gemini_usage.rs reads what each one spent, for the usage page.
 use super::{AccountOperations, CatalogStep, ClientAdapter, EndpointLaunch};
 use crate::model_catalog::ModelCatalog;
 use crate::usage::{FileState, Source};
@@ -347,7 +346,13 @@ impl ClientAdapter for Gemini {
     }
 
     fn transcripts(&self) -> &'static [(&'static str, usize)] {
-        &[]
+        &[("antigravity-cli/conversations", 0)]
+    }
+    fn transcript_file_extension(&self) -> Option<&'static str> {
+        Some("db")
+    }
+    fn read_transcript_file(&self, path: &Path, source: &Source, state: &mut FileState) {
+        super::gemini_usage::read(path, source, state);
     }
     fn read_transcript_line(&self, _line: &str, _source: &Source, _state: &mut FileState) {}
 }
