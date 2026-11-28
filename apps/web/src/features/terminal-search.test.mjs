@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { findCount, isTerminalFind, terminalClipboardKey } from "./terminal-search.ts";
+import { clearsSelectionOnCopy, findCount, isTerminalFind, terminalClipboardKey } from "./terminal-search.ts";
 
 const key = overrides => ({ key: "f", metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...overrides });
 
@@ -35,5 +35,13 @@ test("off a Mac the terminal copies and pastes with Shift added, or with Insert,
   assert.equal(terminalClipboardKey(key("Insert", { ctrlKey: true }), false), "copy");
   assert.equal(terminalClipboardKey(key("Insert", { shiftKey: true }), false), "paste");
   assert.equal(terminalClipboardKey(key("c", { ctrlKey: true }), false), undefined, "Ctrl+C interrupts the program");
+  assert.equal(
+    terminalClipboardKey(key("c", { ctrlKey: true }), false, true),
+    "copy",
+    "Ctrl+C copies when text is selected",
+  );
+  assert.equal(clearsSelectionOnCopy(key("c", { ctrlKey: true }), false), true);
+  assert.equal(clearsSelectionOnCopy(key("C", { ctrlKey: true, shiftKey: true }), false), false);
+  assert.equal(terminalClipboardKey(key("c", { metaKey: true }), true, true), "copy", "⌘C copies terminal selection");
   assert.equal(terminalClipboardKey(key("C", { ctrlKey: true, shiftKey: true }), true), undefined, "a Mac has ⌘C");
 });

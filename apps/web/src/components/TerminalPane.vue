@@ -1,11 +1,18 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import ContextMenu from "../features/ContextMenu.vue";
 import Icon from "../features/Icon.vue";
 import TerminalKeyBar from "./TerminalKeyBar.vue";
 import TerminalSearchBar from "./TerminalSearchBar.vue";
 import TerminalUploads from "./TerminalUploads.vue";
 import { useI18n } from "../i18n";
-import { createSessionStream, TERMINAL_VIEW_ERROR, type SessionStreamState } from "../features/session-stream";
+import { copyText, preserveNativeContextMenu } from "../features/clipboard";
+import {
+  createSessionStream,
+  PING_MESSAGE,
+  TERMINAL_VIEW_ERROR,
+  type SessionStreamState,
+} from "../features/session-stream";
 import { onPageReturn } from "../features/page-return";
 import {
   arrowSequence,
@@ -22,7 +29,14 @@ import {
 import { terminalDark as dark } from "../features/theme";
 import { textScale } from "../features/appearance";
 import { terminalEngine } from "../features/terminal-engine";
-import { findCount, isTerminalFind, terminalClipboardKey, terminalFindChord } from "../features/terminal-search";
+import type { TerminalLinkTarget } from "../features/terminal-links";
+import {
+  clearsSelectionOnCopy,
+  findCount,
+  isTerminalFind,
+  terminalClipboardKey,
+  terminalFindChord,
+} from "../features/terminal-search";
 import { formatChord } from "../features/shortcuts";
 import { filesFrom, useTerminalUploads } from "../features/terminal-uploads";
 import { showToast } from "../features/toasts";
@@ -30,6 +44,7 @@ import { terminalTheme, type FindState, type TerminalView, type TerminalViewEven
 import { afterHello, parseControl, readFramed, streamUrl, type ResumePoint } from "../features/terminal-protocol";
 import { createWtermView } from "../features/terminal-view-wterm";
 import { createXtermView } from "../features/terminal-view-xterm";
+import { createZmodem, type ZmodemStatus } from "../features/zmodem";
 const { t } = useI18n();
 
 /**
@@ -40,7 +55,11 @@ const { t } = useI18n();
  */
 /** `provider` is the program the session runs, which decides the keys on the bar. */
 const props = defineProps<{ sessionId: string; provider?: string }>();
-const emit = defineEmits<{ exit: []; status: [connected: boolean] }>();
+const emit = defineEmits<{
+  exit: [];
+  status: [connected: boolean];
+  openFile: [reference: { path: string; line?: number; cwd?: string }];
+}>();
 const host = ref<HTMLDivElement>();
 const state = ref<SessionStreamState>("connecting");
 const notice = ref("");
@@ -86,11 +105,25 @@ const findShortcut = formatChord(terminalFindChord());
 const pasteDraft = ref<string>();
 const pasteField = ref<HTMLTextAreaElement>();
 const fileInput = ref<HTMLInputElement>();
+const rzFileInput = ref<HTMLInputElement>();
+const zmodemStatus = ref<ZmodemStatus>({ phase: "idle" });
+const pendingOscCopy = ref<string>();
+const contextMenu = ref<{
+  x: number;
+  y: number;
+  selectionText: string;
+  mouseTracking: boolean;
+  link?: TerminalLinkTarget;
+}>();
+let rightClickSelection = "";
 
 const engine = terminalEngine();
 let view: TerminalView | undefined;
+let terminalCwd: string | undefined;
 let observer: ResizeObserver | undefined;
 let resizeFrame = 0,
+  replayTimer = 0,
+  replaying = false,
   sized = false,
   disposed = false;
 /**
@@ -104,6 +137,33 @@ let resume: ResumePoint | undefined;
 let framed = false,
   redrawPending = false;
 
+function triggerDownload(name: string, bytes: Uint8Array) {
+  const blob = new Blob([bytes as BlobPart], { type: "application/octet-stream" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = name;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  showToast(t("Downloaded {name}", { name }));
+}
+
+const zmodem = createZmodem({
+  send: bytes => {
+    stream.send(bytes);
+  },
+  onDownload: triggerDownload,
+  onStatus(next) {
+    zmodemStatus.value = next;
+  },
+  onError(message) {
+    showToast(t(message), { tone: "warn" });
+  },
+});
+
 const stream = createSessionStream({
   createSocket: url => new WebSocket(url),
   reconnect: true,
@@ -112,6 +172,7 @@ const stream = createSessionStream({
     state.value = next;
     notice.value = message;
     nativeNotice.value = false;
+    if (next !== "connected") zmodem.reset();
     emit("status", next === "connected");
   },
   // Until the server says whether it resumed, the old screen stays up rather
@@ -120,23 +181,36 @@ const stream = createSessionStream({
     sized = false;
     framed = false;
     redrawPending = true;
+    replaying = true;
+    window.clearTimeout(replayTimer);
     resize();
+  },
+  onPong() {
+    replaying = false;
+    window.clearTimeout(replayTimer);
   },
   onMessage(data) {
     if (data instanceof ArrayBuffer) {
+      let bytes: Uint8Array;
       if (framed) {
         const frame = readFramed(data);
         if (!frame) return;
         resume = { runtime: resume?.runtime ?? "", seq: frame.seq };
-        view?.write(frame.bytes);
+        bytes = frame.bytes;
       } else {
         // A server that does not number its frames replays everything.
         if (redrawPending) {
           redrawPending = false;
           view?.reset();
+          window.clearTimeout(replayTimer);
+          replayTimer = window.setTimeout(() => {
+            replaying = false;
+          }, 300);
         }
-        view?.write(new Uint8Array(data));
+        bytes = new Uint8Array(data);
       }
+      const visible = zmodem.consume(bytes, replaying);
+      if (visible.byteLength) view?.write(visible);
       // A size sent as the socket opens can reach the server before a reopened
       // session's process exists, leaving the shell at the size it started
       // with. Its first output proves the process is there; say the size again.
@@ -158,7 +232,18 @@ const stream = createSessionStream({
       framed = true;
       redrawPending = false;
       const next = afterHello(control, resume);
-      if (next.reset) view?.reset();
+      if (next.reset) {
+        view?.reset();
+        replaying = true;
+        stream.send(PING_MESSAGE);
+        window.clearTimeout(replayTimer);
+        replayTimer = window.setTimeout(() => {
+          replaying = false;
+        }, 1500);
+      } else {
+        replaying = false;
+        window.clearTimeout(replayTimer);
+      }
       resume = next.resume;
     } else if (control.type === "exit") {
       // The shell around this pane says the process exited and offers to start it again.
@@ -180,6 +265,7 @@ const stream = createSessionStream({
 const viewEvents: TerminalViewEvents = {
   /** What the keyboard typed, with any armed on-screen modifier applied. */
   typed(data) {
+    replaying = false;
     if (shiftArmed.value) {
       shiftArmed.value = false;
       data = shiftSequence(data);
@@ -192,6 +278,25 @@ const viewEvents: TerminalViewEvents = {
   },
   send: bytes => stream.send(bytes),
   scrolled: updateScrolledBack,
+  copy(text) {
+    if (!replaying && text) {
+      void copyText(text).then(
+        () => {
+          pendingOscCopy.value = undefined;
+        },
+        () => {
+          // Plain HTTP LAN/Tailscale rejects async clipboard writes without a click gesture.
+          pendingOscCopy.value = text;
+        },
+      );
+    }
+  },
+  cwdChanged(cwd) {
+    terminalCwd = cwd;
+  },
+  openLink(link) {
+    activateLink(link);
+  },
   ready() {
     searchable.value = !!view?.search;
     if (document.activeElement === host.value) view?.focus();
@@ -308,6 +413,89 @@ function filesPicked(event: Event) {
   input.value = "";
   void files.sendFiles(picked);
 }
+function pickRzFiles() {
+  rzFileInput.value?.click();
+}
+function rzFilesPicked(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const picked = [...(input.files ?? [])];
+  input.value = "";
+  zmodem.sendFiles(picked);
+  focusView();
+}
+function cancelZmodem() {
+  zmodem.cancel();
+  focusView();
+}
+async function flushPendingOscCopy() {
+  const text = pendingOscCopy.value;
+  pendingOscCopy.value = undefined;
+  if (text) await copyText(text).catch(() => undefined);
+  focusView();
+}
+function formatTransferProgress(transferred: number, total?: number): string {
+  if (total && total > 0) return `${Math.min(100, Math.round((transferred / total) * 100))}%`;
+  if (transferred < 1024) return `${transferred} B`;
+  if (transferred < 1024 * 1024) return `${(transferred / 1024).toFixed(1)} KiB`;
+  return `${(transferred / (1024 * 1024)).toFixed(1)} MiB`;
+}
+function activateLink(link: TerminalLinkTarget) {
+  if (link.kind === "url") {
+    window.open(link.href, "_blank", "noopener,noreferrer");
+    return;
+  }
+  emit("openFile", { path: link.path, line: link.line, cwd: terminalCwd });
+}
+async function copySelection(clearAfter = false) {
+  const text = view?.getSelection() || window.getSelection()?.toString() || "";
+  if (text) {
+    await copyText(text).catch(() => undefined);
+    if (clearAfter) {
+      view?.clearSelection();
+      window.getSelection()?.removeAllRanges();
+    }
+    return;
+  }
+  document.execCommand("copy");
+}
+function openContextMenu(event: MouseEvent) {
+  if (preserveNativeContextMenu(event, false)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const selectionText = view?.getSelection() || window.getSelection()?.toString() || rightClickSelection;
+  rightClickSelection = "";
+  contextMenu.value = {
+    x: event.clientX,
+    y: event.clientY,
+    selectionText,
+    mouseTracking: !!view?.mouseTracking(),
+    link: view?.linkAt?.(event.clientX, event.clientY, event.target),
+  };
+}
+function menuOpenLink() {
+  const link = contextMenu.value?.link;
+  contextMenu.value = undefined;
+  if (link) activateLink(link);
+}
+function menuCopy() {
+  const text = contextMenu.value?.selectionText || "";
+  contextMenu.value = undefined;
+  if (text) void copyText(text).catch(() => undefined);
+  else void copySelection(false);
+  focusView();
+}
+function menuPaste() {
+  contextMenu.value = undefined;
+  void pressPaste();
+}
+async function menuSelectAll() {
+  contextMenu.value = undefined;
+  await view?.selectAll();
+}
+function menuFind() {
+  contextMenu.value = undefined;
+  openSearch();
+}
 /** The phone paste field takes images too: a long-press paste of a photo lands here. */
 function onFieldPaste(event: ClipboardEvent) {
   const pasted = filesFrom(event.clipboardData);
@@ -333,6 +521,10 @@ function keepFocus(event: Event) {
 
 let gesture: { x: number; y: number; at: number } | undefined;
 function gestureStart(event: PointerEvent) {
+  if (event.button === 2) {
+    rightClickSelection = view?.getSelection() || window.getSelection()?.toString() || "";
+    return;
+  }
   gesture = { x: event.clientX, y: event.clientY, at: Date.now() };
 }
 /**
@@ -390,7 +582,8 @@ function stepSearch(direction: 1 | -1) {
 /** Taken before the terminal sees it, which would otherwise hand the key to the shell. */
 function terminalKeydown(event: KeyboardEvent) {
   if (event.isComposing) return;
-  const clipboard = terminalClipboardKey(event);
+  const hasSelection = !!(view?.hasSelection() || window.getSelection()?.toString());
+  const clipboard = terminalClipboardKey(event, undefined, hasSelection);
   if (clipboard) {
     event.preventDefault();
     event.stopPropagation();
@@ -398,12 +591,7 @@ function terminalKeydown(event: KeyboardEvent) {
       void pressPaste();
       return;
     }
-    // A copy event lets the terminal hand over its own selection, scrolled-off
-    // history included, and works over plain http, where navigator.clipboard
-    // does not exist.
-    if (document.execCommand("copy")) return;
-    const text = window.getSelection()?.toString();
-    if (text) void navigator.clipboard?.writeText(text).catch(() => undefined);
+    void copySelection(clearsSelectionOnCopy(event));
     return;
   }
   if (!view?.search || !isTerminalFind(event)) return;
@@ -451,6 +639,12 @@ watch(textScale, resize);
 
 function cleanupView() {
   cancelAnimationFrame(resizeFrame);
+  window.clearTimeout(replayTimer);
+  replaying = false;
+  terminalCwd = undefined;
+  contextMenu.value = undefined;
+  pendingOscCopy.value = undefined;
+  zmodem.reset();
   scrolledBack.value = false;
   searchOpen.value = false;
   searchProgress.value = undefined;
@@ -494,6 +688,10 @@ watch(
       current = false;
     });
     stream.disconnect();
+    zmodem.reset();
+    terminalCwd = undefined;
+    contextMenu.value = undefined;
+    pendingOscCopy.value = undefined;
     resume = undefined;
     view?.reset();
     await nextTick();
@@ -558,10 +756,68 @@ onUnmounted(() => {
       aria-hidden="true"
       @change="filesPicked"
     />
+    <input
+      ref="rzFileInput"
+      class="sr-only"
+      type="file"
+      multiple
+      tabindex="-1"
+      aria-hidden="true"
+      @change="rzFilesPicked"
+    />
     <div v-if="dragging" class="terminal-drop" aria-hidden="true">
       <span>{{ t("Drop to add the files and type their paths") }}</span>
     </div>
     <TerminalUploads v-if="uploads.length" :uploads="uploads" @retry="files.retry" @dismiss="files.dismiss" />
+    <div
+      v-if="pendingOscCopy && zmodemStatus.phase === 'idle'"
+      class="terminal-uploads terminal-zmodem"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="terminal-upload">
+        <Icon name="clipboard" :size="16" />
+        <span class="terminal-upload-text">
+          <strong>{{ t("Terminal copied text") }}</strong>
+          <small>{{ t("Tap Copy to place it on your clipboard") }}</small>
+        </span>
+        <button type="button" class="text-button" @click="flushPendingOscCopy">{{ t("Copy") }}</button>
+        <button type="button" class="icon-button" :aria-label="t('Cancel')" @click="pendingOscCopy = undefined">
+          <Icon name="close" :size="13" />
+        </button>
+      </div>
+    </div>
+    <div v-if="zmodemStatus.phase !== 'idle'" class="terminal-uploads terminal-zmodem" role="status" aria-live="polite">
+      <div class="terminal-upload">
+        <Icon :name="zmodemStatus.phase === 'downloading' ? 'download' : 'upload'" :size="16" />
+        <span v-if="zmodemStatus.phase === 'awaiting_files'" class="terminal-upload-text">
+          <strong>{{ t("ZMODEM upload (rz)") }}</strong>
+          <small>{{ t("Choose files to send to the remote terminal") }}</small>
+        </span>
+        <span v-else-if="zmodemStatus.phase === 'downloading'" class="terminal-upload-text">
+          <strong :title="zmodemStatus.name">{{ zmodemStatus.name }}</strong>
+          <small>{{
+            t("Downloading {progress}", {
+              progress: formatTransferProgress(zmodemStatus.transferred, zmodemStatus.total),
+            })
+          }}</small>
+        </span>
+        <span v-else-if="zmodemStatus.phase === 'uploading'" class="terminal-upload-text">
+          <strong :title="zmodemStatus.name">{{ zmodemStatus.name }}</strong>
+          <small>{{
+            t("Sending {progress}", {
+              progress: formatTransferProgress(zmodemStatus.transferred, zmodemStatus.total),
+            })
+          }}</small>
+        </span>
+        <button v-if="zmodemStatus.phase === 'awaiting_files'" type="button" class="text-button" @click="pickRzFiles">
+          {{ t("Choose files") }}
+        </button>
+        <button type="button" class="icon-button" :aria-label="t('Cancel')" @click="cancelZmodem">
+          <Icon name="close" :size="13" />
+        </button>
+      </div>
+    </div>
     <div
       v-if="notice"
       :class="state === 'error' ? 'inline-error' : 'inline-notice'"
@@ -575,10 +831,48 @@ onUnmounted(() => {
       tabindex="-1"
       @focus.self="focusView"
       :aria-label="t('Native session {id}', { id: sessionId })"
+      @contextmenu="openContextMenu"
       @pointerdown="gestureStart"
       @pointerup="gestureEnd"
       @pointercancel="gesture = undefined"
     />
+    <ContextMenu
+      v-if="contextMenu"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      :label="t('Terminal')"
+      :width="210"
+      @close="contextMenu = undefined"
+    >
+      <template v-if="contextMenu.link">
+        <button type="button" @click="menuOpenLink">
+          <Icon :name="contextMenu.link.kind === 'file' ? 'file' : 'globe'" :size="15" />
+          <span>{{
+            contextMenu.link.kind === "file" ? t("Open {path}", { path: contextMenu.link.text }) : t("Open link")
+          }}</span>
+        </button>
+        <hr />
+      </template>
+      <button type="button" :disabled="!contextMenu.selectionText" @click="menuCopy">
+        <Icon name="clipboard" :size="15" /><span>{{ t("Copy") }}</span>
+      </button>
+      <button type="button" @click="menuPaste">
+        <Icon name="plus" :size="15" /><span>{{ t("Paste") }}</span>
+      </button>
+      <button type="button" @click="menuSelectAll">
+        <Icon name="grid" :size="15" /><span>{{ t("Select all") }}</span>
+      </button>
+      <template v-if="searchable">
+        <hr />
+        <button type="button" @click="menuFind">
+          <Icon name="search" :size="15" /><span>{{ t("Find") }}</span>
+        </button>
+      </template>
+      <template v-if="contextMenu.mouseTracking && !contextMenu.selectionText">
+        <hr />
+        <p class="context-menu-note">{{ t("Hold Shift while dragging to select text") }}</p>
+      </template>
+    </ContextMenu>
     <TerminalSearchBar
       v-if="searchOpen"
       ref="searchBar"

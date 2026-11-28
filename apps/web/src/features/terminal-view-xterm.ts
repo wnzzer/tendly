@@ -1,9 +1,17 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { Terminal } from "@xterm/xterm";
+import { Terminal, type ILink } from "@xterm/xterm";
 import { swipeAxis } from "./pane-swipe";
+import { findTerminalLinks, isTerminalLinkModifier, terminalLinkAt, type TerminalLinkTarget } from "./terminal-links";
 import { addSample, flingStep, releaseVelocity, type TouchSample } from "./terminal-scroll";
-import { rowAt, type TerminalTheme, type TerminalView, type TerminalViewEvents } from "./terminal-view";
+import {
+  decodeOsc52,
+  osc7Path,
+  rowAt,
+  type TerminalTheme,
+  type TerminalView,
+  type TerminalViewEvents,
+} from "./terminal-view";
 
 /**
  * Draw with xterm.js, the fallback behind `?terminal=xterm`. It paints a
@@ -34,6 +42,16 @@ export function createXtermView(host: HTMLElement, theme: TerminalTheme, events:
     terminal.onScroll(events.scrolled),
     terminal.onWriteParsed(events.scrolled),
     terminal.onBinary(data => events.send(Uint8Array.from(data, value => value.charCodeAt(0) & 255))),
+    terminal.parser.registerOscHandler(52, data => {
+      const text = decodeOsc52(data);
+      if (text !== undefined) events.copy?.(text);
+      return true;
+    }),
+    terminal.parser.registerOscHandler(7, data => {
+      events.cwdChanged?.(osc7Path(data));
+      return true;
+    }),
+    registerXtermLinks(terminal, events),
   ];
   const touch = touchScrolling(terminal, host, events.scrolled);
 
@@ -47,7 +65,25 @@ export function createXtermView(host: HTMLElement, theme: TerminalTheme, events:
     paste: text => terminal.paste(text),
     focus: () => terminal.focus(),
     applicationCursorKeys: () => terminal.modes.applicationCursorKeysMode,
+    mouseTracking: () => terminal.modes.mouseTrackingMode !== "none",
     hasSelection: () => terminal.hasSelection(),
+    getSelection: () => terminal.getSelection(),
+    clearSelection: () => terminal.clearSelection(),
+    selectAll: () => terminal.selectAll(),
+    linkAt(clientX, clientY) {
+      const viewport = host.querySelector(".xterm-screen") ?? host;
+      const bounds = viewport.getBoundingClientRect();
+      const row = rowAt(clientY, bounds.top, bounds.height, terminal.rows);
+      if (row === undefined || bounds.width <= 0 || terminal.cols <= 0) return undefined;
+      const col = Math.floor(((clientX - bounds.left) / bounds.width) * terminal.cols);
+      if (col < 0 || col >= terminal.cols) return undefined;
+      const bufferRow = terminal.buffer.active.viewportY + row;
+      const logical = xtermLogicalLine(terminal, bufferRow);
+      if (!logical) return undefined;
+      const rowSlice = logical.rows.find(entry => entry.bufferRow === bufferRow);
+      if (!rowSlice) return undefined;
+      return terminalLinkAt(logical.text, rowSlice.charStart + Math.min(col, rowSlice.text.length));
+    },
     tappedRow(clientY) {
       const viewport = host.querySelector(".xterm-screen") ?? host;
       const bounds = viewport.getBoundingClientRect();
@@ -230,4 +266,53 @@ function touchScrolling(terminal: Terminal, host: HTMLElement, scrolled: () => v
       host.removeEventListener("touchcancel", cancel);
     },
   };
+}
+
+function xtermLogicalLine(terminal: Terminal, bufferRow: number) {
+  const buffer = terminal.buffer.active;
+  if (!buffer.getLine(bufferRow)) return undefined;
+  let first = bufferRow;
+  while (first > 0 && bufferRow - first < 16 && buffer.getLine(first)?.isWrapped) first--;
+  let last = bufferRow;
+  while (last + 1 < buffer.length && last - bufferRow < 16 && buffer.getLine(last + 1)?.isWrapped) last++;
+  const rows: Array<{ bufferRow: number; charStart: number; text: string }> = [];
+  let text = "";
+  for (let r = first; r <= last; r++) {
+    const line = buffer.getLine(r);
+    if (!line) break;
+    const part = line.translateToString(r === last);
+    rows.push({ bufferRow: r, charStart: text.length, text: part });
+    text += part;
+  }
+  return { first, last, rows, text };
+}
+
+function registerXtermLinks(terminal: Terminal, events: TerminalViewEvents) {
+  return terminal.registerLinkProvider({
+    provideLinks(bufferLineNumber, callback) {
+      const logical = xtermLogicalLine(terminal, bufferLineNumber - 1);
+      if (!logical) {
+        callback(undefined);
+        return;
+      }
+      const posAt = (charOffset: number) => {
+        for (let i = logical.rows.length - 1; i >= 0; i--) {
+          const entry = logical.rows[i]!;
+          if (charOffset >= entry.charStart) {
+            return { x: charOffset - entry.charStart + 1, y: entry.bufferRow + 1 };
+          }
+        }
+        return { x: 1, y: logical.first + 1 };
+      };
+      const found: ILink[] = findTerminalLinks(logical.text).map((target: TerminalLinkTarget) => ({
+        text: target.text,
+        range: { start: posAt(target.start), end: posAt(Math.max(target.start, target.end - 1)) },
+        decorations: { pointerCursor: true, underline: true },
+        activate(event) {
+          if (isTerminalLinkModifier(event)) events.openLink?.(target);
+        },
+      }));
+      callback(found.length ? found : undefined);
+    },
+  });
 }

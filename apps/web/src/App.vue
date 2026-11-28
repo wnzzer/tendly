@@ -27,6 +27,7 @@ import type { SettingsSection } from "./router";
 import HostFilePreview from "./features/HostFilePreview.vue";
 import HostUsage from "./features/HostUsage.vue";
 import { requestJump } from "./features/file-jumps";
+import { resolveWithTerminalCwd } from "./features/terminal-links";
 import { announceFilesChanged, createFileWatch } from "./features/file-watch";
 import { onPageReturn } from "./features/page-return";
 import WorkspaceBranchMenu from "./features/WorkspaceBranchMenu.vue";
@@ -646,26 +647,60 @@ function fileMoved(id: string, checkout: string | null, from: string, to: string
  * index -- an exact name match, the shallowest if several. A line is kept for
  * the file pane to show.
  */
-async function openReference(id: string, reference: { path: string; line?: number; checkout?: string | null }) {
+async function openReference(
+  id: string,
+  reference: { path: string; line?: number; checkout?: string | null; cwd?: string },
+) {
   const workspace = workspaces.value.find(item => item.id === id);
   if (!workspace) return;
-  const target = resolveReference(reference, workspace, workspaces.value);
+  const cwdResolved = resolveWithTerminalCwd(reference.path, reference.cwd, reference.checkout ?? workspace.root_path);
+  let target = resolveReference({ path: cwdResolved.path, checkout: reference.checkout }, workspace, workspaces.value);
+  if (cwdResolved.fallbackPath && target.kind === "workspace") {
+    const primaryPath = target.path;
+    const baseName = primaryPath.split("/").pop() ?? primaryPath;
+    try {
+      const found = await request<{ files: { path: string; kind: string }[] }>(
+        placeUrl(
+          placeKey(target.workspaceId, target.checkout),
+          `/files/search?${new URLSearchParams({ q: baseName, limit: "20" })}`,
+        ),
+      );
+      const hasPrimary = found.files.some(hit => hit.kind === "file" && hit.path === primaryPath);
+      if (!hasPrimary) {
+        const alt = resolveReference(
+          { path: cwdResolved.fallbackPath, checkout: reference.checkout },
+          workspace,
+          workspaces.value,
+        );
+        if (
+          alt.kind === "search" ||
+          (alt.kind === "workspace" && found.files.some(hit => hit.kind === "file" && hit.path === alt.path))
+        ) {
+          target = alt;
+        }
+      }
+    } catch {
+      /* Keep the cwd-resolved target if the search endpoint fails. */
+    }
+  }
   if (target.kind === "host") {
     hostPreview.value = { path: target.path, line: reference.line };
     return;
   }
   let path: string;
   if (target.kind === "search") {
+    const searchPlace = placeKey(id, target.checkout);
     try {
-      const found = await request<{ files: { path: string; name: string; kind: string }[] }>(
-        placeUrl(
-          placeKey(id, target.checkout),
-          `/files/search?${new URLSearchParams({ q: target.name, limit: "20" })}`,
-        ),
+      const found = await request<{ files: { path: string; name: string; kind: string }[]; available?: boolean }>(
+        placeUrl(searchPlace, `/files/search?${new URLSearchParams({ q: target.name, limit: "20" })}`),
       );
-      const exact = found.files
+      let exact = found.files
         .filter(hit => hit.kind === "file" && hit.name === target.name)
         .sort((a, b) => a.path.split("/").length - b.path.split("/").length || a.path.length - b.path.length);
+      if (!exact.length && !found.available) {
+        const walked = await findFileWithoutIndex(searchPlace, target.name);
+        if (walked) exact = [{ path: walked, name: target.name, kind: "file" }];
+      }
       if (!exact.length) {
         error.value = t("Could not find {name} in this workspace.", { name: target.name });
         return;
@@ -678,6 +713,26 @@ async function openReference(id: string, reference: { path: string; line?: numbe
   } else path = target.path;
   if (reference.line) requestJump(placeKey(target.workspaceId, target.checkout), path, reference.line);
   openFile(target.workspaceId, path, target.checkout);
+}
+
+const SKIPPED_WALK_DIRS = new Set([".git", "node_modules", "target", "dist", "build", ".next", "__pycache__"]);
+async function findFileWithoutIndex(place: string, fileName: string): Promise<string | undefined> {
+  const queue = [""];
+  let visited = 0;
+  while (queue.length && visited < 40) {
+    const dir = queue.shift()!;
+    visited++;
+    const query = dir ? `?${new URLSearchParams({ path: dir })}` : "";
+    const entries = await request<{ path: string; name: string; kind: string }[]>(placeUrl(place, `/files${query}`));
+    const match = entries.find(entry => entry.kind === "file" && entry.name === fileName);
+    if (match) return match.path;
+    for (const entry of entries) {
+      if (entry.kind === "directory" && !entry.name.startsWith(".") && !SKIPPED_WALK_DIRS.has(entry.name)) {
+        queue.push(entry.path);
+      }
+    }
+  }
+  return undefined;
 }
 /** A workspace's Git changes; with no workspace named, those of the place in context, a session's worktree included. */
 function openChanges(id?: string, checkout: string | null = null) {

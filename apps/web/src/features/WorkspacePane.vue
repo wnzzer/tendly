@@ -33,7 +33,7 @@ const emit = defineEmits<{
   /** `place`: the workspace and checkout (`placeKey`) a Git or file pane shows. */
   gitChanged: [place: string, status: GitStatus];
   openFile: [id: string, path: string, checkout: string | null];
-  openReference: [id: string, reference: { path: string; line?: number; checkout?: string | null }];
+  openReference: [id: string, reference: { path: string; line?: number; checkout?: string | null; cwd?: string }];
   filesSaved: [place: string];
   browse: [id: string | undefined];
   draftCreated: [paneId: string, session: Session];
@@ -142,7 +142,7 @@ function renameSession(id: string) {
       @keep="emit('keepSession', $event)"
       @leave="emit('leaveTerminal', pane.id)"
       @open-file="
-        (reference: { path: string; line?: number; checkout?: string | null }) =>
+        (reference: { path: string; line?: number; checkout?: string | null; cwd?: string }) =>
           workspace && emit('openReference', workspace.id, reference)
       "
     />
@@ -169,6 +169,10 @@ function renameSession(id: string) {
       @environment="emit('sessionEnvironment', $event)"
       @structured="emit('structuredSession', $event)"
       @profiles="emit('profiles')"
+      @open-file="
+        (reference: { path: string; line?: number; checkout?: string | null; cwd?: string }) =>
+          workspace && emit('openReference', workspace.id, reference)
+      "
     />
     <GitPane
       v-else-if="pane.kind === 'git_diff' && workspace"

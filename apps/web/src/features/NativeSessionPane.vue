@@ -34,6 +34,7 @@ const emit = defineEmits<{
   structured: [id: string];
   profiles: [];
   leave: [];
+  openFile: [reference: { path: string; line?: number; checkout?: string | null; cwd?: string }];
 }>();
 const endpointSetup = ref<{ prepare: () => Promise<Session | undefined>; busy: boolean }>();
 const preparing = ref(false);
@@ -442,6 +443,7 @@ function reconnect() {
       :provider="session.provider"
       @exit="terminalExited"
       @status="terminalStatus"
+      @open-file="emit('openFile', { ...$event, checkout: session.checkout_path })"
     />
     <button
       v-if="exitedInPlace && !running"

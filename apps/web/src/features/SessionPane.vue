@@ -26,7 +26,7 @@ const emit = defineEmits<{
   reveal: [id: string];
   keep: [id: string];
   leave: [];
-  openFile: [reference: { path: string; line?: number; checkout?: string | null }];
+  openFile: [reference: { path: string; line?: number; checkout?: string | null; cwd?: string }];
 }>();
 
 const { t } = useI18n();
@@ -141,6 +141,7 @@ const liveTerminal = computed(() => (isChat.value ? liveEscapeHatch(props.sessio
         @structured="onStructured"
         @profiles="emit('profiles')"
         @leave="emit('leave')"
+        @open-file="emit('openFile', $event)"
       >
         <template #session-actions="{ closeMenu }">
           <SessionCommonActions

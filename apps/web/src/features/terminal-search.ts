@@ -12,15 +12,27 @@ export function terminalFindChord(mac = isMac): Chord {
 }
 
 /**
- * Copying and pasting off a Mac, where Ctrl+C and Ctrl+V are the shell's:
- * Ctrl+Shift+C and V, as other terminals take them, or Ctrl+Insert and
- * Shift+Insert. On a Mac ⌘C and ⌘V already do it.
+ * Copying and pasting in a terminal.
+ *
+ * Off a Mac, Ctrl+C interrupts the foreground process unless text is selected,
+ * in which case copying (and clearing the selection so a second Ctrl+C still
+ * interrupts) matches modern terminals; Ctrl+Shift+C, Ctrl+Insert, Ctrl+Shift+V
+ * and Shift+Insert always copy or paste. On a Mac ⌘C copies when the terminal
+ * holds a selection, including canvas/WebGL selections the browser cannot see.
  */
 export function terminalClipboardKey(
   event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">,
   mac = isMac,
+  hasSelection = false,
 ): "copy" | "paste" | undefined {
-  if (mac || event.altKey || event.metaKey) return undefined;
+  if (event.altKey) return undefined;
+  if (mac) {
+    if (hasSelection && !event.shiftKey && !event.ctrlKey && matches(event, { key: "c", mod: true }, true))
+      return "copy";
+    return undefined;
+  }
+  if (event.metaKey) return undefined;
+  if (hasSelection && !event.shiftKey && matches(event, { key: "c", mod: true }, false)) return "copy";
   if (
     matches(event, { key: "c", mod: true, shift: true }, false) ||
     (event.key === "Insert" && event.ctrlKey && !event.shiftKey)
@@ -32,6 +44,14 @@ export function terminalClipboardKey(
   )
     return "paste";
   return undefined;
+}
+
+/** Plain Ctrl+C off a Mac clears the copied selection so pressing Ctrl+C again interrupts the shell. */
+export function clearsSelectionOnCopy(
+  event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">,
+  mac = isMac,
+): boolean {
+  return !mac && !event.altKey && !event.metaKey && !event.shiftKey && matches(event, { key: "c", mod: true }, false);
 }
 
 export function isTerminalFind(

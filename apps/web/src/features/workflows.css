@@ -1972,6 +1972,15 @@
 .terminal-host .wterm-surface * {
   touch-action: pan-y;
 }
+.terminal-host .wterm-surface.has-hover-link,
+.terminal-host .wterm-surface.has-hover-link * {
+  cursor: pointer;
+}
+.context-menu > button > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
 /* Find in the terminal's history: the button in the status line and the bar over the terminal's top edge. */
 .terminal-find {
   margin-left: auto;

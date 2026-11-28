@@ -10,6 +10,8 @@
  * of both libraries so its helpers can be tested on their own.
  */
 
+import type { TerminalLinkTarget } from "./terminal-links";
+
 /** What a view reports back to the pane. */
 export interface TerminalViewEvents {
   /** Text the keyboard typed, before any on-screen modifier is applied. */
@@ -31,6 +33,12 @@ export interface TerminalViewEvents {
   resized(size: { cols: number; rows: number }): void;
   /** Progress of a find through the history, where the view can find. */
   searched?(progress: FindState): void;
+  /** Text the terminal program asked to place on the clipboard via OSC 52. */
+  copy?(text: string): void;
+  /** Working directory reported by the shell via OSC 7, or `undefined` when cleared. */
+  cwdChanged?(cwd: string | undefined): void;
+  /** A file path or URL activated in the terminal (e.g. Ctrl/⌘+Click). */
+  openLink?(link: TerminalLinkTarget): void;
 }
 
 export interface FindState {
@@ -63,7 +71,17 @@ export interface TerminalView {
   focus(): void;
   /** Whether the program asked for application cursor keys, which change what an arrow sends. */
   applicationCursorKeys(): boolean;
+  /** Whether the foreground program currently captures mouse drags. */
+  mouseTracking(): boolean;
   hasSelection(): boolean;
+  /** Selected plain text in the terminal, or `""` when nothing is selected. */
+  getSelection(): string;
+  /** Clear any terminal selection. */
+  clearSelection(): void;
+  /** Select all retained scrollback and screen text. */
+  selectAll(): Promise<void> | void;
+  /** Clickable file reference or URL at the pointer, if any. */
+  linkAt?(clientX: number, clientY: number, target: EventTarget | null): TerminalLinkTarget | undefined;
   /** The screen row under `clientY` and the cursor's row, both from the top of the screen. */
   tappedRow(clientY: number): { row: number; cursor: number } | undefined;
   isScrolledBack(): boolean;
@@ -167,4 +185,42 @@ export function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
     offset += part.byteLength;
   }
   return joined;
+}
+
+const MAX_OSC52_BASE64 = 1_400_000;
+
+/**
+ * Decode an OSC 52 clipboard payload (`<selection>;<base64>`). Clipboard read
+ * queries (`?`) and malformed or oversized payloads return `undefined`.
+ */
+export function decodeOsc52(data: string): string | undefined {
+  const sep = data.indexOf(";");
+  if (sep < 0) return undefined;
+  const encoded = data.slice(sep + 1).replace(/\s+/g, "");
+  if (encoded === "?" || encoded.length > MAX_OSC52_BASE64) return undefined;
+  if (!encoded) return "";
+  if (encoded.length % 4 === 1 || /[^A-Za-z0-9+/=]/.test(encoded)) return undefined;
+  try {
+    const binary = atob(encoded);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Local path carried by an OSC 7 working-directory URI (`file://host/path`). */
+export function osc7Path(uri: string): string | undefined {
+  const trimmed = uri.trim();
+  if (!trimmed) return undefined;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "file:") return undefined;
+    const decoded = decodeURIComponent(parsed.pathname);
+    const normalized = decoded.replace(/^\/(?=[A-Za-z]:\/)/, "");
+    return normalized || undefined;
+  } catch {
+    return undefined;
+  }
 }

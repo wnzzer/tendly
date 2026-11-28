@@ -2839,6 +2839,23 @@ export const zhCN: Readonly<Record<string, string>> = {
   "Ctrl+T · open the transcript": "Ctrl+T · 打开对话记录",
   "Ctrl+Z · suspend": "Ctrl+Z · 挂起",
   "Tab · queue the message": "Tab · 排队发送消息",
+  "Downloaded {name}": "已下载 {name}",
+  "ZMODEM upload (rz)": "ZMODEM 上传 (rz)",
+  "Choose files to send to the remote terminal": "选择要发送到远端终端的文件",
+  "Downloading {progress}": "正在下载 {progress}",
+  "Sending {progress}": "正在发送 {progress}",
+  "Choose files": "选择文件",
+  "Open {path}": "打开 {path}",
+  "Open link": "打开链接",
+  "Hold Shift while dragging to select text": "按住 Shift 拖拽可选中文字",
+  "ZMODEM transfer was aborted by the remote program.": "远端程序已中止 ZMODEM 传输。",
+  "ZMODEM upload was rejected by the remote program.": "远端程序拒绝了 ZMODEM 上传。",
+  "ZMODEM transfer cancelled.": "已取消 ZMODEM 传输。",
+  "Download exceeded the 512 MiB browser memory limit and was cancelled.":
+    "下载文件超过浏览器 512 MiB 内存限制，已取消。",
+  "Failed to read selected file.": "读取所选文件失败。",
+  "Terminal copied text": "终端已复制文本",
+  "Tap Copy to place it on your clipboard": "点击「复制」写入系统剪贴板",
 };
 
 export function normalizeLocale(value: unknown): Locale {

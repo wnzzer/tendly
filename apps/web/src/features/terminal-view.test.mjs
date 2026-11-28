@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { concatBytes, rowAt, terminalTheme, themeVariables } from "./terminal-view.ts";
+import { concatBytes, decodeOsc52, osc7Path, rowAt, terminalTheme, themeVariables } from "./terminal-view.ts";
 
 test("a theme maps onto wterm's variables, normal colours first and bright ones eight on", () => {
   const light = themeVariables(terminalTheme(false));
@@ -39,4 +39,21 @@ test("parts are joined in order into one buffer", () => {
   const only = Uint8Array.of(7);
   assert.equal(concatBytes([only]), only, "a single part needs no copy");
   assert.equal(concatBytes([]).byteLength, 0);
+});
+
+test("OSC 52 decodes UTF-8 clipboard writes and ignores clipboard read queries", () => {
+  const utf8Base64 = Buffer.from("复制 test 🚀", "utf8").toString("base64");
+  assert.equal(decodeOsc52(`c;${utf8Base64}`), "复制 test 🚀");
+  assert.equal(decodeOsc52(`;${utf8Base64}`), "复制 test 🚀");
+  assert.equal(decodeOsc52("c;?"), undefined, "never answer clipboard read queries");
+  assert.equal(decodeOsc52("no-semicolon"), undefined);
+  assert.equal(decodeOsc52("c;@@@"), undefined);
+});
+
+test("OSC 7 extracts decoded local paths from file URIs", () => {
+  assert.equal(osc7Path("file://localhost/home/user/my%20project"), "/home/user/my project");
+  assert.equal(osc7Path("file:///var/log"), "/var/log");
+  assert.equal(osc7Path("file:///C:/Users/me/repo"), "C:/Users/me/repo");
+  assert.equal(osc7Path(""), undefined);
+  assert.equal(osc7Path("https://example.com/a"), undefined);
 });

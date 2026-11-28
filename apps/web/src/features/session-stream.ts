@@ -29,6 +29,7 @@ interface SessionStreamOptions {
   onState(state: SessionStreamState, notice: string): void;
   onMessage(data: unknown): void;
   onOpen?(): void;
+  onPong?(): void;
   timeoutMs?: number;
   setTimer?(callback: () => void, delay: number): unknown;
   clearTimer?(timer: unknown): void;
@@ -194,7 +195,10 @@ export function createSessionStream(options: SessionStreamOptions) {
         lastInbound = now();
         clearTimer(probeTimer);
         probeTimer = undefined;
-        if (event.data === PONG_MESSAGE) return;
+        if (event.data === PONG_MESSAGE) {
+          options.onPong?.();
+          return;
+        }
         try {
           options.onMessage(event.data);
         } catch {

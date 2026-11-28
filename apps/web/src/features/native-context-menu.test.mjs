@@ -10,7 +10,7 @@ test("the browser menu gives way in the app chrome", () => {
 });
 
 test("the browser menu stays for typing, selection, links, images and the terminal", () => {
-  for (const kind of ["input", "textarea", "a[href]", "img", ".xterm", ".chat-markdown"])
+  for (const kind of ["input", "textarea", "a[href]", "img", ".xterm", ".wterm", ".terminal-host", ".chat-markdown"])
     assert.equal(keepsNativeMenu(element(kind)), true, kind);
   assert.equal(keepsNativeMenu(element(null), "selected words"), true);
   assert.equal(keepsNativeMenu(null), true, "nothing to judge by");
