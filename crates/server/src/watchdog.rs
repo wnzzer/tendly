@@ -85,7 +85,11 @@ pub fn stop(state_dir: &Path) {
 pub async fn run(state_dir: &Path, address: SocketAddr) -> Outcome {
     let own = std::process::id() as i32;
     if let Some(pid) = running(state_dir).filter(|pid| *pid != own) {
-        println!("watchdog: already running (pid {pid})");
+        // Said to the log too: run from the sign-in entry, stdout is nowhere.
+        daemon::note(
+            state_dir,
+            &format!("watchdog: one already runs (pid {pid}); leaving it"),
+        );
         return Ok(());
     }
     fs::write(pid_file(state_dir), own.to_string())?;
@@ -94,7 +98,10 @@ pub async fn run(state_dir: &Path, address: SocketAddr) -> Outcome {
     // The path this started from, which is where an update puts the next
     // version; asked again later, Windows may name where the old one went.
     let program = env::current_exe()?;
-    println!("watchdog: keeping Tendly up at {address} (pid {own})");
+    daemon::note(
+        state_dir,
+        &format!("watchdog: keeping Tendly up at {address}"),
+    );
     let mut guard = Guard::new();
     loop {
         // The gateways it started are its children: one that died stays a
@@ -117,8 +124,14 @@ pub async fn run(state_dir: &Path, address: SocketAddr) -> Outcome {
             // Looked at again: a `tendly stop` may have landed meanwhile.
             if !hold_file(state_dir).exists() {
                 match daemon::start_program(state_dir, &program, address) {
-                    Ok(pid) => println!("watchdog: Tendly was not running; started it (pid {pid})"),
-                    Err(error) => println!("watchdog: could not start Tendly: {error}"),
+                    Ok(pid) => daemon::note(
+                        state_dir,
+                        &format!("watchdog: Tendly was not running; started it (pid {pid})"),
+                    ),
+                    Err(error) => daemon::note(
+                        state_dir,
+                        &format!("watchdog: could not start Tendly: {error}"),
+                    ),
                 }
             }
         }

@@ -22,24 +22,47 @@ pub(super) async fn gateway_start(
         watchdog::release(state_dir);
     }
     if daemon::healthy(address).await {
+        if watched {
+            daemon::note(state_dir, &format!("start: {address} already answers"));
+        }
         println!("Tendly is already running at http://{address}/");
         return Ok(());
     }
-    let pid = if watched && watchdog::running(state_dir).is_none() {
+    let watchdog_pid = watchdog::running(state_dir);
+    let pid = if watched && watchdog_pid.is_none() {
         // It starts the gateway as its first act.
-        watchdog::start(state_dir, address)?;
+        let started = watchdog::start(state_dir, address)?;
+        daemon::note(
+            state_dir,
+            &format!("start: started the watchdog (pid {started})"),
+        );
         None
     } else {
+        if watched {
+            daemon::note(
+                state_dir,
+                &format!(
+                    "start: a watchdog runs (pid {watchdog_pid:?}); starting the gateway directly"
+                ),
+            );
+        }
         Some(daemon::start(state_dir, address)?)
     };
     if !daemon::wait_until_ready(address, Duration::from_secs(30)).await {
         let log = daemon::tail(state_dir, 20);
-        // A start that failed stays stopped rather than being retried behind
-        // the error this reports.
         if watched {
-            watchdog::hold(state_dir);
+            // The watchdog keeps trying, backing off, which is what a slow
+            // sign-in needs; holding it and stopping the gateway here turned
+            // starting with the computer off until the next sign-in.
+            daemon::note(
+                state_dir,
+                &format!("start: not ready on {address} within 30s; the watchdog keeps trying"),
+            );
+        } else {
+            // A start that failed stays stopped rather than being retried
+            // behind the error this reports.
+            let _ = daemon::stop(state_dir, Duration::from_secs(5));
         }
-        let _ = daemon::stop(state_dir, Duration::from_secs(5));
         return Err(format!(
             "Tendly did not become ready on {address}.\n\n{log}\n\nFull log: {}",
             daemon::log_file(state_dir).display()

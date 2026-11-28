@@ -161,6 +161,70 @@ pub fn alive(pid: u32) -> bool {
     }
 }
 
+/// When the process with this pid started, where the system says.
+///
+/// What tells a reused pid from the process a pid file recorded: after a
+/// reboot the number may name anything, but nothing that started after the
+/// file was written can be the process it was written for.
+pub fn started_at(pid: u32) -> Option<std::time::SystemTime> {
+    if !owned(pid) {
+        return None;
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::{
+            Foundation::{CloseHandle, FILETIME},
+            System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+        };
+        let zero = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
+        // SAFETY: the handle is checked before use and closed exactly once.
+        let read = unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle.is_null() {
+                return None;
+            }
+            let read = GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user);
+            CloseHandle(handle);
+            read
+        };
+        if read == 0 {
+            return None;
+        }
+        // 100-nanosecond intervals since 1601-01-01.
+        let ticks = (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime);
+        let since_1601 = std::time::Duration::from_nanos(ticks.checked_mul(100)?);
+        let epoch_offset = std::time::Duration::from_secs(11_644_473_600);
+        Some(std::time::UNIX_EPOCH + since_1601.checked_sub(epoch_offset)?)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // Field 22 of /proc/<pid>/stat is the start in clock ticks after boot;
+        // the command name before it is parenthesised and may hold spaces.
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let after = &stat[stat.rfind(')')? + 2..];
+        let ticks: u64 = after.split_whitespace().nth(19)?.parse().ok()?;
+        let boot: u64 = std::fs::read_to_string("/proc/stat")
+            .ok()?
+            .lines()
+            .find_map(|line| line.strip_prefix("btime ")?.trim().parse().ok())?;
+        // SAFETY: sysconf only reads a configuration value.
+        let per_second = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+        if per_second <= 0 {
+            return None;
+        }
+        let offset = std::time::Duration::from_secs_f64(ticks as f64 / per_second as f64);
+        Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(boot) + offset)
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        None
+    }
+}
+
 #[cfg(windows)]
 pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 #[cfg(windows)]

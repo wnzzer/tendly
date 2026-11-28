@@ -133,6 +133,7 @@ fn main() {
     runtime.block_on(async {
         if let Err(error) = run().await {
             eprintln!("{error}");
+            unattended_failure(&error.to_string());
             std::process::exit(1);
         }
     });
@@ -140,6 +141,25 @@ fn main() {
     // `Restart=on-failure` starts the new binary too.
     if update::restart_requested() {
         std::process::exit(update::RESTART_EXIT_CODE);
+    }
+}
+
+/// A failed `start` or `watchdog` with no terminal -- the Windows sign-in
+/// entry -- printed its reason to nowhere, which left starting with the
+/// computer failing without a trace. The log is where `tendly logs` looks.
+fn unattended_failure(error: &str) {
+    use std::io::IsTerminal;
+    let action = env::args()
+        .skip(1)
+        .find(|argument| !argument.starts_with('-'))
+        .unwrap_or_else(|| "start".into());
+    if !matches!(action.as_str(), "start" | "restart" | "watchdog")
+        || std::io::stderr().is_terminal()
+    {
+        return;
+    }
+    if let Ok(state_dir) = installation::state_directory() {
+        daemon::note(&state_dir, &format!("{action} failed: {error}"));
     }
 }
 

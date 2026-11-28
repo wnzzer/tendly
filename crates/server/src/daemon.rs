@@ -37,13 +37,47 @@ pub fn running(state_dir: &Path) -> Option<i32> {
 }
 
 /// The pid a pid file names, if that process is still alive.
+///
+/// Alive is not enough: after a reboot the number may be some other
+/// process's, and believing it kept a watchdog from ever starting the gateway
+/// and had `stop` end an unrelated process tree. Every writer records a pid
+/// after that process started, so one that started later than the file was
+/// written is a stranger.
 pub fn alive_in(file: &Path) -> Option<i32> {
     let raw = fs::read_to_string(file).ok()?;
     let pid: i32 = raw.trim().parse().ok()?;
-    if pid <= 1 {
+    if pid <= 1 || !tendly_runtime::process::alive(pid as u32) {
         return None;
     }
-    tendly_runtime::process::alive(pid as u32).then_some(pid)
+    let written = fs::metadata(file).and_then(|meta| meta.modified()).ok();
+    let started = tendly_runtime::process::started_at(pid as u32);
+    if let (Some(written), Some(started)) = (written, started)
+        && started > written + RECORD_SLACK
+    {
+        return None;
+    }
+    Some(pid)
+}
+
+/// Clock and file-time granularity between a process starting and its pid
+/// being written, which is never later than the write.
+const RECORD_SLACK: Duration = Duration::from_secs(2);
+
+/// One timestamped line in the log, for what a process with no terminal
+/// would otherwise say to nobody: the sign-in entry, and the watchdog.
+pub fn note(state_dir: &Path, message: &str) {
+    if let Ok(mut log) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_file(state_dir))
+    {
+        let _ = writeln!(
+            log,
+            "{} [pid {}] {message}",
+            chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ"),
+            std::process::id()
+        );
+    }
 }
 
 /// Re-execute this binary as a detached `serve`.
@@ -270,6 +304,28 @@ mod tests {
         // returned None, which would make the check worthless.
         fs::write(pid_file(&state), std::process::id().to_string()).unwrap();
         assert_eq!(running(&state), Some(std::process::id() as i32));
+        fs::remove_dir_all(&state).ok();
+    }
+
+    #[test]
+    fn a_pid_reused_by_a_process_newer_than_the_file_is_not_the_gateway() {
+        let state = temporary();
+        // After a reboot the recorded number can name a live process that
+        // started long after the file was written: this test process, here.
+        fs::write(pid_file(&state), std::process::id().to_string()).unwrap();
+        let before_boot = std::time::SystemTime::now() - Duration::from_secs(24 * 3600);
+        fs::File::options()
+            .write(true)
+            .open(pid_file(&state))
+            .unwrap()
+            .set_modified(before_boot)
+            .unwrap();
+        if tendly_runtime::process::started_at(std::process::id()).is_some() {
+            assert_eq!(running(&state), None, "a stranger with a reused pid");
+            // And stopping it must not end that stranger.
+            assert_eq!(stop(&state, Duration::from_secs(1)).unwrap(), None);
+            assert!(tendly_runtime::process::alive(std::process::id()));
+        }
         fs::remove_dir_all(&state).ok();
     }
 
